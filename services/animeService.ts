@@ -73,3 +73,17 @@ export const getAnimeEpisodes = async (id: string) => {
     return []; // Return empty array if fails so app doesn't crash
   }
 };
+export const searchAnime = async (query: string) => {
+  try {
+    // We limit to 20 results to keep it fast
+    const response = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=20`);
+    
+    if (!response.ok) throw new Error('Search failed');
+
+    const json = await response.json();
+    return json.data;
+  } catch (error) {
+    console.error('Error searching anime:', error);
+    return [];
+  }
+};

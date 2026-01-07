@@ -1,11 +1,33 @@
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import React from 'react';
+import { useFocusEffect, useRouter } from 'expo-router'; // ✅ ADDED useRouter
+import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import TrendingRail from '../../components/TrendingRail';
+import { getFavorites } from '../../services/favoritesService';
+import { getContinueWatching } from '../../services/historyService';
+
 export default function ProfileScreen() {
+  const router = useRouter(); // ✅ Initialize Router
+  const [favorites, setFavorites] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfileData();
+    }, [])
+  );
+
+  const loadProfileData = async () => {
+    const favs = await getFavorites();
+    const hist = await getContinueWatching();
+    setFavorites(favs);
+    setHistory(hist);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -28,13 +50,13 @@ export default function ProfileScreen() {
         {/* 2. Stats Row */}
         <View style={styles.statsRow}>
             <View style={styles.statItem}>
-                <Text style={styles.statNum}>142</Text>
+                <Text style={styles.statNum}>{history.length}</Text>
                 <Text style={styles.statLabel}>Watched</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.statItem}>
-                <Text style={styles.statNum}>58</Text>
-                <Text style={styles.statLabel}>Read</Text>
+                <Text style={styles.statNum}>{favorites.length}</Text>
+                <Text style={styles.statLabel}>Favorites</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.statItem}>
@@ -43,14 +65,35 @@ export default function ProfileScreen() {
             </View>
         </View>
 
+        {/* Favorites & History Rails */}
+        <View style={{ marginTop: 20 }}>
+            {favorites.length > 0 && (
+                <TrendingRail title="My Favorites ❤️" data={favorites} />
+            )}
+            
+            {history.length > 0 && (
+                <TrendingRail title="Continue Watching 🕒" data={history} />
+            )}
+        </View>
+
         {/* 3. Menu Options */}
         <View style={styles.menuContainer}>
             <MenuItem icon="settings-outline" label="Settings" />
-            <MenuItem icon="download-outline" label="Downloads" />
+            
+            {/* ✅ UPDATED: Downloads Button now works */}
+            <TouchableOpacity onPress={() => router.push('/downloads')}>
+                <View style={styles.menuItem}>
+                    <View style={styles.iconBox}>
+                        <Ionicons name="download-outline" size={22} color="white" />
+                    </View>
+                    <Text style={styles.menuLabel}>Downloads</Text>
+                    <Ionicons name="chevron-forward" size={20} color="#333" />
+                </View>
+            </TouchableOpacity>
+
             <MenuItem icon="notifications-outline" label="Notifications" />
             <MenuItem icon="help-circle-outline" label="Help & Support" />
             
-            {/* Logout - Red Color */}
             <TouchableOpacity style={styles.menuItem}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(255, 107, 107, 0.1)' }]}>
                     <Ionicons name="log-out-outline" size={22} color={Colors.dark.tint} />

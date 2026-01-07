@@ -4,15 +4,18 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView, StyleSheet, Text,
-    TouchableOpacity, View
+  ActivityIndicator,
+  Alert,
+  ScrollView, StyleSheet, Text,
+  TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 // Import services
 import { getAnimeDetails, getAnimeEpisodes } from '../../services/animeService';
-import { addToHistory } from '../../services/historyService'; // ✅ Import History Saver
+import { checkIsFavorite, toggleFavorite } from '../../services/favoritesService';
+import { addToHistory } from '../../services/historyService';
+// ✅ NEW: Import Download Service
+import { addDownload } from '../../services/downloadService';
 
 export default function AnimeDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -25,6 +28,9 @@ export default function AnimeDetailScreen() {
   // State for UI
   const [activeTab, setActiveTab] = useState('Episodes');
   const [currentEpId, setCurrentEpId] = useState<number | null>(null);
+  
+  // State for Favorite status
+  const [isFav, setIsFav] = useState(false);
 
   // 1. VIDEO PLAYER SETUP
   const videoSource = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
@@ -52,6 +58,10 @@ export default function AnimeDetailScreen() {
       setAnime(detailsData);
       setEpisodes(episodesData);
       
+      // Check if this anime is already in favorites
+      const favStatus = await checkIsFavorite(detailsData.mal_id);
+      setIsFav(favStatus);
+
       // Auto-select first episode if available
       if (episodesData.length > 0) {
         setCurrentEpId(episodesData[0].mal_id);
@@ -63,7 +73,7 @@ export default function AnimeDetailScreen() {
     }
   };
 
-  // ✅ HANDLER: Play Episode & Save to History
+  // HANDLER: Play Episode & Save to History
   const handleEpisodePress = (ep: any) => {
     setCurrentEpId(ep.mal_id);
     
@@ -73,9 +83,19 @@ export default function AnimeDetailScreen() {
     }
   };
 
-  // ✅ HANDLER: Mock Download Action
-  const handleDownload = (epTitle: string) => {
-    Alert.alert("Download Started", `Downloading ${epTitle}...`);
+  // HANDLER: Toggle Favorite
+  const handleToggleFav = async () => {
+    if (!anime) return;
+    const newStatus = await toggleFavorite(anime);
+    setIsFav(newStatus);
+  };
+
+  // ✅ UPDATED HANDLER: Real Download Action
+  const handleDownload = async (epTitle: string) => {
+    if (anime) {
+        await addDownload(anime, epTitle);
+        Alert.alert("Success", `${epTitle} added to downloads!`);
+    }
   };
 
   if (loading) {
@@ -95,6 +115,18 @@ export default function AnimeDetailScreen() {
           headerTransparent: true, 
           headerTintColor: 'white' 
       }} />
+
+      {/* Floating Favorite Button */}
+      <TouchableOpacity 
+        style={styles.favButton} 
+        onPress={handleToggleFav}
+      >
+        <Ionicons 
+          name={isFav ? "heart" : "heart-outline"} 
+          size={28} 
+          color={isFav ? "#FF6B6B" : "white"} 
+        />
+      </TouchableOpacity>
 
       <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1 }}>
         
@@ -124,7 +156,7 @@ export default function AnimeDetailScreen() {
         {/* SCROLLABLE CONTENT */}
         <ScrollView style={styles.contentScroll} contentContainerStyle={{ paddingBottom: 20 }}>
             
-            {/* TAB 1: EPISODES LIST (Updated Layout) */}
+            {/* TAB 1: EPISODES LIST */}
             {activeTab === 'Episodes' ? (
                 <View style={styles.episodeList}>
                     {episodes.length === 0 ? (
@@ -223,26 +255,31 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
   loadingContainer: { flex: 1, backgroundColor: '#121212', justifyContent: 'center', alignItems: 'center' },
   
-  // Video
+  favButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 8,
+    borderRadius: 20,
+  },
+
   videoContainer: { width: '100%', height: 250, backgroundColor: 'black' },
   video: { width: '100%', height: '100%' },
 
-  // Info
   infoContainer: { padding: 16, paddingBottom: 0, borderBottomWidth: 1, borderBottomColor: '#222' },
   title: { color: 'white', fontSize: 22, fontWeight: 'bold', marginBottom: 5 },
   meta: { color: '#aaa', fontSize: 13, marginBottom: 15 },
   
-  // Tabs
   tabRow: { flexDirection: 'row', marginTop: 5 },
   tabBtn: { marginRight: 20, paddingBottom: 10 },
   activeTabBtn: { borderBottomWidth: 2, borderBottomColor: Colors.dark.tint || '#FF6B6B' },
   tabText: { color: 'gray', fontSize: 16, fontWeight: '600' },
   activeTabText: { color: Colors.dark.tint || '#FF6B6B' },
 
-  // Content
   contentScroll: { flex: 1 },
   
-  // Episode List Styles
   episodeList: { padding: 16 },
   epRowWrapper: {
       flexDirection: 'row',
@@ -250,7 +287,7 @@ const styles = StyleSheet.create({
       marginBottom: 12,
   },
   epCard: { 
-    flex: 1, // Takes up remaining space
+    flex: 1, 
     flexDirection: 'row', 
     alignItems: 'center', 
     padding: 12, 
@@ -268,7 +305,6 @@ const styles = StyleSheet.create({
   },
   nowPlayingText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
 
-  // ✅ NEW: Download Button Style
   downloadBtn: {
       marginLeft: 10,
       width: 44,
@@ -279,7 +315,6 @@ const styles = StyleSheet.create({
       alignItems: 'center',
   },
 
-  // Details Tab Styles
   detailsContainer: { padding: 20 },
   sectionTitle: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
   synopsis: { color: '#ccc', fontSize: 15, lineHeight: 24, marginBottom: 20 },
