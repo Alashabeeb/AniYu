@@ -1,19 +1,19 @@
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useFocusEffect, useRouter } from 'expo-router'; // ✅ ADDED useRouter
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
-import { getContinueWatching } from '../../services/historyService';
+// Removed History Service Import
 
 export default function ProfileScreen() {
-  const router = useRouter(); // ✅ Initialize Router
+  const router = useRouter();
   const [favorites, setFavorites] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  // Removed History State
 
   useFocusEffect(
     useCallback(() => {
@@ -23,9 +23,8 @@ export default function ProfileScreen() {
 
   const loadProfileData = async () => {
     const favs = await getFavorites();
-    const hist = await getContinueWatching();
+    // Removed History Load
     setFavorites(favs);
-    setHistory(hist);
   };
 
   return (
@@ -50,7 +49,8 @@ export default function ProfileScreen() {
         {/* 2. Stats Row */}
         <View style={styles.statsRow}>
             <View style={styles.statItem}>
-                <Text style={styles.statNum}>{history.length}</Text>
+                {/* Reverted to static number since history is removed */}
+                <Text style={styles.statNum}>142</Text>
                 <Text style={styles.statLabel}>Watched</Text>
             </View>
             <View style={styles.divider} />
@@ -65,22 +65,19 @@ export default function ProfileScreen() {
             </View>
         </View>
 
-        {/* Favorites & History Rails */}
+        {/* Favorites Rail Only */}
         <View style={{ marginTop: 20 }}>
             {favorites.length > 0 && (
                 <TrendingRail title="My Favorites ❤️" data={favorites} />
             )}
             
-            {history.length > 0 && (
-                <TrendingRail title="Continue Watching 🕒" data={history} />
-            )}
+            {/* Removed History Rail */}
         </View>
 
         {/* 3. Menu Options */}
         <View style={styles.menuContainer}>
             <MenuItem icon="settings-outline" label="Settings" />
             
-            {/* ✅ UPDATED: Downloads Button now works */}
             <TouchableOpacity onPress={() => router.push('/downloads')}>
                 <View style={styles.menuItem}>
                     <View style={styles.iconBox}>
@@ -108,7 +105,6 @@ export default function ProfileScreen() {
   );
 }
 
-// Helper Component for Menu Items
 function MenuItem({ icon, label }: { icon: any, label: string }) {
     return (
         <TouchableOpacity style={styles.menuItem}>

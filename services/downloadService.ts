@@ -3,15 +3,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const DOWNLOADS_KEY = 'my_downloads';
 
 export interface DownloadItem {
-  id: string; // Unique ID (animeId + episodeTitle)
+  id: string; 
   mal_id: number;
   title: string;
   image: string;
   episode: string;
-  size: string; // Fake size like "145 MB"
+  episodeId: number; // ✅ NEW: Store the specific Episode ID
+  size: string;
 }
 
-// 1. Get all downloads
 export const getDownloads = async (): Promise<DownloadItem[]> => {
   try {
     const json = await AsyncStorage.getItem(DOWNLOADS_KEY);
@@ -21,13 +21,12 @@ export const getDownloads = async (): Promise<DownloadItem[]> => {
   }
 };
 
-// 2. Add a download
-export const addDownload = async (anime: any, episodeTitle: string) => {
+// ✅ UPDATED: Now accepts the full 'episode' object
+export const addDownload = async (anime: any, episode: any) => {
   try {
     const current = await getDownloads();
-    const newId = `${anime.mal_id}-${episodeTitle}`;
+    const newId = `${anime.mal_id}-${episode.mal_id}`; // Unique ID based on IDs
     
-    // Check if already exists
     if (current.some(item => item.id === newId)) return;
 
     const newItem: DownloadItem = {
@@ -35,8 +34,9 @@ export const addDownload = async (anime: any, episodeTitle: string) => {
       mal_id: anime.mal_id,
       title: anime.title,
       image: anime.images.jpg.large_image_url,
-      episode: episodeTitle,
-      size: `${Math.floor(Math.random() * 200 + 50)} MB`, // Fake random size
+      episode: episode.title,
+      episodeId: episode.mal_id, // ✅ Save the ID
+      size: `${Math.floor(Math.random() * 200 + 50)} MB`,
     };
 
     const updated = [newItem, ...current];
@@ -46,13 +46,12 @@ export const addDownload = async (anime: any, episodeTitle: string) => {
   }
 };
 
-// 3. Delete a download
 export const removeDownload = async (id: string) => {
   try {
     const current = await getDownloads();
     const updated = current.filter(item => item.id !== id);
     await AsyncStorage.setItem(DOWNLOADS_KEY, JSON.stringify(updated));
-    return updated; // Return new list to update UI immediately
+    return updated; 
   } catch (error) {
     return [];
   }

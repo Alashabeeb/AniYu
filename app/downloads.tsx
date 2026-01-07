@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DownloadItem, getDownloads, removeDownload } from '../services/downloadService';
 
 export default function DownloadsScreen() {
-  const [downloads, setDownloads] = useState<DownloadItem[]>([]);
+  const [groupedDownloads, setGroupedDownloads] = useState<any[]>([]);
   const router = useRouter();
 
   useFocusEffect(
@@ -18,7 +18,25 @@ export default function DownloadsScreen() {
 
   const loadDownloads = async () => {
     const data = await getDownloads();
-    setDownloads(data);
+    groupData(data);
+  };
+
+  const groupData = (data: DownloadItem[]) => {
+    const groups: any = {};
+    
+    data.forEach(item => {
+      if (!groups[item.mal_id]) {
+        groups[item.mal_id] = {
+          mal_id: item.mal_id,
+          title: item.title,
+          image: item.image,
+          episodes: []
+        };
+      }
+      groups[item.mal_id].episodes.push(item);
+    });
+
+    setGroupedDownloads(Object.values(groups));
   };
 
   const handleDelete = async (id: string) => {
@@ -26,29 +44,50 @@ export default function DownloadsScreen() {
         { text: "Cancel", style: "cancel" },
         { text: "Delete", style: "destructive", onPress: async () => {
             const updated = await removeDownload(id);
-            setDownloads(updated);
+            groupData(updated); 
         }}
     ]);
   };
 
-  const renderItem = ({ item }: { item: DownloadItem }) => (
-    <View style={styles.card}>
+  const renderGroup = ({ item }: { item: any }) => (
+    <View style={styles.animeBlock}>
+      
+      {/* 1. Header: Play First Episode by default */}
       <TouchableOpacity 
-        style={styles.cardContent}
+        style={styles.header}
         onPress={() => router.push(`/anime/${item.mal_id}`)}
       >
         <Image source={{ uri: item.image }} style={styles.poster} contentFit="cover" />
-        <View style={styles.info}>
-          <Text numberOfLines={1} style={styles.title}>{item.title}</Text>
-          <Text style={styles.episode}>{item.episode}</Text>
-          <Text style={styles.size}>Downloaded • {item.size}</Text>
+        <View style={styles.headerInfo}>
+            <Text numberOfLines={1} style={styles.animeTitle}>{item.title}</Text>
+            <Text style={styles.epCount}>{item.episodes.length} Episodes Downloaded</Text>
         </View>
+        <Ionicons name="chevron-forward" size={20} color="#666" />
       </TouchableOpacity>
-      
-      {/* Delete Button */}
-      <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item.id)}>
-         <Ionicons name="trash-outline" size={22} color="#FF6B6B" />
-      </TouchableOpacity>
+
+      {/* 2. List of Episodes */}
+      <View style={styles.episodesContainer}>
+        {item.episodes.map((ep: DownloadItem, index: number) => (
+            <View key={ep.id} style={[
+                styles.episodeRow, 
+                index !== item.episodes.length - 1 && styles.borderBottom 
+            ]}>
+                {/* ✅ UPDATED: Make text area clickable to play specific episode */}
+                <TouchableOpacity 
+                  style={{ flex: 1 }}
+                  onPress={() => router.push(`/anime/${item.mal_id}?episodeId=${ep.episodeId}`)}
+                >
+                    <Text style={styles.epTitle}>{ep.episode}</Text>
+                    <Text style={styles.epSize}>{ep.size}</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity onPress={() => handleDelete(ep.id)} style={styles.trashBtn}>
+                    <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                </TouchableOpacity>
+            </View>
+        ))}
+      </View>
+
     </View>
   );
 
@@ -58,10 +97,10 @@ export default function DownloadsScreen() {
           headerTitle: 'Downloads', 
           headerStyle: { backgroundColor: '#121212' },
           headerTintColor: 'white',
-          headerBackTitleVisible: false,
+          headerBackTitle: '', 
       }} />
 
-      {downloads.length === 0 ? (
+      {groupedDownloads.length === 0 ? (
         <View style={styles.emptyState}>
             <Ionicons name="download-outline" size={80} color="#333" />
             <Text style={styles.emptyText}>No downloads yet.</Text>
@@ -69,9 +108,9 @@ export default function DownloadsScreen() {
         </View>
       ) : (
         <FlatList
-          data={downloads}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
+          data={groupedDownloads}
+          keyExtractor={(item) => item.mal_id.toString()}
+          renderItem={renderGroup}
           contentContainerStyle={{ padding: 20 }}
         />
       )}
@@ -81,15 +120,18 @@ export default function DownloadsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
-  card: { flexDirection: 'row', backgroundColor: '#1E1E1E', borderRadius: 12, marginBottom: 15, overflow: 'hidden', alignItems: 'center' },
-  cardContent: { flex: 1, flexDirection: 'row' },
-  poster: { width: 80, height: 110, backgroundColor: '#333' },
-  info: { flex: 1, padding: 12, justifyContent: 'center' },
-  title: { color: 'white', fontWeight: 'bold', fontSize: 16, marginBottom: 4 },
-  episode: { color: '#FFD700', fontSize: 14, fontWeight: '600', marginBottom: 4 },
-  size: { color: 'gray', fontSize: 12 },
-  deleteBtn: { padding: 15, height: '100%', justifyContent: 'center', alignItems: 'center', borderLeftWidth: 1, borderLeftColor: '#333' },
-  
+  animeBlock: { backgroundColor: '#1E1E1E', borderRadius: 12, marginBottom: 20, overflow: 'hidden' },
+  header: { flexDirection: 'row', padding: 12, alignItems: 'center', backgroundColor: '#252525' },
+  poster: { width: 50, height: 70, borderRadius: 4, backgroundColor: '#333' },
+  headerInfo: { flex: 1, marginLeft: 12 },
+  animeTitle: { color: 'white', fontWeight: 'bold', fontSize: 16, marginBottom: 4 },
+  epCount: { color: '#FFD700', fontSize: 12, fontWeight: '600' },
+  episodesContainer: { paddingHorizontal: 12 },
+  episodeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  borderBottom: { borderBottomWidth: 1, borderBottomColor: '#333' },
+  epTitle: { color: '#ddd', fontSize: 14, fontWeight: '500' },
+  epSize: { color: 'gray', fontSize: 12, marginTop: 2 },
+  trashBtn: { padding: 8 },
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: 'white', fontSize: 20, fontWeight: 'bold', marginTop: 20 },
   subText: { color: 'gray', marginTop: 10 },

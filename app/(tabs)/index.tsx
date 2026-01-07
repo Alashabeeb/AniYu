@@ -1,5 +1,7 @@
-import { useFocusEffect, useRouter } from 'expo-router'; // IMPORTANT: New Import for auto-refresh
-import React, { useCallback, useEffect, useState } from 'react'; // Added useCallback
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,52 +11,34 @@ import {
   TextInput, TouchableOpacity,
   View
 } from 'react-native';
-// ✅ FIX: Import SafeAreaView from the context library
-import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
-import { getTopAnime, searchAnime } from '../../services/animeService'; // ✅ Added searchAnime
-import { getContinueWatching, HistoryItem } from '../../services/historyService'; // Import History
+import { getTopAnime, searchAnime } from '../../services/animeService';
 
 export default function HomeScreen() {
   const router = useRouter();
 
   // Data States
   const [trending, setTrending] = useState<any[]>([]);
-  const [continueWatching, setContinueWatching] = useState<HistoryItem[]>([]); 
   const [loading, setLoading] = useState(true);
 
-  // ✅ NEW: Search States
+  // Search States
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadInitialData();
   }, []);
 
-  // REFRESH HISTORY whenever user comes back to this screen
-  useFocusEffect(
-    useCallback(() => {
-      loadHistory();
-    }, [])
-  );
-
-  const loadHistory = async () => {
-    const history = await getContinueWatching();
-    setContinueWatching(history);
-  };
-
-  const loadData = async () => {
+  const loadInitialData = async () => {
     try {
       setLoading(true);
       const data = await getTopAnime();
       setTrending(data);
-      await loadHistory(); 
     } catch (error) {
       console.error("Failed to load anime:", error);
     } finally {
@@ -62,14 +46,11 @@ export default function HomeScreen() {
     }
   };
 
-  // ✅ NEW: Search Handler
   const handleSearch = async () => {
     if (query.trim().length === 0) return;
-    
     Keyboard.dismiss(); 
     setSearchLoading(true);
     setIsSearching(true);
-    
     try {
       const results = await searchAnime(query);
       setSearchResults(results);
@@ -80,7 +61,6 @@ export default function HomeScreen() {
     }
   };
 
-  // ✅ NEW: Clear Search Handler
   const clearSearch = () => {
     setQuery('');
     setIsSearching(false);
@@ -88,7 +68,6 @@ export default function HomeScreen() {
     Keyboard.dismiss();
   };
 
-  // ✅ NEW: Render Item for Search Results
   const renderSearchItem = ({ item }: { item: any }) => (
     <TouchableOpacity 
       style={styles.searchCard}
@@ -117,11 +96,10 @@ export default function HomeScreen() {
   }
 
   return (
-    // ✅ FIX: Changed View to SafeAreaView and added edges=['top']
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="light-content" />
 
-      {/* 1. NEW: Search Bar Header */}
+      {/* Search Bar Header */}
       <View style={styles.headerContainer}>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color="gray" style={{ marginRight: 10 }} />
@@ -142,9 +120,8 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* 2. CONDITIONAL RENDERING */}
+      {/* Main Content */}
       {isSearching ? (
-        // STATE A: SHOW SEARCH RESULTS
         <View style={{ flex: 1 }}>
             {searchLoading ? (
                 <View style={styles.center}>
@@ -163,22 +140,16 @@ export default function HomeScreen() {
             )}
         </View>
       ) : (
-        // STATE B: SHOW NORMAL HOME FEED
         <ScrollView showsVerticalScrollIndicator={false}>
           
-          {/* 1. Hero Section */}
+          {/* 1. Hero Carousel */}
           <HeroCarousel data={trending.slice(0, 5)} />
 
-          {/* 2. Trending Section */}
+          {/* 2. Trending Now */}
           <TrendingRail title="Trending Now" data={trending} />
 
-          {/* 3. Recommended Section */}
+          {/* 3. Recommended for You */}
           <TrendingRail title="Recommended for You" data={trending.slice(5)} />
-
-          {/* 4. Continue Watching Section */}
-          {continueWatching.length > 0 && (
-              <TrendingRail title="Continue Watching" data={continueWatching} />
-          )}
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -190,22 +161,12 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
   loadingContainer: { flex: 1, backgroundColor: '#121212', justifyContent: 'center', alignItems: 'center' },
-  
-  // Header Styles
   headerContainer: { paddingHorizontal: 20, paddingBottom: 10, paddingTop: 10 },
-  searchBar: { 
-    flexDirection: 'row', backgroundColor: '#1E1E1E', borderRadius: 12, 
-    paddingHorizontal: 15, height: 45, alignItems: 'center' 
-  },
+  searchBar: { flexDirection: 'row', backgroundColor: '#1E1E1E', borderRadius: 12, paddingHorizontal: 15, height: 45, alignItems: 'center' },
   input: { flex: 1, color: 'white', fontSize: 16 },
-
-  // Search Result Styles
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
   emptyText: { color: 'gray', textAlign: 'center', marginTop: 50 },
-  searchCard: { 
-      flexDirection: 'row', marginBottom: 12, backgroundColor: '#1E1E1E', 
-      borderRadius: 12, overflow: 'hidden', alignItems: 'center'
-  },
+  searchCard: { flexDirection: 'row', marginBottom: 12, backgroundColor: '#1E1E1E', borderRadius: 12, overflow: 'hidden', alignItems: 'center' },
   searchImage: { width: 60, height: 80 },
   searchInfo: { flex: 1, padding: 12 },
   searchTitle: { color: 'white', fontSize: 15, fontWeight: 'bold', marginBottom: 4 },
