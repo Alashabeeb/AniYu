@@ -1,18 +1,22 @@
-import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context'; // NEW
+import { SOCIAL_POSTS } from '@/constants/dummyData'; // Import data
+import React from 'react';
+import { FlatList, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context'; // New Safe Area
+import PostCard from '../../components/PostCard'; // Import component
 
 export default function FeedScreen() {
   return (
     <SafeAreaView style={styles.container}>
-       <View style={styles.content}>
-        <Text style={styles.text}>Feed Tab: Social & Spoilers</Text>
-      </View>
+      <FlatList
+        data={SOCIAL_POSTS}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <PostCard post={item} />}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
-  content: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  text: { color: 'white' }
 });

@@ -1,16 +1,36 @@
 import { Colors } from '@/constants/Colors';
-import { HERO_ANIME } from '@/constants/dummyData';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import React from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Carousel from 'react-native-reanimated-carousel';
 
 const width = Dimensions.get('window').width;
-const height = width * 1.2; // Tall aspect ratio for impact
 
-export default function HeroCarousel() {
+// ✅ Updated Interface for Jikan API
+interface AnimeData {
+  mal_id: number;
+  title: string;
+  images: {
+    jpg: {
+      large_image_url: string; // Use large image for Hero
+    };
+  };
+  score: number;
+  genres: { name: string }[]; // Jikan returns genres, not tags
+}
+
+interface HeroCarouselProps {
+  data: AnimeData[];
+}
+
+export default function HeroCarousel({ data }: HeroCarouselProps) {
+  const router = useRouter();
+
+  if (!data || data.length === 0) return null;
+
   return (
     <View style={{ height: 450 }}>
       <Carousel
@@ -18,35 +38,43 @@ export default function HeroCarousel() {
         width={width}
         height={450}
         autoPlay={true}
-        data={HERO_ANIME}
+        data={data}
         scrollAnimationDuration={1000}
         renderItem={({ item }) => (
           <View style={styles.cardContainer}>
-            {/* Background Image */}
-            <Image source={{ uri: item.image }} style={styles.image} contentFit="cover" />
+            {/* ✅ FIX: Use large_image_url for better quality */}
+            <Image 
+                source={{ uri: item.images.jpg.large_image_url }} 
+                style={styles.image} 
+                contentFit="cover" 
+            />
             
-            {/* Gradient Overlay (Darkens bottom for text readability) */}
             <LinearGradient
-              colors={['transparent', 'rgba(18,18,18,0.8)', '#121212']}
+              colors={['transparent', 'rgba(18,18,18,0.5)', '#121212']}
               style={styles.gradient}
             />
 
-            {/* Content Info */}
             <View style={styles.textContainer}>
               <View style={styles.tagRow}>
                 <View style={styles.ratingBadge}>
                     <Ionicons name="star" size={12} color="black" />
-                    <Text style={styles.ratingText}>{item.rating}</Text>
+                    {/* ✅ FIX: Use 'score' instead of 'rating' */}
+                    <Text style={styles.ratingText}>{item.score}</Text>
                 </View>
-                {item.tags.map((tag, index) => (
-                    <Text key={index} style={styles.tagText}>• {tag} </Text>
+                
+                {/* ✅ FIX: Map over 'genres' instead of 'tags', with safety check (?) */}
+                {item.genres?.slice(0, 3).map((genre, index) => (
+                    <Text key={index} style={styles.tagText}>• {genre.name} </Text>
                 ))}
               </View>
 
-              <Text style={styles.title}>{item.title}</Text>
+              <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
 
-              {/* Watch Now Button */}
-              <TouchableOpacity style={styles.playButton}>
+              <TouchableOpacity 
+                style={styles.playButton}
+                // ✅ FIX: Use mal_id for navigation
+                onPress={() => router.push(`/anime/${item.mal_id}`)}
+              >
                 <Ionicons name="play" size={24} color="white" />
                 <Text style={styles.playText}>Watch Now</Text>
               </TouchableOpacity>
@@ -64,7 +92,7 @@ const styles = StyleSheet.create({
   gradient: { position: 'absolute', width: '100%', height: '100%' },
   textContainer: { padding: 20, paddingBottom: 40 },
   title: { color: 'white', fontSize: 28, fontWeight: 'bold', marginBottom: 15 },
-  tagRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  tagRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' },
   ratingBadge: { 
     flexDirection: 'row', backgroundColor: '#FFD700', paddingHorizontal: 6, 
     paddingVertical: 2, borderRadius: 4, marginRight: 10, alignItems: 'center' 
@@ -72,7 +100,7 @@ const styles = StyleSheet.create({
   ratingText: { color: 'black', fontWeight: 'bold', fontSize: 12, marginLeft: 2 },
   tagText: { color: '#ccc', fontSize: 13, marginRight: 5 },
   playButton: { 
-    flexDirection: 'row', backgroundColor: Colors.dark.tint, 
+    flexDirection: 'row', backgroundColor: Colors.dark.tint || '#FF6B6B', // Fallback color added just in case
     paddingVertical: 12, paddingHorizontal: 24, borderRadius: 30, 
     alignSelf: 'flex-start', alignItems: 'center' 
   },
