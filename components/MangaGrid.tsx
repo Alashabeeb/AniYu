@@ -1,62 +1,51 @@
-import { Colors } from '@/constants/Colors';
-import { MANGA_LIBRARY } from '@/constants/dummyData';
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import React from 'react';
-import { Dimensions, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-const { width } = Dimensions.get('window');
-// Calculate card size: (Screen Width - Padding) / 3 columns
-const CARD_WIDTH = (width - 48) / 3; 
+// Mock Data
+const MANGA_DATA = [
+  { id: '1', title: 'One Piece', image: 'https://cdn.myanimelist.net/images/manga/2/253146.jpg', score: 9.2 },
+  { id: '2', title: 'Berserk', image: 'https://cdn.myanimelist.net/images/manga/1/157897.jpg', score: 9.4 },
+  { id: '3', title: 'Vagabond', image: 'https://cdn.myanimelist.net/images/manga/1/259070.jpg', score: 9.0 },
+  { id: '4', title: 'Chainsaw Man', image: 'https://cdn.myanimelist.net/images/manga/3/216464.jpg', score: 8.8 },
+];
 
-export default function MangaGrid() {
+export default function MangaGrid({ theme }: any) {
+  const router = useRouter();
+  // Fallback colors
+  const colors = theme || { card: '#1E1E1E', text: 'white', subText: 'gray' };
+
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={MANGA_LIBRARY}
-        keyExtractor={(item) => item.id}
-        numColumns={3} // 3 items per row like a bookshelf
-        columnWrapperStyle={styles.row} // Spacing between items in a row
-        renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card}>
-            {/* The Cover Image */}
-            <Image source={{ uri: item.cover }} style={styles.cover} contentFit="cover" />
-            
-            {/* Status Badge (e.g. Reading) */}
-            {item.status === 'Reading' && (
-                <View style={styles.badge}>
-                    <Text style={styles.badgeText}>CH. {item.chapters}</Text>
-                </View>
-            )}
-
-            {/* Title */}
-            <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
-          </TouchableOpacity>
-        )}
-      />
-    </View>
+    <FlatList
+      data={MANGA_DATA}
+      numColumns={2}
+      contentContainerStyle={{ padding: 15 }}
+      columnWrapperStyle={{ justifyContent: 'space-between' }}
+      keyExtractor={item => item.id}
+      renderItem={({ item }) => (
+        <TouchableOpacity 
+            style={[styles.card, { backgroundColor: colors.card }]}
+            onPress={() => router.push(`/anime/${item.id}`)}
+        >
+          <Image source={{ uri: item.image }} style={styles.poster} contentFit="cover" />
+          <View style={styles.info}>
+            <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>{item.title}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="star" size={12} color="#FFD700" />
+                <Text style={{ color: colors.subText, fontSize: 12 }}> {item.score}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      )}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 16 },
-  row: { justifyContent: 'space-between', marginBottom: 20 },
-  card: { width: CARD_WIDTH },
-  cover: { 
-    width: '100%', 
-    height: CARD_WIDTH * 1.5, // 2:3 Aspect Ratio (Standard Book)
-    borderRadius: 8, 
-    backgroundColor: '#333',
-    marginBottom: 8
-  },
-  title: { color: '#ECEDEE', fontSize: 12, fontWeight: '600', textAlign: 'center' },
-  badge: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: Colors.dark.tint,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  badgeText: { color: 'white', fontSize: 9, fontWeight: 'bold' }
+  card: { width: '48%', borderRadius: 12, marginBottom: 15, overflow: 'hidden' },
+  poster: { width: '100%', height: 220, backgroundColor: '#333' },
+  info: { padding: 10 },
+  title: { fontWeight: 'bold', fontSize: 14, marginBottom: 4 },
 });

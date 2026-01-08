@@ -1,102 +1,147 @@
-import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext';
 
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
-// Removed History Service Import
+
+// 👇 1. Import Firebase functions
+import { addDoc, collection } from 'firebase/firestore';
+import { db } from '../../config/firebaseConfig';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { theme } = useTheme(); 
   const [favorites, setFavorites] = useState<any[]>([]);
-  // Removed History State
 
   useFocusEffect(
-    useCallback(() => {
-      loadProfileData();
-    }, [])
+    useCallback(() => { loadProfileData(); }, [])
   );
 
   const loadProfileData = async () => {
     const favs = await getFavorites();
-    // Removed History Load
     setFavorites(favs);
   };
 
+  // 👇 2. The Function to upload dummy data
+  const addAnimeToDatabase = async () => {
+    const animeList = [
+      {
+        title: "One Piece",
+        image: "https://cdn.myanimelist.net/images/anime/6/73245.jpg",
+        synopsis: "Gol D. Roger was known as the 'Pirate King', the strongest and most infamous being to have sailed the Grand Line. The capture and death of Roger by the World Government brought a change to the world.",
+        score: 9.2,
+        year: 1999,
+        type: "TV",
+        episodes: 1000,
+        popularity: 1
+      },
+      {
+        title: "Attack on Titan",
+        image: "https://cdn.myanimelist.net/images/anime/10/47347.jpg",
+        synopsis: "Centuries ago, mankind was slaughtered to near extinction by monstrous humanoid creatures called titans, forcing humans to hide in fear behind enormous concentric walls.",
+        score: 9.0,
+        year: 2013,
+        type: "TV",
+        episodes: 25,
+        popularity: 2
+      },
+      {
+        title: "Jujutsu Kaisen",
+        image: "https://cdn.myanimelist.net/images/anime/1171/109222.jpg",
+        synopsis: "Idly indulging in baseless paranormal activities with the Occult Club, high schooler Yuuji Itadori spends his days at either the clubroom or the hospital, where he visits his bedridden grandfather.",
+        score: 8.7,
+        year: 2020,
+        type: "TV",
+        episodes: 24,
+        popularity: 3
+      },
+      {
+        title: "Demon Slayer",
+        image: "https://cdn.myanimelist.net/images/anime/1286/99889.jpg",
+        synopsis: "Ever since the death of his father, the burden of supporting the family has fallen upon Tanjirou Kamado's shoulders.",
+        score: 8.9,
+        year: 2019,
+        type: "TV",
+        episodes: 26,
+        popularity: 4
+      }
+    ];
+
+    try {
+      for (const anime of animeList) {
+        await addDoc(collection(db, 'anime'), anime);
+      }
+      Alert.alert("Success!", "Anime added to database. Restart the app to see them!");
+    } catch (e: any) {
+      Alert.alert("Error", e.message);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         
-        {/* 1. Header / Avatar */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-             <Image 
-                source={{ uri: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} 
-                style={styles.avatar} 
-             />
-             <View style={styles.rankBadge}>
+             <Image source={{ uri: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} style={[styles.avatar, { borderColor: theme.tint }]} />
+             <View style={[styles.rankBadge, { borderColor: theme.background }]}>
                  <Text style={styles.rankText}>JONIN</Text>
              </View>
           </View>
-          <Text style={styles.username}>@OtakuKing</Text>
-          <Text style={styles.bio}>Just a guy looking for the One Piece.</Text>
+          <Text style={[styles.username, { color: theme.text }]}>@OtakuKing</Text>
+          <Text style={[styles.bio, { color: theme.subText }]}>Just a guy looking for the One Piece.</Text>
         </View>
 
-        {/* 2. Stats Row */}
-        <View style={styles.statsRow}>
+        {/* 👇 3. Temporary Admin Button */}
+        <TouchableOpacity 
+            onPress={addAnimeToDatabase} 
+            style={{ backgroundColor: '#FF6B6B', padding: 15, marginHorizontal: 20, marginTop: 20, borderRadius: 12 }}
+        >
+            <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold' }}>
+                ADMIN: Upload Anime Data
+            </Text>
+        </TouchableOpacity>
+
+        <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
             <View style={styles.statItem}>
-                {/* Reverted to static number since history is removed */}
-                <Text style={styles.statNum}>142</Text>
-                <Text style={styles.statLabel}>Watched</Text>
+                <Text style={[styles.statNum, { color: theme.text }]}>142</Text>
+                <Text style={[styles.statLabel, { color: theme.subText }]}>Watched</Text>
             </View>
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.statItem}>
-                <Text style={styles.statNum}>{favorites.length}</Text>
-                <Text style={styles.statLabel}>Favorites</Text>
+                <Text style={[styles.statNum, { color: theme.text }]}>{favorites.length}</Text>
+                <Text style={[styles.statLabel, { color: theme.subText }]}>Favorites</Text>
             </View>
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.statItem}>
-                <Text style={styles.statNum}>1.2k</Text>
-                <Text style={styles.statLabel}>Followers</Text>
+                <Text style={[styles.statNum, { color: theme.text }]}>1.2k</Text>
+                <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
             </View>
         </View>
 
-        {/* Favorites Rail Only */}
         <View style={{ marginTop: 20 }}>
             {favorites.length > 0 && (
                 <TrendingRail title="My Favorites ❤️" data={favorites} />
             )}
-            
-            {/* Removed History Rail */}
         </View>
 
-        {/* 3. Menu Options */}
         <View style={styles.menuContainer}>
-            <MenuItem icon="settings-outline" label="Settings" />
-            
-            <TouchableOpacity onPress={() => router.push('/downloads')}>
-                <View style={styles.menuItem}>
-                    <View style={styles.iconBox}>
-                        <Ionicons name="download-outline" size={22} color="white" />
-                    </View>
-                    <Text style={styles.menuLabel}>Downloads</Text>
-                    <Ionicons name="chevron-forward" size={20} color="#333" />
-                </View>
-            </TouchableOpacity>
-
-            <MenuItem icon="notifications-outline" label="Notifications" />
-            <MenuItem icon="help-circle-outline" label="Help & Support" />
+            <MenuItem icon="settings-outline" label="Settings" theme={theme} onPress={() => router.push('/settings')} isLink />
+            <MenuItem icon="download-outline" label="Downloads" theme={theme} onPress={() => router.push('/downloads')} isLink />
+            <MenuItem icon="notifications-outline" label="Notifications" theme={theme} />
+            <MenuItem icon="help-circle-outline" label="Help & Support" theme={theme} />
             
             <TouchableOpacity style={styles.menuItem}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(255, 107, 107, 0.1)' }]}>
-                    <Ionicons name="log-out-outline" size={22} color={Colors.dark.tint} />
+                    <Ionicons name="log-out-outline" size={22} color={theme.tint} />
                 </View>
-                <Text style={[styles.menuLabel, { color: Colors.dark.tint }]}>Log Out</Text>
-                <Ionicons name="chevron-forward" size={20} color="#333" />
+                <Text style={[styles.menuLabel, { color: theme.tint }]}>Log Out</Text>
+                <Ionicons name="chevron-forward" size={20} color={theme.subText} />
             </TouchableOpacity>
         </View>
 
@@ -105,40 +150,34 @@ export default function ProfileScreen() {
   );
 }
 
-function MenuItem({ icon, label }: { icon: any, label: string }) {
+function MenuItem({ icon, label, theme, onPress, isLink }: any) {
     return (
-        <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.iconBox}>
-                <Ionicons name={icon} size={22} color="white" />
+        <TouchableOpacity style={styles.menuItem} onPress={onPress}>
+            <View style={[styles.iconBox, { backgroundColor: theme.card }]}>
+                <Ionicons name={icon} size={22} color={theme.text} />
             </View>
-            <Text style={styles.menuLabel}>{label}</Text>
-            <Ionicons name="chevron-forward" size={20} color="#333" />
+            <Text style={[styles.menuLabel, { color: theme.text }]}>{label}</Text>
+            <Ionicons name="chevron-forward" size={20} color={theme.subText} />
         </TouchableOpacity>
     );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1 },
   profileHeader: { alignItems: 'center', marginTop: 20 },
   avatarContainer: { position: 'relative' },
-  avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: Colors.dark.tint },
-  rankBadge: { 
-    position: 'absolute', bottom: 0, right: 0, 
-    backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
-    borderWidth: 2, borderColor: '#121212'
-  },
+  avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3 },
+  rankBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 2 },
   rankText: { fontSize: 10, fontWeight: 'bold', color: 'black' },
-  username: { color: 'white', fontSize: 22, fontWeight: 'bold', marginTop: 12 },
-  bio: { color: 'gray', marginTop: 4 },
-
-  statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 30, backgroundColor: '#1E1E1E', paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
+  username: { fontSize: 22, fontWeight: 'bold', marginTop: 12 },
+  bio: { marginTop: 4 },
+  statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 30, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
   statItem: { alignItems: 'center' },
-  statNum: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-  statLabel: { color: 'gray', fontSize: 12 },
-  divider: { width: 1, backgroundColor: '#333' },
-
+  statNum: { fontSize: 18, fontWeight: 'bold' },
+  statLabel: { fontSize: 12 },
+  divider: { width: 1 },
   menuContainer: { marginTop: 30, paddingHorizontal: 20 },
   menuItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  iconBox: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#2A2A2A', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  menuLabel: { flex: 1, color: 'white', fontSize: 16, fontWeight: '500' },
+  iconBox: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  menuLabel: { flex: 1, fontSize: 16, fontWeight: '500' },
 });

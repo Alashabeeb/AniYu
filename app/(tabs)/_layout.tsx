@@ -1,27 +1,27 @@
 // app/(tabs)/_layout.tsx
 
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme'; // Standard Expo hook
-import { Ionicons } from '@expo/vector-icons'; // Using Ionicons library
+import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
+import { useTheme } from '../../context/ThemeContext'; // ✅ CHANGED: Import our custom theme context
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme(); // Detects Dark Mode
-  const theme = Colors[colorScheme ?? 'light'];
+  const { theme, isDark } = useTheme(); // ✅ CHANGED: Get theme from Settings
 
   return (
     <Tabs
       screenOptions={{
+        // ✅ CHANGED: Use dynamic colors from our context
         tabBarActiveTintColor: theme.tint,
-        tabBarInactiveTintColor: theme.tabIconDefault,
-        headerShown: false, // We will build custom headers inside the screens
+        tabBarInactiveTintColor: isDark ? '#888' : '#ccc', // Adjusts based on mode
+        headerShown: false, 
         tabBarStyle: {
-          backgroundColor: colorScheme === 'dark' ? '#1E1E1E' : '#fff',
-          borderTopWidth: 0, // Removes the ugly line on top of the bar
+          backgroundColor: theme.card, // ✅ CHANGED: Uses theme.card (White or Dark Grey)
+          borderTopWidth: 0, 
           height: Platform.OS === 'ios' ? 85 : 60,
           paddingBottom: Platform.OS === 'ios' ? 25 : 8,
+          elevation: 0, // Removes shadow on Android for a cleaner look
         },
       }}>
       
@@ -49,7 +49,7 @@ export default function TabLayout() {
 
       {/* Tab 3: Comic (Manga) */}
       <Tabs.Screen
-        name="comic"
+        name="comic" // Note: Ensure your file is named comic.tsx (singular) based on this code
         options={{
           title: 'Comic',
           tabBarIcon: ({ color, focused }) => (

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,38 +12,53 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext'; // ✅ Import Theme
 
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
 import { getTopAnime, searchAnime } from '../../services/animeService';
+import { getFavorites, toggleFavorite } from '../../services/favoritesService';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { theme, isDark } = useTheme(); // ✅ Get Theme Data
 
-  // Data States
   const [trending, setTrending] = useState<any[]>([]);
+  const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Search States
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
+  useEffect(() => { loadInitialData(); }, []);
+
+  useFocusEffect(
+    useCallback(() => { loadFavorites(); }, [])
+  );
+
+  const loadFavorites = async () => {
+      const favs = await getFavorites();
+      setFavorites(favs);
+  };
 
   const loadInitialData = async () => {
     try {
       setLoading(true);
       const data = await getTopAnime();
       setTrending(data);
+      await loadFavorites(); 
     } catch (error) {
-      console.error("Failed to load anime:", error);
+      console.error(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleToggleFav = async (anime: any) => {
+      await toggleFavorite(anime);
+      await loadFavorites();
   };
 
   const handleSearch = async () => {
@@ -54,11 +69,8 @@ export default function HomeScreen() {
     try {
       const results = await searchAnime(query);
       setSearchResults(results);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setSearchLoading(false);
-    }
+    } catch (error) { console.error(error); } 
+    finally { setSearchLoading(false); }
   };
 
   const clearSearch = () => {
@@ -70,17 +82,13 @@ export default function HomeScreen() {
 
   const renderSearchItem = ({ item }: { item: any }) => (
     <TouchableOpacity 
-      style={styles.searchCard}
+      style={[styles.searchCard, { backgroundColor: theme.card }]} // Dynamic Card
       onPress={() => router.push(`/anime/${item.mal_id}`)}
     >
-      <Image 
-        source={{ uri: item.images?.jpg?.image_url }} 
-        style={styles.searchImage} 
-        contentFit="cover" 
-      />
+      <Image source={{ uri: item.images?.jpg?.image_url }} style={styles.searchImage} contentFit="cover" />
       <View style={styles.searchInfo}>
-        <Text numberOfLines={1} style={styles.searchTitle}>{item.title}</Text>
-        <Text style={styles.searchMeta}>
+        <Text numberOfLines={1} style={[styles.searchTitle, { color: theme.text }]}>{item.title}</Text>
+        <Text style={[styles.searchMeta, { color: theme.subText }]}>
             ⭐ {item.score || '?'} • {item.year || 'N/A'} • {item.type}
         </Text>
       </View>
@@ -89,24 +97,25 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF6B6B" />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.tint} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      {/* Dynamic Status Bar */}
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-      {/* Search Bar Header */}
+      {/* Search Bar */}
       <View style={styles.headerContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color="gray" style={{ marginRight: 10 }} />
+        <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
+          <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
           <TextInput
             placeholder="Search anime..."
-            placeholderTextColor="#666"
-            style={styles.input}
+            placeholderTextColor={theme.subText}
+            style={[styles.input, { color: theme.text }]}
             value={query}
             onChangeText={setQuery}
             onSubmitEditing={handleSearch} 
@@ -114,18 +123,17 @@ export default function HomeScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={clearSearch}>
-               <Ionicons name="close-circle" size={20} color="gray" />
+               <Ionicons name="close-circle" size={20} color={theme.subText} />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* Main Content */}
       {isSearching ? (
         <View style={{ flex: 1 }}>
             {searchLoading ? (
                 <View style={styles.center}>
-                    <ActivityIndicator size="small" color="#FF6B6B" />
+                    <ActivityIndicator size="small" color={theme.tint} />
                 </View>
             ) : (
                 <FlatList
@@ -134,22 +142,20 @@ export default function HomeScreen() {
                     renderItem={renderSearchItem}
                     contentContainerStyle={{ padding: 20 }}
                     ListEmptyComponent={
-                        <Text style={styles.emptyText}>No results found.</Text>
+                        <Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No results found.</Text>
                     }
                 />
             )}
         </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false}>
-          
-          {/* 1. Hero Carousel */}
           <HeroCarousel data={trending.slice(0, 5)} />
-
-          {/* 2. Trending Now */}
-          <TrendingRail title="Trending Now" data={trending} />
-
-          {/* 3. Recommended for You */}
-          <TrendingRail title="Recommended for You" data={trending.slice(5)} />
+          <TrendingRail title="Trending Now" data={trending} favorites={favorites} onToggleFavorite={handleToggleFav} />
+          <TrendingRail title="Recommended for You" data={trending.slice(5)} favorites={favorites} onToggleFavorite={handleToggleFav} />
+          
+          {favorites.length > 0 && (
+              <TrendingRail title="My Favorites ❤️" data={favorites} favorites={favorites} onToggleFavorite={handleToggleFav} />
+          )}
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -159,16 +165,15 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
-  loadingContainer: { flex: 1, backgroundColor: '#121212', justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   headerContainer: { paddingHorizontal: 20, paddingBottom: 10, paddingTop: 10 },
-  searchBar: { flexDirection: 'row', backgroundColor: '#1E1E1E', borderRadius: 12, paddingHorizontal: 15, height: 45, alignItems: 'center' },
-  input: { flex: 1, color: 'white', fontSize: 16 },
+  searchBar: { flexDirection: 'row', borderRadius: 12, paddingHorizontal: 15, height: 45, alignItems: 'center' },
+  input: { flex: 1, fontSize: 16 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 50 },
-  emptyText: { color: 'gray', textAlign: 'center', marginTop: 50 },
-  searchCard: { flexDirection: 'row', marginBottom: 12, backgroundColor: '#1E1E1E', borderRadius: 12, overflow: 'hidden', alignItems: 'center' },
+  searchCard: { flexDirection: 'row', marginBottom: 12, borderRadius: 12, overflow: 'hidden', alignItems: 'center' },
   searchImage: { width: 60, height: 80 },
   searchInfo: { flex: 1, padding: 12 },
-  searchTitle: { color: 'white', fontSize: 15, fontWeight: 'bold', marginBottom: 4 },
-  searchMeta: { color: 'gray', fontSize: 12 },
+  searchTitle: { fontSize: 15, fontWeight: 'bold', marginBottom: 4 },
+  searchMeta: { fontSize: 12 },
 });
