@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; // ✅ Import getDoc
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useCallback, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,10 +17,10 @@ export default function ProfileScreen() {
   const { theme } = useTheme();
   
   const [favorites, setFavorites] = useState<any[]>([]);
-  const [userData, setUserData] = useState<any>(null); // ✅ Store User Data
+  const [userData, setUserData] = useState<any>(null); 
   const [refreshing, setRefreshing] = useState(false);
 
-  // Load data whenever the screen comes into focus (so it updates after editing)
+  // Load data whenever the screen comes into focus
   useFocusEffect(
     useCallback(() => { 
         loadProfileData(); 
@@ -57,6 +57,10 @@ export default function ProfileScreen() {
     ]);
   };
 
+  // ✅ Calculate Real Stats
+  const followingCount = userData?.following?.length || 0;
+  const followersCount = userData?.followers?.length || 0;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView 
@@ -77,7 +81,7 @@ export default function ProfileScreen() {
              </View>
           </View>
           
-          {/* ✅ UPDATED: Display Name (Big) and Username (Small) */}
+          {/* Display Name and Username */}
           <Text style={[styles.displayName, { color: theme.text }]}>
             {userData?.displayName || "New User"}
           </Text>
@@ -98,11 +102,11 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Stats */}
+        {/* ✅ UPDATED STATS ROW (Following | Favorites | Followers) */}
         <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
             <View style={styles.statItem}>
-                <Text style={[styles.statNum, { color: theme.text }]}>142</Text>
-                <Text style={[styles.statLabel, { color: theme.subText }]}>Watched</Text>
+                <Text style={[styles.statNum, { color: theme.text }]}>{followingCount}</Text>
+                <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.statItem}>
@@ -111,7 +115,7 @@ export default function ProfileScreen() {
             </View>
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.statItem}>
-                <Text style={[styles.statNum, { color: theme.text }]}>1.2k</Text>
+                <Text style={[styles.statNum, { color: theme.text }]}>{followersCount}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
             </View>
         </View>
@@ -163,7 +167,7 @@ const styles = StyleSheet.create({
   rankBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 2 },
   rankText: { fontSize: 10, fontWeight: 'bold', color: 'black' },
   
-  // New Styles for Names
+  // Names & Bio
   displayName: { fontSize: 22, fontWeight: 'bold', marginTop: 12 },
   username: { fontSize: 14, marginTop: 2 },
   bio: { marginTop: 8, textAlign: 'center', paddingHorizontal: 40, fontSize: 13, lineHeight: 18 },

@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
@@ -26,19 +26,43 @@ export default function FeedScreen() {
     return unsubscribe; 
   }, []);
 
+  // 1. LIKE
   const toggleLike = async (postId: string, currentLikes: string[]) => {
     if (!currentUser) return;
     const postRef = doc(db, 'posts', postId);
-    const isLiked = currentLikes.includes(currentUser.uid);
+    const isLiked = currentLikes?.includes(currentUser.uid);
     await updateDoc(postRef, {
       likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
     });
   };
 
+  // 2. REPOST
+  const toggleRepost = async (postId: string, currentReposts: string[]) => {
+    if (!currentUser) return;
+    const postRef = doc(db, 'posts', postId);
+    const isReposted = currentReposts?.includes(currentUser.uid);
+    await updateDoc(postRef, {
+      reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
+    });
+  };
+
+  // 3. SHARE
+  const handleShare = async (text: string) => {
+    try {
+        await Share.share({ message: `Check out this post on AniYu: "${text}"` });
+    } catch (error) {
+        console.log(error);
+    }
+  };
+
+  // 4. GO TO DETAILS
+  const goToDetails = (postId: string) => {
+      router.push({ pathname: '/post-details', params: { postId } });
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* ✅ UPDATED HEADER: Avatar is now clickable */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.push('/feed-profile')}>
             <Image 
@@ -57,8 +81,8 @@ export default function FeedScreen() {
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
         renderItem={({ item }) => {
             const isLiked = item.likes?.includes(currentUser?.uid);
+            const isReposted = item.reposts?.includes(currentUser?.uid);
             
-            // Format Time
             let timeAgo = "now";
             if (item.createdAt?.seconds) {
                 const seconds = Math.floor((new Date().getTime() / 1000) - item.createdAt.seconds);
@@ -68,18 +92,20 @@ export default function FeedScreen() {
                 else timeAgo = new Date(item.createdAt.seconds * 1000).toLocaleDateString();
             }
 
-            // Fallback for old posts that didn't have separate fields
             const displayName = item.displayName || item.username;
             const handle = item.username || "unknown";
 
             return (
-                <TouchableOpacity activeOpacity={0.7} style={styles.tweetContainer}>
+                <TouchableOpacity 
+                    activeOpacity={0.7} 
+                    style={styles.tweetContainer}
+                    onPress={() => goToDetails(item.id)}
+                >
                     <View style={styles.avatarContainer}>
                         <Image source={{ uri: item.userAvatar }} style={styles.avatar} />
                     </View>
 
                     <View style={styles.contentContainer}>
-                        {/* Show DisplayName (Bold) and @Username (Gray) */}
                         <View style={styles.tweetHeader}>
                             <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
                                 {displayName}
@@ -94,6 +120,7 @@ export default function FeedScreen() {
                         </Text>
 
                         <View style={styles.actionsRow}>
+                            {/* LIKE */}
                             <TouchableOpacity 
                                 style={styles.actionButton} 
                                 onPress={() => toggleLike(item.id, item.likes || [])}
@@ -108,17 +135,37 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.actionButton}>
+                            {/* COMMENT (Now shows count!) */}
+                            <TouchableOpacity 
+                                style={styles.actionButton}
+                                onPress={() => goToDetails(item.id)}
+                            >
                                 <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
-                                <Text style={[styles.actionCount, { color: theme.subText }]}>0</Text>
+                                <Text style={[styles.actionCount, { color: theme.subText }]}>
+                                    {item.commentCount || 0}
+                                </Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.actionButton}>
-                                <Ionicons name="repeat-outline" size={18} color={theme.subText} />
-                                <Text style={[styles.actionCount, { color: theme.subText }]}>0</Text>
+                            {/* REPOST */}
+                            <TouchableOpacity 
+                                style={styles.actionButton}
+                                onPress={() => toggleRepost(item.id, item.reposts || [])}
+                            >
+                                <Ionicons 
+                                    name="repeat-outline" 
+                                    size={18} 
+                                    color={isReposted ? "#00BA7C" : theme.subText} 
+                                />
+                                <Text style={[styles.actionCount, { color: isReposted ? "#00BA7C" : theme.subText }]}>
+                                    {item.reposts ? item.reposts.length : 0}
+                                </Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.actionButton}>
+                            {/* SHARE */}
+                            <TouchableOpacity 
+                                style={styles.actionButton}
+                                onPress={() => handleShare(item.text)}
+                            >
                                 <Ionicons name="share-outline" size={18} color={theme.subText} />
                             </TouchableOpacity>
                         </View>

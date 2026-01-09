@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
@@ -16,7 +16,7 @@ export default function FeedProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<any>(null);
   const [myPosts, setMyPosts] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState('Posts'); // 'Posts' or 'Reposts'
+  const [activeTab, setActiveTab] = useState('Posts'); 
 
   useEffect(() => {
     fetchData();
@@ -25,19 +25,16 @@ export default function FeedProfileScreen() {
   const fetchData = async () => {
     if (!user) return;
     try {
-        // 1. Get User Details
         const userSnap = await getDoc(doc(db, "users", user.uid));
         if (userSnap.exists()) setUserData(userSnap.data());
 
-        // 2. Get ONLY My Posts
         const q = query(
             collection(db, 'posts'), 
             where('userId', '==', user.uid), 
             orderBy('createdAt', 'desc')
         );
         const querySnapshot = await getDocs(q);
-        const posts = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setMyPosts(posts);
+        setMyPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (e) {
         console.error(e);
     } finally {
@@ -59,11 +56,9 @@ export default function FeedProfileScreen() {
     ]);
   };
 
-  // ✅ FIXED TOGGLE LIKE FUNCTION
   const toggleLike = async (postId: string, currentLikes: string[]) => {
      if (!user) return;
-
-     // Optimistic Update locally
+     
      setMyPosts(currentPosts => 
         currentPosts.map(p => {
             if (p.id === postId) {
@@ -77,12 +72,46 @@ export default function FeedProfileScreen() {
         })
      );
 
-     // Update Firebase
      const postRef = doc(db, 'posts', postId);
-     const isLiked = currentLikes.includes(user.uid);
+     const isLiked = currentLikes?.includes(user.uid);
      await updateDoc(postRef, {
        likes: isLiked ? arrayRemove(user.uid) : arrayUnion(user.uid)
      });
+  };
+
+  const toggleRepost = async (postId: string, currentReposts: string[]) => {
+    if (!user) return;
+    const postRef = doc(db, 'posts', postId);
+    const isReposted = currentReposts?.includes(user.uid);
+
+    // Optimistic UI Update
+    setMyPosts(currentPosts => 
+        currentPosts.map(p => {
+            if (p.id === postId) {
+                const newReposts = isReposted 
+                    ? p.reposts.filter((uid: string) => uid !== user.uid)
+                    : [...(p.reposts || []), user.uid];
+                return { ...p, reposts: newReposts };
+            }
+            return p;
+        })
+     );
+
+    await updateDoc(postRef, {
+      reposts: isReposted ? arrayRemove(user.uid) : arrayUnion(user.uid)
+    });
+  };
+
+  const handleShare = async (text: string) => {
+    try {
+        await Share.share({ message: `Check out this post: "${text}"` });
+    } catch (error) {
+        console.log(error);
+    }
+  };
+
+  const goToDetails = (postId: string) => {
+      router.push({ pathname: '/post-details', params: { postId } });
   };
 
   if (loading) {
@@ -93,15 +122,19 @@ export default function FeedProfileScreen() {
     );
   }
 
+  const followingCount = userData?.following?.length || 0;
+  const followersCount = userData?.followers?.length || 0;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Header (Transparent Back Button) */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>{userData?.displayName || user?.displayName}</Text>
+        <Text style={[styles.headerTitle, { color: 'white' }]}>{userData?.displayName || user?.displayName}</Text>
       </View>
 
       <FlatList
@@ -111,32 +144,36 @@ export default function FeedProfileScreen() {
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
         ListHeaderComponent={() => (
             <View>
-                {/* Banner & Avatar */}
                 <View style={styles.banner} />
                 <View style={styles.profileInfo}>
                     <Image 
                         source={{ uri: userData?.avatar || user?.photoURL }} 
                         style={[styles.avatar, { borderColor: theme.background }]} 
                     />
-                    <TouchableOpacity style={[styles.editBtn, { borderColor: theme.border }]}>
+                    <TouchableOpacity 
+                        style={[styles.editBtn, { borderColor: theme.border }]}
+                        onPress={() => router.push('/edit-profile')}
+                    >
                         <Text style={{ color: theme.text, fontWeight: 'bold' }}>Edit Profile</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Name & Handle */}
                 <View style={styles.nameSection}>
                     <Text style={[styles.displayName, { color: theme.text }]}>{userData?.displayName || user?.displayName}</Text>
                     <Text style={[styles.username, { color: theme.subText }]}>@{userData?.username || "username"}</Text>
                 </View>
 
-                {/* Stats Row */}
+                {/* Stats */}
                 <View style={styles.statsRow}>
-                    <Text style={[styles.statNum, { color: theme.text }]}>142 <Text style={[styles.statLabel, { color: theme.subText }]}>Watched</Text></Text>
-                    <Text style={[styles.statNum, { color: theme.text, marginLeft: 15 }]}>24 <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text></Text>
-                    <Text style={[styles.statNum, { color: theme.text, marginLeft: 15 }]}>1.2k <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text></Text>
+                    <Text style={[styles.statNum, { color: theme.text }]}>
+                        {followingCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
+                    </Text>
+                    <Text style={[styles.statNum, { color: theme.text, marginLeft: 20 }]}>
+                        {followersCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
+                    </Text>
                 </View>
 
-                {/* Tabs: Posts | Reposts */}
+                {/* Tabs */}
                 <View style={[styles.tabRow, { borderBottomColor: theme.border }]}>
                     <TouchableOpacity 
                         onPress={() => setActiveTab('Posts')}
@@ -155,25 +192,26 @@ export default function FeedProfileScreen() {
             </View>
         )}
         
-        // Render Twitter-Style Post
         renderItem={({ item }) => {
             const isLiked = item.likes?.includes(user?.uid);
+            const isReposted = item.reposts?.includes(user?.uid);
+            
             let timeAgo = "now";
             if (item.createdAt?.seconds) {
                 timeAgo = new Date(item.createdAt.seconds * 1000).toLocaleDateString(); 
             }
 
             return (
-                <View style={styles.tweetContainer}>
-                    {/* Left: Avatar */}
+                <TouchableOpacity 
+                    style={styles.tweetContainer}
+                    onPress={() => goToDetails(item.id)}
+                    activeOpacity={0.7}
+                >
                     <View style={styles.avatarContainer}>
                         <Image source={{ uri: item.userAvatar }} style={styles.postAvatar} />
                     </View>
 
-                    {/* Right: Content */}
                     <View style={styles.contentContainer}>
-                        
-                        {/* Header: Name @handle · time */}
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                             <View style={styles.tweetHeader}>
                                 <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
@@ -184,42 +222,39 @@ export default function FeedProfileScreen() {
                                 </Text>
                             </View>
                             
-                            {/* 🗑️ DELETE BUTTON (Top Right) */}
                             <TouchableOpacity onPress={() => handleDelete(item.id)}>
                                 <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
                             </TouchableOpacity>
                         </View>
 
-                        {/* Tweet Text */}
                         <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text>
 
-                        {/* Action Buttons */}
                         <View style={styles.actionsRow}>
-                            {/* Like */}
+                            {/* LIKE */}
                             <TouchableOpacity style={styles.actionButton} onPress={() => toggleLike(item.id, item.likes || [])}>
                                 <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
                                 <Text style={[styles.actionCount, { color: isLiked ? "#FF6B6B" : theme.subText }]}>{item.likes ? item.likes.length : 0}</Text>
                             </TouchableOpacity>
 
-                            {/* Reply */}
-                            <TouchableOpacity style={styles.actionButton}>
+                            {/* COMMENT (✅ NOW SHOWS COUNT) */}
+                            <TouchableOpacity style={styles.actionButton} onPress={() => goToDetails(item.id)}>
                                 <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
-                                <Text style={[styles.actionCount, { color: theme.subText }]}>0</Text>
+                                <Text style={[styles.actionCount, { color: theme.subText }]}>{item.commentCount || 0}</Text>
                             </TouchableOpacity>
 
-                            {/* Repost */}
-                            <TouchableOpacity style={styles.actionButton}>
-                                <Ionicons name="repeat-outline" size={18} color={theme.subText} />
-                                <Text style={[styles.actionCount, { color: theme.subText }]}>0</Text>
+                            {/* REPOST */}
+                            <TouchableOpacity style={styles.actionButton} onPress={() => toggleRepost(item.id, item.reposts || [])}>
+                                <Ionicons name="repeat-outline" size={18} color={isReposted ? "#00BA7C" : theme.subText} />
+                                <Text style={[styles.actionCount, { color: isReposted ? "#00BA7C" : theme.subText }]}>{item.reposts ? item.reposts.length : 0}</Text>
                             </TouchableOpacity>
 
-                            {/* Share */}
-                            <TouchableOpacity style={styles.actionButton}>
+                            {/* SHARE */}
+                            <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
                                 <Ionicons name="share-outline" size={18} color={theme.subText} />
                             </TouchableOpacity>
                         </View>
                     </View>
-                </View>
+                </TouchableOpacity>
             );
         }}
         
@@ -239,7 +274,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', padding: 15, position: 'absolute', top: 30, left: 0, zIndex: 10 },
   backBtn: { backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 5, marginRight: 10 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', textShadowColor: 'black', textShadowRadius: 5 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', textShadowColor: 'black', textShadowRadius: 5, marginLeft: 10 },
   
   banner: { height: 120, backgroundColor: '#333' },
   profileInfo: { paddingHorizontal: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -35 },
@@ -260,7 +295,6 @@ const styles = StyleSheet.create({
 
   separator: { height: 0.5, width: '100%' },
 
-  // Tweet Card Styles
   tweetContainer: { flexDirection: 'row', padding: 15 },
   avatarContainer: { marginRight: 12 },
   postAvatar: { width: 50, height: 50, borderRadius: 25 },
