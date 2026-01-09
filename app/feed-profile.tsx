@@ -1,9 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { Stack, useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+    arrayRemove, arrayUnion,
+    collection,
+    deleteDoc,
+    doc, getDoc,
+    getDocs,
+    orderBy,
+    query,
+    updateDoc,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Share,
+    StyleSheet, Text, TouchableOpacity, View
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
@@ -11,38 +27,88 @@ import { useTheme } from '../context/ThemeContext';
 export default function FeedProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const user = auth.currentUser;
-  
+  const { userId } = useLocalSearchParams(); // Get User ID from URL
+  const currentUser = auth.currentUser;
+
+  // Decision: Are we looking at "Me" or "Someone Else"?
+  // If userId is missing, fallback to current user. If both missing, it's undefined.
+  const targetUserId = (userId as string) || currentUser?.uid; 
+  const isOwnProfile = targetUserId === currentUser?.uid;
+
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<any>(null);
   const [myPosts, setMyPosts] = useState<any[]>([]);
+  const [repostedPosts, setRepostedPosts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('Posts'); 
+  const [isFollowing, setIsFollowing] = useState(false); 
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [targetUserId]);
 
   const fetchData = async () => {
-    if (!user) return;
+    if (!targetUserId) return;
     try {
-        const userSnap = await getDoc(doc(db, "users", user.uid));
-        if (userSnap.exists()) setUserData(userSnap.data());
+        // 1. Get Target User Details
+        const userSnap = await getDoc(doc(db, "users", targetUserId));
+        if (userSnap.exists()) {
+            const data = userSnap.data();
+            setUserData(data);
+            // Check if I am already following them
+            if (currentUser && data.followers?.includes(currentUser.uid)) {
+                setIsFollowing(true);
+            }
+        }
 
-        const q = query(
+        // 2. Get Their Posts
+        const qMyPosts = query(
             collection(db, 'posts'), 
-            where('userId', '==', user.uid), 
+            where('userId', '==', targetUserId), 
             orderBy('createdAt', 'desc')
         );
-        const querySnapshot = await getDocs(q);
-        setMyPosts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const myPostsSnap = await getDocs(qMyPosts);
+        setMyPosts(myPostsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+        // 3. Get Their Reposts
+        const qReposts = query(
+            collection(db, 'posts'),
+            where('reposts', 'array-contains', targetUserId),
+            orderBy('createdAt', 'desc')
+        );
+        const repostSnap = await getDocs(qReposts);
+        setRepostedPosts(repostSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
     } catch (e) {
-        console.error(e);
+        console.error("Error fetching posts:", e);
     } finally {
         setLoading(false);
     }
   };
 
+  // ✅ FOLLOW / UNFOLLOW LOGIC
+  const handleFollow = async () => {
+      // FIX: Ensure targetUserId exists before using it
+      if (!currentUser || isOwnProfile || !targetUserId) return;
+      
+      // Optimistic UI Update
+      setIsFollowing(!isFollowing); 
+
+      const myRef = doc(db, "users", currentUser.uid);
+      const targetRef = doc(db, "users", targetUserId);
+
+      if (isFollowing) {
+          // Unfollow
+          await updateDoc(myRef, { following: arrayRemove(targetUserId) });
+          await updateDoc(targetRef, { followers: arrayRemove(currentUser.uid) });
+      } else {
+          // Follow
+          await updateDoc(myRef, { following: arrayUnion(targetUserId) });
+          await updateDoc(targetRef, { followers: arrayUnion(currentUser.uid) });
+      }
+  };
+
   const handleDelete = (postId: string) => {
+    if (!isOwnProfile) return; 
     Alert.alert("Delete Post", "Are you sure?", [
         { text: "Cancel", style: "cancel" },
         { 
@@ -51,55 +117,59 @@ export default function FeedProfileScreen() {
             onPress: async () => {
                 await deleteDoc(doc(db, "posts", postId));
                 setMyPosts(prev => prev.filter(p => p.id !== postId));
+                setRepostedPosts(prev => prev.filter(p => p.id !== postId));
             } 
         }
     ]);
   };
 
   const toggleLike = async (postId: string, currentLikes: string[]) => {
-     if (!user) return;
+     if (!currentUser) return;
      
-     setMyPosts(currentPosts => 
-        currentPosts.map(p => {
-            if (p.id === postId) {
-                const isLiked = p.likes?.includes(user.uid);
-                const newLikes = isLiked 
-                    ? p.likes.filter((uid: string) => uid !== user.uid)
-                    : [...(p.likes || []), user.uid];
-                return { ...p, likes: newLikes };
-            }
-            return p;
-        })
-     );
+     const updateList = (list: any[]) => list.map(p => {
+        if (p.id === postId) {
+            const isLiked = p.likes?.includes(currentUser.uid);
+            const newLikes = isLiked 
+                ? p.likes.filter((uid: string) => uid !== currentUser.uid)
+                : [...(p.likes || []), currentUser.uid];
+            return { ...p, likes: newLikes };
+        }
+        return p;
+     });
+
+     setMyPosts(updateList);
+     setRepostedPosts(updateList);
 
      const postRef = doc(db, 'posts', postId);
-     const isLiked = currentLikes?.includes(user.uid);
+     const isLiked = currentLikes?.includes(currentUser.uid);
      await updateDoc(postRef, {
-       likes: isLiked ? arrayRemove(user.uid) : arrayUnion(user.uid)
+       likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
      });
   };
 
   const toggleRepost = async (postId: string, currentReposts: string[]) => {
-    if (!user) return;
+    if (!currentUser) return;
     const postRef = doc(db, 'posts', postId);
-    const isReposted = currentReposts?.includes(user.uid);
+    const isReposted = currentReposts?.includes(currentUser.uid);
 
-    // Optimistic UI Update
-    setMyPosts(currentPosts => 
-        currentPosts.map(p => {
-            if (p.id === postId) {
-                const newReposts = isReposted 
-                    ? p.reposts.filter((uid: string) => uid !== user.uid)
-                    : [...(p.reposts || []), user.uid];
-                return { ...p, reposts: newReposts };
-            }
-            return p;
-        })
-     );
+    const updateList = (list: any[]) => list.map(p => {
+        if (p.id === postId) {
+            const newReposts = isReposted 
+                ? p.reposts.filter((uid: string) => uid !== currentUser.uid)
+                : [...(p.reposts || []), currentUser.uid];
+            return { ...p, reposts: newReposts };
+        }
+        return p;
+    });
+
+    setMyPosts(updateList);
+    setRepostedPosts(updateList);
 
     await updateDoc(postRef, {
-      reposts: isReposted ? arrayRemove(user.uid) : arrayUnion(user.uid)
+      reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
     });
+    
+    if (isOwnProfile) fetchData(); 
   };
 
   const handleShare = async (text: string) => {
@@ -134,11 +204,11 @@ export default function FeedProfileScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: 'white' }]}>{userData?.displayName || user?.displayName}</Text>
+        <Text style={[styles.headerTitle, { color: 'white' }]}>{userData?.displayName || "User"}</Text>
       </View>
 
       <FlatList
-        data={activeTab === 'Posts' ? myPosts : []} 
+        data={activeTab === 'Posts' ? myPosts : repostedPosts} 
         keyExtractor={item => item.id}
         contentContainerStyle={{ paddingBottom: 50 }}
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
@@ -147,23 +217,39 @@ export default function FeedProfileScreen() {
                 <View style={styles.banner} />
                 <View style={styles.profileInfo}>
                     <Image 
-                        source={{ uri: userData?.avatar || user?.photoURL }} 
+                        source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} 
                         style={[styles.avatar, { borderColor: theme.background }]} 
                     />
-                    <TouchableOpacity 
-                        style={[styles.editBtn, { borderColor: theme.border }]}
-                        onPress={() => router.push('/edit-profile')}
-                    >
-                        <Text style={{ color: theme.text, fontWeight: 'bold' }}>Edit Profile</Text>
-                    </TouchableOpacity>
+                    
+                    {/* DYNAMIC BUTTON */}
+                    {isOwnProfile ? (
+                        <TouchableOpacity 
+                            style={[styles.editBtn, { borderColor: theme.border }]}
+                            onPress={() => router.push('/edit-profile')}
+                        >
+                            <Text style={{ color: theme.text, fontWeight: 'bold' }}>Edit Profile</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity 
+                            style={[styles.editBtn, { 
+                                backgroundColor: isFollowing ? 'transparent' : theme.tint, 
+                                borderColor: isFollowing ? theme.border : theme.tint,
+                                borderWidth: 1
+                            }]}
+                            onPress={handleFollow}
+                        >
+                            <Text style={{ color: isFollowing ? theme.text : 'white', fontWeight: 'bold' }}>
+                                {isFollowing ? "Following" : "Follow"}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 <View style={styles.nameSection}>
-                    <Text style={[styles.displayName, { color: theme.text }]}>{userData?.displayName || user?.displayName}</Text>
+                    <Text style={[styles.displayName, { color: theme.text }]}>{userData?.displayName || "Anonymous"}</Text>
                     <Text style={[styles.username, { color: theme.subText }]}>@{userData?.username || "username"}</Text>
                 </View>
 
-                {/* Stats */}
                 <View style={styles.statsRow}>
                     <Text style={[styles.statNum, { color: theme.text }]}>
                         {followingCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
@@ -173,7 +259,6 @@ export default function FeedProfileScreen() {
                     </Text>
                 </View>
 
-                {/* Tabs */}
                 <View style={[styles.tabRow, { borderBottomColor: theme.border }]}>
                     <TouchableOpacity 
                         onPress={() => setActiveTab('Posts')}
@@ -193,8 +278,8 @@ export default function FeedProfileScreen() {
         )}
         
         renderItem={({ item }) => {
-            const isLiked = item.likes?.includes(user?.uid);
-            const isReposted = item.reposts?.includes(user?.uid);
+            const isLiked = item.likes?.includes(currentUser?.uid);
+            const isReposted = item.reposts?.includes(currentUser?.uid);
             
             let timeAgo = "now";
             if (item.createdAt?.seconds) {
@@ -212,6 +297,13 @@ export default function FeedProfileScreen() {
                     </View>
 
                     <View style={styles.contentContainer}>
+                        {activeTab === 'Reposts' && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
+                                <Ionicons name="repeat" size={12} color={theme.subText} />
+                                <Text style={{ fontSize: 12, color: theme.subText, marginLeft: 5 }}>Reposted</Text>
+                            </View>
+                        )}
+
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                             <View style={styles.tweetHeader}>
                                 <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
@@ -222,33 +314,32 @@ export default function FeedProfileScreen() {
                                 </Text>
                             </View>
                             
-                            <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                                <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
-                            </TouchableOpacity>
+                            {/* DELETE BUTTON (Visible only to owner) */}
+                            {isOwnProfile && item.userId === currentUser?.uid && (
+                                <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                                    <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
+                                </TouchableOpacity>
+                            )}
                         </View>
 
                         <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text>
 
                         <View style={styles.actionsRow}>
-                            {/* LIKE */}
                             <TouchableOpacity style={styles.actionButton} onPress={() => toggleLike(item.id, item.likes || [])}>
                                 <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
                                 <Text style={[styles.actionCount, { color: isLiked ? "#FF6B6B" : theme.subText }]}>{item.likes ? item.likes.length : 0}</Text>
                             </TouchableOpacity>
 
-                            {/* COMMENT (✅ NOW SHOWS COUNT) */}
                             <TouchableOpacity style={styles.actionButton} onPress={() => goToDetails(item.id)}>
                                 <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
                                 <Text style={[styles.actionCount, { color: theme.subText }]}>{item.commentCount || 0}</Text>
                             </TouchableOpacity>
 
-                            {/* REPOST */}
                             <TouchableOpacity style={styles.actionButton} onPress={() => toggleRepost(item.id, item.reposts || [])}>
                                 <Ionicons name="repeat-outline" size={18} color={isReposted ? "#00BA7C" : theme.subText} />
                                 <Text style={[styles.actionCount, { color: isReposted ? "#00BA7C" : theme.subText }]}>{item.reposts ? item.reposts.length : 0}</Text>
                             </TouchableOpacity>
 
-                            {/* SHARE */}
                             <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
                                 <Ionicons name="share-outline" size={18} color={theme.subText} />
                             </TouchableOpacity>
@@ -261,7 +352,7 @@ export default function FeedProfileScreen() {
         ListEmptyComponent={
             <View style={{ marginTop: 50, alignItems: 'center' }}>
                 <Text style={{ color: theme.subText }}>
-                    {activeTab === 'Posts' ? "You haven't posted yet." : "No reposts yet."}
+                    {activeTab === 'Posts' ? "No posts yet." : "No reposts yet."}
                 </Text>
             </View>
         }

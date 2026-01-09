@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { FlatList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,7 +15,13 @@ export default function FeedScreen() {
   const currentUser = auth.currentUser;
 
   useEffect(() => {
-    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
+    // Only show posts where parentId is null (Top-level posts)
+    const q = query(
+        collection(db, 'posts'), 
+        where('parentId', '==', null), 
+        orderBy('createdAt', 'desc')
+    );
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -26,7 +32,6 @@ export default function FeedScreen() {
     return unsubscribe; 
   }, []);
 
-  // 1. LIKE
   const toggleLike = async (postId: string, currentLikes: string[]) => {
     if (!currentUser) return;
     const postRef = doc(db, 'posts', postId);
@@ -36,7 +41,6 @@ export default function FeedScreen() {
     });
   };
 
-  // 2. REPOST
   const toggleRepost = async (postId: string, currentReposts: string[]) => {
     if (!currentUser) return;
     const postRef = doc(db, 'posts', postId);
@@ -46,7 +50,6 @@ export default function FeedScreen() {
     });
   };
 
-  // 3. SHARE
   const handleShare = async (text: string) => {
     try {
         await Share.share({ message: `Check out this post on AniYu: "${text}"` });
@@ -55,9 +58,13 @@ export default function FeedScreen() {
     }
   };
 
-  // 4. GO TO DETAILS
   const goToDetails = (postId: string) => {
       router.push({ pathname: '/post-details', params: { postId } });
+  };
+
+  // ✅ New helper to visit profiles
+  const goToProfile = (userId: string) => {
+      router.push({ pathname: '/feed-profile', params: { userId } });
   };
 
   return (
@@ -101,9 +108,12 @@ export default function FeedScreen() {
                     style={styles.tweetContainer}
                     onPress={() => goToDetails(item.id)}
                 >
-                    <View style={styles.avatarContainer}>
-                        <Image source={{ uri: item.userAvatar }} style={styles.avatar} />
-                    </View>
+                    {/* ✅ CLICKABLE AVATAR -> GO TO PROFILE */}
+                    <TouchableOpacity onPress={() => goToProfile(item.userId)}>
+                        <View style={styles.avatarContainer}>
+                            <Image source={{ uri: item.userAvatar }} style={styles.avatar} />
+                        </View>
+                    </TouchableOpacity>
 
                     <View style={styles.contentContainer}>
                         <View style={styles.tweetHeader}>
@@ -120,7 +130,6 @@ export default function FeedScreen() {
                         </Text>
 
                         <View style={styles.actionsRow}>
-                            {/* LIKE */}
                             <TouchableOpacity 
                                 style={styles.actionButton} 
                                 onPress={() => toggleLike(item.id, item.likes || [])}
@@ -135,7 +144,6 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
-                            {/* COMMENT (Now shows count!) */}
                             <TouchableOpacity 
                                 style={styles.actionButton}
                                 onPress={() => goToDetails(item.id)}
@@ -146,7 +154,6 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
-                            {/* REPOST */}
                             <TouchableOpacity 
                                 style={styles.actionButton}
                                 onPress={() => toggleRepost(item.id, item.reposts || [])}
@@ -161,7 +168,6 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
-                            {/* SHARE */}
                             <TouchableOpacity 
                                 style={styles.actionButton}
                                 onPress={() => handleShare(item.text)}

@@ -1,12 +1,11 @@
 import { useRouter } from 'expo-router';
+import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView,
   Platform, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// 👇 Added getDoc and doc to fetch real profile
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 
@@ -24,7 +23,7 @@ export default function CreatePostScreen() {
       const user = auth.currentUser;
       if (!user) throw new Error("Not logged in");
 
-      // 1. Fetch the REAL user profile from Firestore to get the correct Username
+      // 1. Fetch User Profile
       const userDocRef = doc(db, "users", user.uid);
       const userSnap = await getDoc(userDocRef);
       
@@ -39,15 +38,18 @@ export default function CreatePostScreen() {
         realAvatar = userData.avatar || realAvatar;
       }
 
-      // 2. Save the post with SEPARATE display name and username
+      // 2. Save Post (✅ NOW INCLUDES parentId: null)
       await addDoc(collection(db, 'posts'), {
         text: text,
         userId: user.uid,
-        displayName: realDisplayName, // e.g. "Monkey D. Luffy"
-        username: realUsername,       // e.g. "KingPirate"
+        displayName: realDisplayName, 
+        username: realUsername,       
         userAvatar: realAvatar,
         createdAt: serverTimestamp(),
-        likes: [] 
+        likes: [],
+        reposts: [],
+        commentCount: 0,
+        parentId: null // 👈 CRITICAL: This tells the Feed "I am a Main Post"
       });
 
       router.back(); 

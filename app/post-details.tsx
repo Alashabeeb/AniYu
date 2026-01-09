@@ -1,17 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-// ✅ Added increment and updateDoc to imports
 import {
-    addDoc, collection, doc,
+    addDoc,
+    arrayRemove, arrayUnion,
+    collection, doc,
     increment,
     onSnapshot, orderBy,
-    query, serverTimestamp, updateDoc
+    query, serverTimestamp, updateDoc,
+    where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    FlatList, KeyboardAvoidingView, Platform, StyleSheet,
+    FlatList, KeyboardAvoidingView, Platform, Share, StyleSheet,
     Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,13 +34,17 @@ export default function PostDetailsScreen() {
   useEffect(() => {
     if (!postId) return;
 
-    // 1. Fetch Post Data
+    // 1. Fetch MAIN Post
     const postUnsub = onSnapshot(doc(db, 'posts', postId as string), (doc) => {
       if (doc.exists()) setPost({ id: doc.id, ...doc.data() });
     });
 
-    // 2. Fetch Comments
-    const q = query(collection(db, 'posts', postId as string, 'comments'), orderBy('createdAt', 'desc'));
+    // 2. Fetch REPLIES (Query 'posts' where parentId == current postId)
+    const q = query(
+        collection(db, 'posts'), 
+        where('parentId', '==', postId), 
+        orderBy('createdAt', 'desc')
+    );
     const commentsUnsub = onSnapshot(q, (snapshot) => {
       setComments(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -46,21 +52,37 @@ export default function PostDetailsScreen() {
     return () => { postUnsub(); commentsUnsub(); };
   }, [postId]);
 
-  // ✅ UPDATED: Increment comment count
+  const toggleAction = async (id: string, field: 'likes' | 'reposts', currentArray: string[]) => {
+      if (!user) return;
+      const ref = doc(db, 'posts', id);
+      const isActive = currentArray?.includes(user.uid);
+      await updateDoc(ref, { [field]: isActive ? arrayRemove(user.uid) : arrayUnion(user.uid) });
+  };
+
+  const handleShare = async (text: string) => {
+      try { await Share.share({ message: text }); } catch (e) {}
+  };
+
+  const goToDetails = (id: string) => {
+      router.push({ pathname: '/post-details', params: { postId: id } });
+  };
+
   const handleSendComment = async () => {
     if (!newComment.trim() || !user) return;
     setSending(true);
     try {
-      // 1. Add comment to sub-collection
-      await addDoc(collection(db, 'posts', postId as string, 'comments'), {
+      await addDoc(collection(db, 'posts'), {
         text: newComment,
         userId: user.uid,
         username: user.displayName || "Anonymous",
-        avatar: user.photoURL,
-        createdAt: serverTimestamp()
+        userAvatar: user.photoURL, 
+        createdAt: serverTimestamp(),
+        parentId: postId, 
+        likes: [],
+        reposts: [],
+        commentCount: 0
       });
 
-      // 2. Update the main post's comment count
       await updateDoc(doc(db, 'posts', postId as string), {
         commentCount: increment(1)
       });
@@ -74,6 +96,62 @@ export default function PostDetailsScreen() {
   };
 
   if (!post) return <View style={[styles.container, { backgroundColor: theme.background }]} />;
+
+  // Helper to calculate time (e.g. "2s", "5m")
+  const formatTimeAgo = (timestamp: any) => {
+    if (!timestamp?.seconds) return "now";
+    const seconds = Math.floor((new Date().getTime() / 1000) - timestamp.seconds);
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds/60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds/3600)}h`;
+    return new Date(timestamp.seconds * 1000).toLocaleDateString();
+  };
+
+  const renderComment = ({ item }: { item: any }) => {
+      const isLiked = item.likes?.includes(user?.uid);
+      const isReposted = item.reposts?.includes(user?.uid);
+      
+      // ✅ Use smart time format
+      const timeAgo = formatTimeAgo(item.createdAt);
+
+      return (
+        <TouchableOpacity 
+            style={[styles.commentItem, { borderBottomColor: theme.border }]}
+            onPress={() => goToDetails(item.id)} 
+            activeOpacity={0.7}
+        >
+            <Image source={{ uri: item.userAvatar }} style={styles.commentAvatar} />
+            <View style={{ flex: 1 }}>
+                <View style={styles.row}>
+                    <Text style={[styles.commentName, { color: theme.text }]}>{item.username}</Text>
+                    <Text style={[styles.commentTime, { color: theme.subText }]}>· {timeAgo}</Text>
+                </View>
+                <Text style={{ color: theme.text, marginTop: 2, marginBottom: 8 }}>{item.text}</Text>
+
+                <View style={styles.commentActions}>
+                    <TouchableOpacity style={styles.actionButton} onPress={() => toggleAction(item.id, 'likes', item.likes || [])}>
+                        <Ionicons name={isLiked ? "heart" : "heart-outline"} size={16} color={isLiked ? "#FF6B6B" : theme.subText} />
+                        <Text style={[styles.actionText, { color: theme.subText }]}>{item.likes?.length || 0}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.actionButton} onPress={() => goToDetails(item.id)}>
+                        <Ionicons name="chatbubble-outline" size={16} color={theme.subText} />
+                        <Text style={[styles.actionText, { color: theme.subText }]}>{item.commentCount || 0}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.actionButton} onPress={() => toggleAction(item.id, 'reposts', item.reposts || [])}>
+                        <Ionicons name="repeat-outline" size={16} color={isReposted ? "#00BA7C" : theme.subText} />
+                         <Text style={[styles.actionText, { color: theme.subText }]}>{item.reposts?.length || 0}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
+                        <Ionicons name="share-outline" size={16} color={theme.subText} />
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </TouchableOpacity>
+      );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -100,30 +178,27 @@ export default function PostDetailsScreen() {
                  </View>
               </View>
               <Text style={[styles.postText, { color: theme.text }]}>{post.text}</Text>
+              
+              {/* Main Post Date */}
               <Text style={{ color: theme.subText, marginTop: 10, fontSize: 12 }}>
                  {post.createdAt?.seconds ? new Date(post.createdAt.seconds * 1000).toLocaleString() : 'Just now'}
               </Text>
+              
               <View style={[styles.statsRow, { borderTopColor: theme.border, borderBottomColor: theme.border }]}>
                   <Text style={{ color: theme.subText }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.likes?.length || 0}</Text> Likes</Text>
                   <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.reposts?.length || 0}</Text> Reposts</Text>
                   <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.commentCount || 0}</Text> Comments</Text>
               </View>
-           </View>
-        )}
-        renderItem={({ item }) => (
-           <View style={[styles.commentItem, { borderBottomColor: theme.border }]}>
-              <Image source={{ uri: item.avatar }} style={styles.commentAvatar} />
-              <View style={{ flex: 1 }}>
-                 <View style={styles.row}>
-                    <Text style={[styles.commentName, { color: theme.text }]}>{item.username}</Text>
-                    <Text style={[styles.commentTime, { color: theme.subText }]}>
-                        · {item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() : 'now'}
-                    </Text>
-                 </View>
-                 <Text style={{ color: theme.text, marginTop: 2 }}>{item.text}</Text>
+
+              <View style={styles.mainActions}>
+                   <TouchableOpacity onPress={() => toggleAction(postId as string, 'likes', post.likes || [])}><Ionicons name={post.likes?.includes(user?.uid)?"heart":"heart-outline"} size={22} color={theme.text} /></TouchableOpacity>
+                   <TouchableOpacity><Ionicons name="chatbubble-outline" size={22} color={theme.text} /></TouchableOpacity>
+                   <TouchableOpacity onPress={() => toggleAction(postId as string, 'reposts', post.reposts || [])}><Ionicons name="repeat-outline" size={22} color={theme.text} /></TouchableOpacity>
+                   <TouchableOpacity onPress={() => handleShare(post.text)}><Ionicons name="share-outline" size={22} color={theme.text} /></TouchableOpacity>
               </View>
            </View>
         )}
+        renderItem={renderComment}
       />
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
@@ -155,11 +230,16 @@ const styles = StyleSheet.create({
   handle: { fontSize: 14 },
   postText: { fontSize: 18, marginTop: 10, lineHeight: 26 },
   statsRow: { flexDirection: 'row', marginTop: 15, paddingVertical: 10, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
+  mainActions: { flexDirection: 'row', justifyContent: 'space-around', paddingTop: 10 },
   
   commentItem: { flexDirection: 'row', padding: 15, borderBottomWidth: 0.5 },
   commentAvatar: { width: 35, height: 35, borderRadius: 17.5, marginRight: 10 },
   commentName: { fontWeight: 'bold', fontSize: 14 },
   commentTime: { fontSize: 12 },
+  
+  commentActions: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 40, marginTop: 5 },
+  actionButton: { flexDirection: 'row', alignItems: 'center' },
+  actionText: { fontSize: 12, marginLeft: 5 },
   
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 0.5 },
   input: { flex: 1, borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, marginRight: 10, fontSize: 16 },
