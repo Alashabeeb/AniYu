@@ -1,112 +1,104 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore'; // ✅ Import getDoc
 import React, { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
 
-// 👇 1. Import Firebase functions
-import { addDoc, collection } from 'firebase/firestore';
-import { db } from '../../config/firebaseConfig';
-
 export default function ProfileScreen() {
   const router = useRouter();
-  const { theme } = useTheme(); 
+  const { theme } = useTheme();
+  
   const [favorites, setFavorites] = useState<any[]>([]);
+  const [userData, setUserData] = useState<any>(null); // ✅ Store User Data
+  const [refreshing, setRefreshing] = useState(false);
 
+  // Load data whenever the screen comes into focus (so it updates after editing)
   useFocusEffect(
-    useCallback(() => { loadProfileData(); }, [])
+    useCallback(() => { 
+        loadProfileData(); 
+    }, [])
   );
 
   const loadProfileData = async () => {
-    const favs = await getFavorites();
-    setFavorites(favs);
+    setRefreshing(true);
+    try {
+        // 1. Load Favorites
+        const favs = await getFavorites();
+        setFavorites(favs);
+
+        // 2. Load User Details from Firestore
+        const user = auth.currentUser;
+        if (user) {
+            const docRef = doc(db, "users", user.uid);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setUserData(docSnap.data());
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setRefreshing(false);
+    }
   };
 
-  // 👇 2. The Function to upload dummy data
-  const addAnimeToDatabase = async () => {
-    const animeList = [
-      {
-        title: "One Piece",
-        image: "https://cdn.myanimelist.net/images/anime/6/73245.jpg",
-        synopsis: "Gol D. Roger was known as the 'Pirate King', the strongest and most infamous being to have sailed the Grand Line. The capture and death of Roger by the World Government brought a change to the world.",
-        score: 9.2,
-        year: 1999,
-        type: "TV",
-        episodes: 1000,
-        popularity: 1
-      },
-      {
-        title: "Attack on Titan",
-        image: "https://cdn.myanimelist.net/images/anime/10/47347.jpg",
-        synopsis: "Centuries ago, mankind was slaughtered to near extinction by monstrous humanoid creatures called titans, forcing humans to hide in fear behind enormous concentric walls.",
-        score: 9.0,
-        year: 2013,
-        type: "TV",
-        episodes: 25,
-        popularity: 2
-      },
-      {
-        title: "Jujutsu Kaisen",
-        image: "https://cdn.myanimelist.net/images/anime/1171/109222.jpg",
-        synopsis: "Idly indulging in baseless paranormal activities with the Occult Club, high schooler Yuuji Itadori spends his days at either the clubroom or the hospital, where he visits his bedridden grandfather.",
-        score: 8.7,
-        year: 2020,
-        type: "TV",
-        episodes: 24,
-        popularity: 3
-      },
-      {
-        title: "Demon Slayer",
-        image: "https://cdn.myanimelist.net/images/anime/1286/99889.jpg",
-        synopsis: "Ever since the death of his father, the burden of supporting the family has fallen upon Tanjirou Kamado's shoulders.",
-        score: 8.9,
-        year: 2019,
-        type: "TV",
-        episodes: 26,
-        popularity: 4
-      }
-    ];
-
-    try {
-      for (const anime of animeList) {
-        await addDoc(collection(db, 'anime'), anime);
-      }
-      Alert.alert("Success!", "Anime added to database. Restart the app to see them!");
-    } catch (e: any) {
-      Alert.alert("Error", e.message);
-    }
+  const handleLogout = async () => {
+    Alert.alert("Log Out", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log Out", style: "destructive", onPress: () => signOut(auth) }
+    ]);
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadProfileData} tintColor={theme.tint} />}
+      >
         
+        {/* Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-             <Image source={{ uri: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} style={[styles.avatar, { borderColor: theme.tint }]} />
+             {/* Dynamic Avatar */}
+             <Image 
+                source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} 
+                style={[styles.avatar, { borderColor: theme.tint }]} 
+             />
              <View style={[styles.rankBadge, { borderColor: theme.background }]}>
                  <Text style={styles.rankText}>JONIN</Text>
              </View>
           </View>
-          <Text style={[styles.username, { color: theme.text }]}>@OtakuKing</Text>
-          <Text style={[styles.bio, { color: theme.subText }]}>Just a guy looking for the One Piece.</Text>
+          
+          {/* ✅ UPDATED: Display Name (Big) and Username (Small) */}
+          <Text style={[styles.displayName, { color: theme.text }]}>
+            {userData?.displayName || "New User"}
+          </Text>
+          <Text style={[styles.username, { color: theme.subText }]}>
+            @{userData?.username || "username"}
+          </Text>
+          
+          <Text style={[styles.bio, { color: theme.subText }]}>
+            {userData?.bio || "No bio yet."}
+          </Text>
+
+          {/* Edit Profile Button */}
+          <TouchableOpacity 
+            style={[styles.editBtn, { borderColor: theme.border }]}
+            onPress={() => router.push('/edit-profile')}
+          >
+            <Text style={{ color: theme.text, fontWeight: '600' }}>Edit Profile</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* 👇 3. Temporary Admin Button */}
-        <TouchableOpacity 
-            onPress={addAnimeToDatabase} 
-            style={{ backgroundColor: '#FF6B6B', padding: 15, marginHorizontal: 20, marginTop: 20, borderRadius: 12 }}
-        >
-            <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold' }}>
-                ADMIN: Upload Anime Data
-            </Text>
-        </TouchableOpacity>
-
+        {/* Stats */}
         <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
             <View style={styles.statItem}>
                 <Text style={[styles.statNum, { color: theme.text }]}>142</Text>
@@ -130,13 +122,14 @@ export default function ProfileScreen() {
             )}
         </View>
 
+        {/* Menu */}
         <View style={styles.menuContainer}>
             <MenuItem icon="settings-outline" label="Settings" theme={theme} onPress={() => router.push('/settings')} isLink />
             <MenuItem icon="download-outline" label="Downloads" theme={theme} onPress={() => router.push('/downloads')} isLink />
             <MenuItem icon="notifications-outline" label="Notifications" theme={theme} />
             <MenuItem icon="help-circle-outline" label="Help & Support" theme={theme} />
             
-            <TouchableOpacity style={styles.menuItem}>
+            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(255, 107, 107, 0.1)' }]}>
                     <Ionicons name="log-out-outline" size={22} color={theme.tint} />
                 </View>
@@ -150,7 +143,7 @@ export default function ProfileScreen() {
   );
 }
 
-function MenuItem({ icon, label, theme, onPress, isLink }: any) {
+function MenuItem({ icon, label, theme, onPress }: any) {
     return (
         <TouchableOpacity style={styles.menuItem} onPress={onPress}>
             <View style={[styles.iconBox, { backgroundColor: theme.card }]}>
@@ -169,9 +162,14 @@ const styles = StyleSheet.create({
   avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3 },
   rankBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 2 },
   rankText: { fontSize: 10, fontWeight: 'bold', color: 'black' },
-  username: { fontSize: 22, fontWeight: 'bold', marginTop: 12 },
-  bio: { marginTop: 4 },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 30, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
+  
+  // New Styles for Names
+  displayName: { fontSize: 22, fontWeight: 'bold', marginTop: 12 },
+  username: { fontSize: 14, marginTop: 2 },
+  bio: { marginTop: 8, textAlign: 'center', paddingHorizontal: 40, fontSize: 13, lineHeight: 18 },
+  editBtn: { marginTop: 15, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+
+  statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 25, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
   statItem: { alignItems: 'center' },
   statNum: { fontSize: 18, fontWeight: 'bold' },
   statLabel: { fontSize: 12 },
