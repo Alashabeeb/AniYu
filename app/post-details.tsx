@@ -5,6 +5,7 @@ import {
     addDoc,
     arrayRemove, arrayUnion,
     collection, doc,
+    getDoc,
     increment,
     onSnapshot, orderBy,
     query, serverTimestamp, updateDoc,
@@ -34,12 +35,10 @@ export default function PostDetailsScreen() {
   useEffect(() => {
     if (!postId) return;
 
-    // 1. Fetch MAIN Post
     const postUnsub = onSnapshot(doc(db, 'posts', postId as string), (doc) => {
       if (doc.exists()) setPost({ id: doc.id, ...doc.data() });
     });
 
-    // 2. Fetch REPLIES (Query 'posts' where parentId == current postId)
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', postId), 
@@ -71,11 +70,20 @@ export default function PostDetailsScreen() {
     if (!newComment.trim() || !user) return;
     setSending(true);
     try {
+      const userDoc = await getDoc(doc(db, "users", user.uid));
+      const userData = userDoc.exists() ? userDoc.data() : {};
+      
+      // ✅ Correctly separating Username (@handle) vs DisplayName (Bold Name)
+      const realUsername = userData.username || user.email?.split('@')[0] || "user"; 
+      const realDisplayName = userData.displayName || user.displayName || "Anonymous";
+      const realAvatar = userData.avatar || user.photoURL;
+
       await addDoc(collection(db, 'posts'), {
         text: newComment,
         userId: user.uid,
-        username: user.displayName || "Anonymous",
-        userAvatar: user.photoURL, 
+        username: realUsername,        
+        displayName: realDisplayName, 
+        userAvatar: realAvatar,
         createdAt: serverTimestamp(),
         parentId: postId, 
         likes: [],
@@ -97,7 +105,6 @@ export default function PostDetailsScreen() {
 
   if (!post) return <View style={[styles.container, { backgroundColor: theme.background }]} />;
 
-  // Helper to calculate time (e.g. "2s", "5m")
   const formatTimeAgo = (timestamp: any) => {
     if (!timestamp?.seconds) return "now";
     const seconds = Math.floor((new Date().getTime() / 1000) - timestamp.seconds);
@@ -110,9 +117,10 @@ export default function PostDetailsScreen() {
   const renderComment = ({ item }: { item: any }) => {
       const isLiked = item.likes?.includes(user?.uid);
       const isReposted = item.reposts?.includes(user?.uid);
-      
-      // ✅ Use smart time format
       const timeAgo = formatTimeAgo(item.createdAt);
+
+      const displayName = item.displayName || item.username;
+      const handle = item.username || "user";
 
       return (
         <TouchableOpacity 
@@ -123,9 +131,14 @@ export default function PostDetailsScreen() {
             <Image source={{ uri: item.userAvatar }} style={styles.commentAvatar} />
             <View style={{ flex: 1 }}>
                 <View style={styles.row}>
-                    <Text style={[styles.commentName, { color: theme.text }]}>{item.username}</Text>
-                    <Text style={[styles.commentTime, { color: theme.subText }]}>· {timeAgo}</Text>
+                    <Text style={[styles.commentName, { color: theme.text }]} numberOfLines={1}>
+                        {displayName}
+                    </Text>
+                    <Text style={[styles.commentHandle, { color: theme.subText }]} numberOfLines={1}>
+                        @{handle} · {timeAgo}
+                    </Text>
                 </View>
+
                 <Text style={{ color: theme.text, marginTop: 2, marginBottom: 8 }}>{item.text}</Text>
 
                 <View style={styles.commentActions}>
@@ -157,6 +170,7 @@ export default function PostDetailsScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
+      {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
@@ -164,56 +178,61 @@ export default function PostDetailsScreen() {
         <Text style={[styles.headerTitle, { color: theme.text }]}>Post</Text>
       </View>
 
-      <FlatList
-        data={comments}
-        keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingBottom: 100 }}
-        ListHeaderComponent={() => (
-           <View style={[styles.mainPost, { borderBottomColor: theme.border }]}>
-              <View style={styles.row}>
-                 <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
-                 <View style={{ marginLeft: 10 }}>
-                    <Text style={[styles.name, { color: theme.text }]}>{post.displayName || post.username}</Text>
-                    <Text style={[styles.handle, { color: theme.subText }]}>@{post.username}</Text>
-                 </View>
-              </View>
-              <Text style={[styles.postText, { color: theme.text }]}>{post.text}</Text>
-              
-              {/* Main Post Date */}
-              <Text style={{ color: theme.subText, marginTop: 10, fontSize: 12 }}>
-                 {post.createdAt?.seconds ? new Date(post.createdAt.seconds * 1000).toLocaleString() : 'Just now'}
-              </Text>
-              
-              <View style={[styles.statsRow, { borderTopColor: theme.border, borderBottomColor: theme.border }]}>
-                  <Text style={{ color: theme.subText }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.likes?.length || 0}</Text> Likes</Text>
-                  <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.reposts?.length || 0}</Text> Reposts</Text>
-                  <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.commentCount || 0}</Text> Comments</Text>
-              </View>
+      {/* ✅ WRAP EVERYTHING IN KEYBOARD AVOIDING VIEW */}
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} // Set to 0 because it's inside SafeArea
+      >
+          <FlatList
+            data={comments}
+            keyExtractor={item => item.id}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            ListHeaderComponent={() => (
+               <View style={[styles.mainPost, { borderBottomColor: theme.border }]}>
+                  <View style={styles.row}>
+                     <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
+                     <View style={{ marginLeft: 10 }}>
+                        <Text style={[styles.name, { color: theme.text }]}>{post.displayName || post.username}</Text>
+                        <Text style={[styles.handle, { color: theme.subText }]}>@{post.username}</Text>
+                     </View>
+                  </View>
+                  <Text style={[styles.postText, { color: theme.text }]}>{post.text}</Text>
+                  
+                  <Text style={{ color: theme.subText, marginTop: 10, fontSize: 12 }}>
+                     {post.createdAt?.seconds ? new Date(post.createdAt.seconds * 1000).toLocaleString() : 'Just now'}
+                  </Text>
+                  
+                  <View style={[styles.statsRow, { borderTopColor: theme.border, borderBottomColor: theme.border }]}>
+                      <Text style={{ color: theme.subText }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.likes?.length || 0}</Text> Likes</Text>
+                      <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.reposts?.length || 0}</Text> Reposts</Text>
+                      <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.commentCount || 0}</Text> Comments</Text>
+                  </View>
 
-              <View style={styles.mainActions}>
-                   <TouchableOpacity onPress={() => toggleAction(postId as string, 'likes', post.likes || [])}><Ionicons name={post.likes?.includes(user?.uid)?"heart":"heart-outline"} size={22} color={theme.text} /></TouchableOpacity>
-                   <TouchableOpacity><Ionicons name="chatbubble-outline" size={22} color={theme.text} /></TouchableOpacity>
-                   <TouchableOpacity onPress={() => toggleAction(postId as string, 'reposts', post.reposts || [])}><Ionicons name="repeat-outline" size={22} color={theme.text} /></TouchableOpacity>
-                   <TouchableOpacity onPress={() => handleShare(post.text)}><Ionicons name="share-outline" size={22} color={theme.text} /></TouchableOpacity>
-              </View>
-           </View>
-        )}
-        renderItem={renderComment}
-      />
+                  <View style={styles.mainActions}>
+                       <TouchableOpacity onPress={() => toggleAction(postId as string, 'likes', post.likes || [])}><Ionicons name={post.likes?.includes(user?.uid)?"heart":"heart-outline"} size={22} color={theme.text} /></TouchableOpacity>
+                       <TouchableOpacity><Ionicons name="chatbubble-outline" size={22} color={theme.text} /></TouchableOpacity>
+                       <TouchableOpacity onPress={() => toggleAction(postId as string, 'reposts', post.reposts || [])}><Ionicons name="repeat-outline" size={22} color={theme.text} /></TouchableOpacity>
+                       <TouchableOpacity onPress={() => handleShare(post.text)}><Ionicons name="share-outline" size={22} color={theme.text} /></TouchableOpacity>
+                  </View>
+               </View>
+            )}
+            renderItem={renderComment}
+          />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}>
-        <View style={[styles.inputContainer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
-            <TextInput
-                style={[styles.input, { color: theme.text, backgroundColor: theme.card }]}
-                placeholder="Post your reply"
-                placeholderTextColor={theme.subText}
-                value={newComment}
-                onChangeText={setNewComment}
-            />
-            <TouchableOpacity onPress={handleSendComment} disabled={!newComment.trim() || sending}>
-                {sending ? <ActivityIndicator color={theme.tint} /> : <Ionicons name="send" size={24} color={theme.tint} />}
-            </TouchableOpacity>
-        </View>
+          {/* Input Bar */}
+          <View style={[styles.inputContainer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
+              <TextInput
+                  style={[styles.input, { color: theme.text, backgroundColor: theme.card }]}
+                  placeholder="Post your reply"
+                  placeholderTextColor={theme.subText}
+                  value={newComment}
+                  onChangeText={setNewComment}
+              />
+              <TouchableOpacity onPress={handleSendComment} disabled={!newComment.trim() || sending}>
+                  {sending ? <ActivityIndicator color={theme.tint} /> : <Ionicons name="send" size={24} color={theme.tint} />}
+              </TouchableOpacity>
+          </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -234,13 +253,13 @@ const styles = StyleSheet.create({
   
   commentItem: { flexDirection: 'row', padding: 15, borderBottomWidth: 0.5 },
   commentAvatar: { width: 35, height: 35, borderRadius: 17.5, marginRight: 10 },
-  commentName: { fontWeight: 'bold', fontSize: 14 },
-  commentTime: { fontSize: 12 },
+  commentName: { fontWeight: 'bold', fontSize: 14, marginRight: 5 },
+  commentHandle: { fontSize: 12 }, 
   
   commentActions: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 40, marginTop: 5 },
   actionButton: { flexDirection: 'row', alignItems: 'center' },
   actionText: { fontSize: 12, marginLeft: 5 },
   
-  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 0.5 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 0.5, paddingBottom: 10 }, 
   input: { flex: 1, borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, marginRight: 10, fontSize: 16 },
 });

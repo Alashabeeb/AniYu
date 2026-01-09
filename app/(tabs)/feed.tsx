@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { ResizeMode, Video } from 'expo-av'; // ✅ Import Video Support
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
@@ -62,7 +63,6 @@ export default function FeedScreen() {
       router.push({ pathname: '/post-details', params: { postId } });
   };
 
-  // ✅ New helper to visit profiles
   const goToProfile = (userId: string) => {
       router.push({ pathname: '/feed-profile', params: { userId } });
   };
@@ -108,7 +108,6 @@ export default function FeedScreen() {
                     style={styles.tweetContainer}
                     onPress={() => goToDetails(item.id)}
                 >
-                    {/* ✅ CLICKABLE AVATAR -> GO TO PROFILE */}
                     <TouchableOpacity onPress={() => goToProfile(item.userId)}>
                         <View style={styles.avatarContainer}>
                             <Image source={{ uri: item.userAvatar }} style={styles.avatar} />
@@ -125,11 +124,28 @@ export default function FeedScreen() {
                             </Text>
                         </View>
 
-                        <Text style={[styles.tweetText, { color: theme.text }]}>
-                            {item.text}
-                        </Text>
+                        {/* Post Text */}
+                        {item.text ? (
+                            <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text>
+                        ) : null}
+
+                        {/* ✅ RENDER MEDIA (Image or Video) */}
+                        {item.mediaUrl && item.mediaType === 'image' && (
+                            <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" />
+                        )}
+                        
+                        {item.mediaUrl && item.mediaType === 'video' && (
+                            <Video
+                                source={{ uri: item.mediaUrl }}
+                                style={styles.postVideo}
+                                useNativeControls
+                                resizeMode={ResizeMode.COVER}
+                                isLooping
+                            />
+                        )}
 
                         <View style={styles.actionsRow}>
+                            {/* LIKE */}
                             <TouchableOpacity 
                                 style={styles.actionButton} 
                                 onPress={() => toggleLike(item.id, item.likes || [])}
@@ -144,6 +160,7 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
+                            {/* COMMENT */}
                             <TouchableOpacity 
                                 style={styles.actionButton}
                                 onPress={() => goToDetails(item.id)}
@@ -154,6 +171,7 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
+                            {/* REPOST */}
                             <TouchableOpacity 
                                 style={styles.actionButton}
                                 onPress={() => toggleRepost(item.id, item.reposts || [])}
@@ -168,6 +186,7 @@ export default function FeedScreen() {
                                 </Text>
                             </TouchableOpacity>
 
+                            {/* SHARE */}
                             <TouchableOpacity 
                                 style={styles.actionButton}
                                 onPress={() => handleShare(item.text)}
@@ -205,6 +224,11 @@ const styles = StyleSheet.create({
   name: { fontWeight: 'bold', fontSize: 15, marginRight: 5, flexShrink: 1 },
   handle: { fontSize: 14, flexShrink: 1 },
   tweetText: { fontSize: 15, lineHeight: 20, marginTop: 2, marginBottom: 10 },
+  
+  // ✅ Styles for Images and Videos
+  postImage: { width: '100%', height: 250, borderRadius: 15, marginTop: 10, marginBottom: 10 },
+  postVideo: { width: '100%', height: 250, borderRadius: 15, marginTop: 10, marginBottom: 10 },
+
   actionsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 40, marginTop: 5 },
   actionButton: { flexDirection: 'row', alignItems: 'center' },
   actionCount: { fontSize: 12, marginLeft: 5 },

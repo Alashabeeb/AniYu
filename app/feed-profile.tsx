@@ -9,7 +9,8 @@ import {
     getDocs,
     orderBy,
     query,
-    updateDoc,
+    setDoc,
+    updateDoc, // Used to create the missing profile
     where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -27,11 +28,9 @@ import { useTheme } from '../context/ThemeContext';
 export default function FeedProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { userId } = useLocalSearchParams(); // Get User ID from URL
+  const { userId } = useLocalSearchParams(); 
   const currentUser = auth.currentUser;
 
-  // Decision: Are we looking at "Me" or "Someone Else"?
-  // If userId is missing, fallback to current user. If both missing, it's undefined.
   const targetUserId = (userId as string) || currentUser?.uid; 
   const isOwnProfile = targetUserId === currentUser?.uid;
 
@@ -50,14 +49,29 @@ export default function FeedProfileScreen() {
     if (!targetUserId) return;
     try {
         // 1. Get Target User Details
-        const userSnap = await getDoc(doc(db, "users", targetUserId));
+        const userRef = doc(db, "users", targetUserId);
+        const userSnap = await getDoc(userRef);
+
         if (userSnap.exists()) {
             const data = userSnap.data();
             setUserData(data);
-            // Check if I am already following them
             if (currentUser && data.followers?.includes(currentUser.uid)) {
                 setIsFollowing(true);
             }
+        } else if (isOwnProfile && currentUser) {
+            // 🚨 SELF-HEALING: If profile doesn't exist, create it now!
+            const newProfile = {
+                username: currentUser.email?.split('@')[0] || "user",
+                displayName: currentUser.displayName || "New User",
+                email: currentUser.email,
+                avatar: currentUser.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime',
+                followers: [],
+                following: [],
+                createdAt: new Date()
+            };
+            await setDoc(userRef, newProfile);
+            setUserData(newProfile); // Update state immediately
+            console.log("✅ Created missing profile document for:", currentUser.email);
         }
 
         // 2. Get Their Posts
@@ -79,31 +93,27 @@ export default function FeedProfileScreen() {
         setRepostedPosts(repostSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
     } catch (e) {
-        console.error("Error fetching posts:", e);
+        console.error("Error fetching data:", e);
     } finally {
         setLoading(false);
     }
   };
 
-  // ✅ FOLLOW / UNFOLLOW LOGIC
   const handleFollow = async () => {
-      // FIX: Ensure targetUserId exists before using it
       if (!currentUser || isOwnProfile || !targetUserId) return;
       
-      // Optimistic UI Update
       setIsFollowing(!isFollowing); 
 
       const myRef = doc(db, "users", currentUser.uid);
       const targetRef = doc(db, "users", targetUserId);
 
+      // Use setDoc with merge to ensure documents exist before updating
       if (isFollowing) {
-          // Unfollow
-          await updateDoc(myRef, { following: arrayRemove(targetUserId) });
-          await updateDoc(targetRef, { followers: arrayRemove(currentUser.uid) });
+          await setDoc(myRef, { following: arrayRemove(targetUserId) }, { merge: true });
+          await setDoc(targetRef, { followers: arrayRemove(currentUser.uid) }, { merge: true });
       } else {
-          // Follow
-          await updateDoc(myRef, { following: arrayUnion(targetUserId) });
-          await updateDoc(targetRef, { followers: arrayUnion(currentUser.uid) });
+          await setDoc(myRef, { following: arrayUnion(targetUserId) }, { merge: true });
+          await setDoc(targetRef, { followers: arrayUnion(currentUser.uid) }, { merge: true });
       }
   };
 
@@ -199,7 +209,6 @@ export default function FeedProfileScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="white" />
@@ -221,7 +230,6 @@ export default function FeedProfileScreen() {
                         style={[styles.avatar, { borderColor: theme.background }]} 
                     />
                     
-                    {/* DYNAMIC BUTTON */}
                     {isOwnProfile ? (
                         <TouchableOpacity 
                             style={[styles.editBtn, { borderColor: theme.border }]}
@@ -314,7 +322,6 @@ export default function FeedProfileScreen() {
                                 </Text>
                             </View>
                             
-                            {/* DELETE BUTTON (Visible only to owner) */}
                             {isOwnProfile && item.userId === currentUser?.uid && (
                                 <TouchableOpacity onPress={() => handleDelete(item.id)}>
                                     <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
@@ -366,26 +373,20 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', padding: 15, position: 'absolute', top: 30, left: 0, zIndex: 10 },
   backBtn: { backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 5, marginRight: 10 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', textShadowColor: 'black', textShadowRadius: 5, marginLeft: 10 },
-  
   banner: { height: 120, backgroundColor: '#333' },
   profileInfo: { paddingHorizontal: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -35 },
   avatar: { width: 70, height: 70, borderRadius: 35, borderWidth: 3 },
   editBtn: { paddingHorizontal: 15, paddingVertical: 6, borderRadius: 20, borderWidth: 1, marginBottom: 5 },
-  
   nameSection: { paddingHorizontal: 15, marginTop: 5 },
   displayName: { fontSize: 20, fontWeight: 'bold' },
   username: { fontSize: 14 },
-  
   statsRow: { flexDirection: 'row', paddingHorizontal: 15, marginTop: 15, marginBottom: 15 },
   statNum: { fontWeight: 'bold', fontSize: 15 },
   statLabel: { fontWeight: 'normal', fontSize: 14 },
-
   tabRow: { flexDirection: 'row', borderBottomWidth: 1, marginTop: 10 },
   tab: { flex: 1, alignItems: 'center', paddingVertical: 12 },
   tabText: { fontWeight: '600' },
-
   separator: { height: 0.5, width: '100%' },
-
   tweetContainer: { flexDirection: 'row', padding: 15 },
   avatarContainer: { marginRight: 12 },
   postAvatar: { width: 50, height: 50, borderRadius: 25 },

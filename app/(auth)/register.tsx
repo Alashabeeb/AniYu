@@ -1,124 +1,147 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore'; // ✅ Import setDoc
 import React, { useState } from 'react';
 import {
-    ActivityIndicator, Alert,
-    KeyboardAvoidingView, Platform,
-    StyleSheet, Text, TextInput,
-    TouchableOpacity, View
+  ActivityIndicator, Alert, KeyboardAvoidingView,
+  Platform, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-export default function RegisterScreen() {
+export default function SignUpScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(''); // ✅ Added Username Field
   const [loading, setLoading] = useState(false);
 
-  const handleRegister = async () => {
-    if(!email || !password || !username) return Alert.alert("Error", "Please fill in all fields");
-    
+  const handleSignUp = async () => {
+    if (!email || !password || !username) {
+        Alert.alert("Error", "Please fill in all fields.");
+        return;
+    }
     setLoading(true);
+
     try {
-      // 1. Create User in Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+        // 1. Create User in Auth
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
 
-      // 2. Update Auth Profile (so auth.currentUser.displayName works)
-      await updateProfile(user, { displayName: username });
+        // 2. Set Display Name in Auth (Optional but good)
+        await updateProfile(user, { displayName: username });
 
-      // 3. Save extra User Data to Firestore Database
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        username: username,
-        email: email,
-        createdAt: new Date(),
-        role: 'user', 
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
-      });
+        // 3. ✅ CREATE DATABASE PROFILE IMMEDIATELY
+        await setDoc(doc(db, "users", user.uid), {
+            username: username.toLowerCase(),
+            displayName: username,
+            email: email,
+            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + username, // Random Avatar
+            bio: "I'm new here!",
+            followers: [],
+            following: [],
+            createdAt: new Date()
+        });
+
+        Alert.alert("Success", "Account created!", [
+            { text: "OK", onPress: () => router.replace('/(tabs)/feed') }
+        ]);
 
     } catch (error: any) {
-      Alert.alert("Registration Failed", error.message);
+        Alert.alert("Sign Up Failed", error.message);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={[styles.container, { backgroundColor: theme.background }]}
-    >
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.text }]}>Create Account 🚀</Text>
-        <Text style={[styles.subtitle, { color: theme.subText }]}>Join the AniYu community</Text>
-
-        <View style={styles.inputContainer}>
-          <Text style={[styles.label, { color: theme.text }]}>Username</Text>
-          <TextInput 
-            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
-            placeholder="OtakuKing"
-            placeholderTextColor={theme.subText}
-            value={username}
-            onChangeText={setUsername}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={[styles.label, { color: theme.text }]}>Email</Text>
-          <TextInput 
-            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
-            placeholder="you@example.com"
-            placeholderTextColor={theme.subText}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={[styles.label, { color: theme.text }]}>Password</Text>
-          <TextInput 
-            style={[styles.input, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
-            placeholder="Min 6 characters"
-            placeholderTextColor={theme.subText}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <TouchableOpacity 
-          style={[styles.button, { backgroundColor: theme.tint }]}
-          onPress={handleRegister}
-          disabled={loading}
-        >
-          {loading ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Sign Up</Text>}
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.content}>
+        
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
-          <Text style={{ color: theme.subText, textAlign: 'center' }}>
-            Already have an account? <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Log In</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+        <Text style={[styles.title, { color: theme.text }]}>Create Account</Text>
+        <Text style={[styles.subtitle, { color: theme.subText }]}>Join the AniYu community!</Text>
+
+        <View style={styles.form}>
+            {/* Username Input */}
+            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <Ionicons name="person-outline" size={20} color={theme.subText} style={styles.icon} />
+                <TextInput 
+                    placeholder="Username" 
+                    placeholderTextColor={theme.subText} 
+                    style={[styles.input, { color: theme.text }]} 
+                    value={username}
+                    onChangeText={setUsername}
+                    autoCapitalize="none"
+                />
+            </View>
+
+            {/* Email Input */}
+            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <Ionicons name="mail-outline" size={20} color={theme.subText} style={styles.icon} />
+                <TextInput 
+                    placeholder="Email" 
+                    placeholderTextColor={theme.subText} 
+                    style={[styles.input, { color: theme.text }]} 
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                />
+            </View>
+
+            {/* Password Input */}
+            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <Ionicons name="lock-closed-outline" size={20} color={theme.subText} style={styles.icon} />
+                <TextInput 
+                    placeholder="Password" 
+                    placeholderTextColor={theme.subText} 
+                    style={[styles.input, { color: theme.text }]} 
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                />
+            </View>
+
+            <TouchableOpacity 
+                style={[styles.button, { backgroundColor: theme.tint }]} 
+                onPress={handleSignUp}
+                disabled={loading}
+            >
+                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Sign Up</Text>}
+            </TouchableOpacity>
+        </View>
+
+        <View style={styles.footer}>
+            <Text style={{ color: theme.subText }}>Already have an account? </Text>
+            <TouchableOpacity onPress={() => router.push('/login')}>
+                <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Log In</Text>
+            </TouchableOpacity>
+        </View>
+
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center' },
-  content: { padding: 25 },
+  container: { flex: 1 },
+  content: { flex: 1, padding: 25, justifyContent: 'center' },
+  backBtn: { position: 'absolute', top: 20, left: 20, zIndex: 10 },
   title: { fontSize: 32, fontWeight: 'bold', marginBottom: 10 },
-  subtitle: { fontSize: 16, marginBottom: 30 },
-  inputContainer: { marginBottom: 20 },
-  label: { marginBottom: 8, fontWeight: '600' },
-  input: { padding: 15, borderRadius: 12, borderWidth: 1, fontSize: 16 },
-  button: { padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-  btnText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  subtitle: { fontSize: 16, marginBottom: 40 },
+  form: { width: '100%' },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, marginBottom: 15, paddingHorizontal: 15, height: 55 },
+  icon: { marginRight: 10 },
+  input: { flex: 1, fontSize: 16 },
+  button: { height: 55, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginTop: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 5 },
+  buttonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 30 },
 });
