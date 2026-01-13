@@ -2,15 +2,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-    arrayRemove, arrayUnion,
+    addDoc,
+    arrayRemove,
+    arrayUnion,
     collection,
     deleteDoc,
-    doc, getDoc,
+    doc,
+    getDoc,
     getDocs,
     orderBy,
     query,
+    serverTimestamp,
     setDoc,
-    updateDoc, // Used to create the missing profile
+    updateDoc,
     where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -18,12 +22,27 @@ import {
     ActivityIndicator,
     Alert,
     FlatList,
+    Modal,
     Share,
-    StyleSheet, Text, TouchableOpacity, View
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+
+const REPORT_REASONS = [
+    "Offensive content",
+    "Abusive behavior",
+    "Spam",
+    "Misinformation",
+    "Sexual content",
+    "Pretending to be someone else",
+    "Other"
+];
 
 export default function FeedProfileScreen() {
   const router = useRouter();
@@ -31,6 +50,7 @@ export default function FeedProfileScreen() {
   const { userId } = useLocalSearchParams(); 
   const currentUser = auth.currentUser;
 
+  // targetUserId can be string OR undefined
   const targetUserId = (userId as string) || currentUser?.uid; 
   const isOwnProfile = targetUserId === currentUser?.uid;
 
@@ -41,6 +61,12 @@ export default function FeedProfileScreen() {
   const [activeTab, setActiveTab] = useState('Posts'); 
   const [isFollowing, setIsFollowing] = useState(false); 
 
+  // Report State
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: 'user' | 'post', id: string, content?: string } | null>(null);
+
   useEffect(() => {
     fetchData();
   }, [targetUserId]);
@@ -48,7 +74,6 @@ export default function FeedProfileScreen() {
   const fetchData = async () => {
     if (!targetUserId) return;
     try {
-        // 1. Get Target User Details
         const userRef = doc(db, "users", targetUserId);
         const userSnap = await getDoc(userRef);
 
@@ -59,7 +84,6 @@ export default function FeedProfileScreen() {
                 setIsFollowing(true);
             }
         } else if (isOwnProfile && currentUser) {
-            // 🚨 SELF-HEALING: If profile doesn't exist, create it now!
             const newProfile = {
                 username: currentUser.email?.split('@')[0] || "user",
                 displayName: currentUser.displayName || "New User",
@@ -70,11 +94,9 @@ export default function FeedProfileScreen() {
                 createdAt: new Date()
             };
             await setDoc(userRef, newProfile);
-            setUserData(newProfile); // Update state immediately
-            console.log("✅ Created missing profile document for:", currentUser.email);
+            setUserData(newProfile);
         }
 
-        // 2. Get Their Posts
         const qMyPosts = query(
             collection(db, 'posts'), 
             where('userId', '==', targetUserId), 
@@ -83,7 +105,6 @@ export default function FeedProfileScreen() {
         const myPostsSnap = await getDocs(qMyPosts);
         setMyPosts(myPostsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
-        // 3. Get Their Reposts
         const qReposts = query(
             collection(db, 'posts'),
             where('reposts', 'array-contains', targetUserId),
@@ -101,13 +122,11 @@ export default function FeedProfileScreen() {
 
   const handleFollow = async () => {
       if (!currentUser || isOwnProfile || !targetUserId) return;
-      
       setIsFollowing(!isFollowing); 
 
       const myRef = doc(db, "users", currentUser.uid);
       const targetRef = doc(db, "users", targetUserId);
 
-      // Use setDoc with merge to ensure documents exist before updating
       if (isFollowing) {
           await setDoc(myRef, { following: arrayRemove(targetUserId) }, { merge: true });
           await setDoc(targetRef, { followers: arrayRemove(currentUser.uid) }, { merge: true });
@@ -135,7 +154,6 @@ export default function FeedProfileScreen() {
 
   const toggleLike = async (postId: string, currentLikes: string[]) => {
      if (!currentUser) return;
-     
      const updateList = (list: any[]) => list.map(p => {
         if (p.id === postId) {
             const isLiked = p.likes?.includes(currentUser.uid);
@@ -146,7 +164,6 @@ export default function FeedProfileScreen() {
         }
         return p;
      });
-
      setMyPosts(updateList);
      setRepostedPosts(updateList);
 
@@ -183,16 +200,51 @@ export default function FeedProfileScreen() {
   };
 
   const handleShare = async (text: string) => {
-    try {
-        await Share.share({ message: `Check out this post: "${text}"` });
-    } catch (error) {
-        console.log(error);
-    }
+    try { await Share.share({ message: `Check out this post: "${text}"` }); } catch (error) { console.log(error); }
   };
 
   const goToDetails = (postId: string) => {
       router.push({ pathname: '/post-details', params: { postId } });
   };
+
+  // ✅ SUBMIT REPORT
+  const submitReport = async (reason: string) => {
+    if (!currentUser || !reportTarget) return;
+    setReportLoading(true);
+    try {
+      await addDoc(collection(db, 'reports'), {
+        type: reportTarget.type,
+        targetId: reportTarget.id,
+        targetContent: reportTarget.content || 'Profile',
+        reportedBy: currentUser.uid,
+        reason: reason,
+        createdAt: serverTimestamp(),
+        status: 'pending'
+      });
+      Alert.alert("Report Submitted", "Thank you. We will review this.");
+      setReportModalVisible(false);
+      setReportTarget(null);
+    } catch (error) {
+      Alert.alert("Error", "Could not submit report.");
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  // ✅ OPEN MENU HELPERS
+  const openUserMenu = () => {
+      // 🟢 FIX: Ensure targetUserId exists before setting it to state
+      if (!targetUserId) return; 
+      
+      setReportTarget({ type: 'user', id: targetUserId });
+      setMenuVisible(true);
+  };
+
+  const openPostMenu = (post: any) => {
+      setReportTarget({ type: 'post', id: post.id, content: post.text });
+      setMenuVisible(true);
+  };
+
 
   if (loading) {
     return (
@@ -214,6 +266,13 @@ export default function FeedProfileScreen() {
             <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: 'white' }]}>{userData?.displayName || "User"}</Text>
+        
+        {/* Report Button (Only for other users) */}
+        {!isOwnProfile && (
+            <TouchableOpacity onPress={openUserMenu} style={[styles.backBtn, { marginLeft: 'auto', backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                <Ionicons name="ellipsis-horizontal" size={24} color="white" />
+            </TouchableOpacity>
+        )}
       </View>
 
       <FlatList
@@ -322,9 +381,13 @@ export default function FeedProfileScreen() {
                                 </Text>
                             </View>
                             
-                            {isOwnProfile && item.userId === currentUser?.uid && (
+                            {isOwnProfile && item.userId === currentUser?.uid ? (
                                 <TouchableOpacity onPress={() => handleDelete(item.id)}>
                                     <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity onPress={() => openPostMenu(item)}>
+                                    <Ionicons name="ellipsis-horizontal" size={16} color={theme.subText} />
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -364,13 +427,71 @@ export default function FeedProfileScreen() {
             </View>
         }
       />
+
+      {/* ✅ 1. MENU MODAL */}
+      <Modal visible={menuVisible} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
+            <View style={styles.modalOverlay}>
+                <View style={[styles.menuContainer, { backgroundColor: theme.card }]}>
+                    <TouchableOpacity 
+                        style={styles.menuItem} 
+                        onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
+                    >
+                        <Ionicons name="flag-outline" size={20} color="red" />
+                        <Text style={[styles.menuText, { color: 'red' }]}>
+                            {reportTarget?.type === 'user' ? 'Report Profile' : 'Report Post'}
+                        </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
+                         <Ionicons name="close" size={20} color={theme.text} />
+                         <Text style={[styles.menuText, { color: theme.text }]}>Cancel</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ✅ 2. REPORT REASON MODAL */}
+      <Modal visible={reportModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+            <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
+                <Text style={[styles.reportTitle, { color: theme.text }]}>Report {reportTarget?.type === 'user' ? 'User' : 'Post'}</Text>
+                <Text style={{ color: theme.subText, marginBottom: 15, textAlign: 'center' }}>
+                    Why are you reporting this?
+                </Text>
+
+                {REPORT_REASONS.map((reason) => (
+                    <TouchableOpacity 
+                        key={reason} 
+                        style={[styles.reasonBtn, { borderColor: theme.border }]}
+                        onPress={() => submitReport(reason)}
+                        disabled={reportLoading}
+                    >
+                        <Text style={{ color: theme.text }}>{reason}</Text>
+                        <Ionicons name="chevron-forward" size={16} color={theme.subText} />
+                    </TouchableOpacity>
+                ))}
+
+                <TouchableOpacity 
+                    style={{ marginTop: 10, padding: 10 }}
+                    onPress={() => setReportModalVisible(false)}
+                >
+                    <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Cancel</Text>
+                </TouchableOpacity>
+
+                {reportLoading && <ActivityIndicator style={{ position: 'absolute' }} size="large" color={theme.tint} />}
+            </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 15, position: 'absolute', top: 30, left: 0, zIndex: 10 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 15, position: 'absolute', top: 30, left: 0, zIndex: 10, width: '100%' },
   backBtn: { backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20, padding: 5, marginRight: 10 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', textShadowColor: 'black', textShadowRadius: 5, marginLeft: 10 },
   banner: { height: 120, backgroundColor: '#333' },
@@ -398,4 +519,17 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 30 },
   actionButton: { flexDirection: 'row', alignItems: 'center' },
   actionCount: { fontSize: 12, marginLeft: 5 },
+
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  menuContainer: { width: 250, borderRadius: 12, padding: 10, elevation: 5 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 12 },
+  menuText: { fontSize: 16, marginLeft: 12, fontWeight: '500' },
+
+  reportContainer: { width: '90%', borderRadius: 16, padding: 20, alignItems: 'center', elevation: 10 },
+  reportTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 5 },
+  reasonBtn: { 
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      width: '100%', padding: 15, borderBottomWidth: 0.5 
+  }
 });
