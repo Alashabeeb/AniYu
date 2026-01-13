@@ -1,17 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router'; // ✅ Added Stack
 import { updateProfile } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert, KeyboardAvoidingView, Platform, ScrollView,
-    StyleSheet, Text, TextInput, TouchableOpacity, View
+  ActivityIndicator,
+  Alert, KeyboardAvoidingView, Platform, ScrollView,
+  StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+
+const GENRES = ["Action", "Adventure", "Romance", "Fantasy", "Drama", "Comedy", "Sci-Fi", "Slice of Life", "Sports", "Mystery"];
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -23,8 +25,8 @@ export default function EditProfileScreen() {
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [avatarSeed, setAvatarSeed] = useState('');
+  const [interests, setInterests] = useState<string[]>([]);
 
-  // 1. Load current data when screen opens
   useEffect(() => {
     loadUserData();
   }, []);
@@ -40,21 +42,27 @@ export default function EditProfileScreen() {
         setDisplayName(data.displayName || '');
         setUsername(data.username || '');
         setBio(data.bio || '');
-        // Extract seed from URL or default to username
         setAvatarSeed(data.avatar?.split('seed=')[1] || data.username);
+        setInterests(data.interests || []);
       }
     } catch (error) {
       console.log("Error loading profile:", error);
     }
   };
 
-  // 2. Generate a new random avatar
   const randomizeAvatar = () => {
     const randomSeed = Math.random().toString(36).substring(7);
     setAvatarSeed(randomSeed);
   };
 
-  // 3. Save Changes
+  const toggleInterest = (genre: string) => {
+      if (interests.includes(genre)) {
+          setInterests(interests.filter(i => i !== genre));
+      } else {
+          setInterests([...interests, genre]);
+      }
+  };
+
   const handleSave = async () => {
     if (!user) return;
     setLoading(true);
@@ -62,19 +70,18 @@ export default function EditProfileScreen() {
     try {
       const newAvatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 
-      // A. Update Auth Profile (Display Name only)
       await updateProfile(user, { 
           displayName: displayName, 
           photoURL: newAvatarUrl 
       });
 
-      // B. Update Database (All fields)
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, {
         displayName: displayName,
         username: username,
         bio: bio,
-        avatar: newAvatarUrl
+        avatar: newAvatarUrl,
+        interests: interests 
       });
 
       Alert.alert("Success", "Profile updated!", [
@@ -90,18 +97,22 @@ export default function EditProfileScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Edit Profile</Text>
-        <TouchableOpacity onPress={handleSave} disabled={loading}>
-            {loading ? <ActivityIndicator color={theme.tint} /> : (
-                <Text style={{ color: theme.tint, fontWeight: 'bold', fontSize: 16 }}>Save</Text>
-            )}
-        </TouchableOpacity>
-      </View>
+      {/* ✅ NATIVE HEADER CONFIGURATION */}
+      <Stack.Screen 
+        options={{
+            title: 'Edit Profile',
+            headerStyle: { backgroundColor: theme.background },
+            headerTintColor: theme.text,
+            headerTitleStyle: { fontWeight: 'bold' },
+            headerRight: () => (
+                <TouchableOpacity onPress={handleSave} disabled={loading}>
+                    {loading ? <ActivityIndicator color={theme.tint} /> : (
+                        <Text style={{ color: theme.tint, fontWeight: 'bold', fontSize: 16 }}>Save</Text>
+                    )}
+                </TouchableOpacity>
+            )
+        }}
+      />
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 20 }}>
@@ -128,7 +139,6 @@ export default function EditProfileScreen() {
                     placeholder="e.g. Monkey D. Luffy"
                     placeholderTextColor={theme.subText}
                 />
-                <Text style={styles.hint}>This name will appear above your username.</Text>
             </View>
 
             <View style={styles.formGroup}>
@@ -156,6 +166,35 @@ export default function EditProfileScreen() {
                 />
             </View>
 
+            {/* Interests Section */}
+            <View style={styles.formGroup}>
+                <Text style={[styles.label, { color: theme.subText }]}>My Interests (Select for Feed)</Text>
+                <Text style={[styles.hint, { marginBottom: 10 }]}>These help us show you posts you like in the "All" tab.</Text>
+                
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {GENRES.map(genre => (
+                        <TouchableOpacity 
+                            key={genre}
+                            onPress={() => toggleInterest(genre)}
+                            style={{
+                                paddingHorizontal: 14, 
+                                paddingVertical: 8, 
+                                borderRadius: 20,
+                                backgroundColor: interests.includes(genre) ? theme.tint : theme.card,
+                                borderWidth: 1, 
+                                borderColor: interests.includes(genre) ? theme.tint : theme.border
+                            }}
+                        >
+                            <Text style={{ 
+                                color: interests.includes(genre) ? 'white' : theme.text, 
+                                fontSize: 13,
+                                fontWeight: '600'
+                            }}>{genre}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            </View>
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -164,8 +203,7 @@ export default function EditProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
+  // Custom header styles REMOVED
   avatarSection: { alignItems: 'center', marginBottom: 30 },
   avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 2, marginBottom: 15 },
   changeAvatarBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },

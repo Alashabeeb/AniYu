@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router'; // ✅ Added Stack
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
@@ -17,6 +17,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db, storage } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 
+const GENRES = ["Action", "Adventure", "Romance", "Fantasy", "Drama", "Comedy", "Sci-Fi", "Slice of Life", "Sports", "Mystery"];
+
 export default function CreatePostScreen() {
   const router = useRouter();
   const { theme } = useTheme();
@@ -26,6 +28,7 @@ export default function CreatePostScreen() {
   const [loading, setLoading] = useState(false);
   const [media, setMedia] = useState<any>(null);
   const [avatar, setAvatar] = useState(user?.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime');
+  const [selectedTag, setSelectedTag] = useState('');
 
   useEffect(() => {
      if(user) {
@@ -82,6 +85,7 @@ export default function CreatePostScreen() {
         displayName: realDisplayName, 
         username: realUsername,       
         userAvatar: realAvatar,
+        tags: selectedTag ? [selectedTag] : [], 
         createdAt: serverTimestamp(),
         likes: [],
         reposts: [],
@@ -100,22 +104,36 @@ export default function CreatePostScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* 1. Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ color: theme.text, fontSize: 16 }}>Cancel</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.postBtn, { backgroundColor: (text.trim() || media) ? theme.tint : theme.card }]} 
-          onPress={handlePost}
-          disabled={(!text.trim() && !media) || loading}
-        >
-          {loading ? <ActivityIndicator color="white" size="small" /> : (
-             <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>Post</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      {/* ✅ NATIVE HEADER CONFIGURATION */}
+      <Stack.Screen 
+        options={{
+            title: 'Create Post',
+            headerStyle: { backgroundColor: theme.background },
+            headerTintColor: theme.text,
+            headerTitleStyle: { fontWeight: 'bold' },
+            headerLeft: () => (
+                <TouchableOpacity onPress={() => router.back()}>
+                    <Text style={{ color: theme.text, fontSize: 16 }}>Cancel</Text>
+                </TouchableOpacity>
+            ),
+            headerRight: () => (
+                <TouchableOpacity 
+                  onPress={handlePost} 
+                  disabled={(!text.trim() && !media) || loading}
+                  style={{ 
+                    backgroundColor: (!text.trim() && !media) ? theme.card : theme.tint,
+                    paddingHorizontal: 15,
+                    paddingVertical: 6,
+                    borderRadius: 20
+                  }}
+                >
+                  {loading ? <ActivityIndicator color="white" size="small" /> : (
+                     <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }}>Post</Text>
+                  )}
+                </TouchableOpacity>
+            )
+        }}
+      />
 
       {/* 2. Scrollable Content Area */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
@@ -153,12 +171,42 @@ export default function CreatePostScreen() {
                 )}
              </View>
          </View>
+
+         {/* Genre/Tag Selector UI */}
+         <View style={{ marginTop: 20, paddingHorizontal: 15 }}>
+            <Text style={{ color: theme.subText, fontSize: 12, marginBottom: 8, fontWeight: 'bold' }}>
+                ADD A TOPIC TAG (Optional)
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {GENRES.map(genre => (
+                    <TouchableOpacity 
+                        key={genre}
+                        onPress={() => setSelectedTag(genre === selectedTag ? '' : genre)}
+                        style={{
+                            paddingHorizontal: 14, 
+                            paddingVertical: 8, 
+                            borderRadius: 20, 
+                            backgroundColor: selectedTag === genre ? theme.tint : theme.card,
+                            borderWidth: 1, 
+                            borderColor: selectedTag === genre ? theme.tint : theme.border
+                        }}
+                    >
+                        <Text style={{ 
+                            color: selectedTag === genre ? 'white' : theme.text, 
+                            fontSize: 12,
+                            fontWeight: '600'
+                        }}>{genre}</Text>
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
+         </View>
+
       </ScrollView>
 
       {/* 3. Toolbar Fixed at Bottom */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} // Adjust if needed
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0} 
       >
         <View style={[styles.toolbar, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
             <TouchableOpacity onPress={pickMedia} style={styles.toolIcon}>
@@ -172,10 +220,6 @@ export default function CreatePostScreen() {
             <TouchableOpacity style={styles.toolIcon}>
                 <Ionicons name="list-outline" size={24} color={theme.tint} />
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.toolIcon}>
-                <Ionicons name="location-outline" size={24} color={theme.tint} />
-            </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
@@ -186,24 +230,8 @@ export default function CreatePostScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   
-  // Header
-  header: { 
-      flexDirection: 'row', 
-      justifyContent: 'space-between', 
-      alignItems: 'center', 
-      paddingHorizontal: 20, 
-      paddingVertical: 10,
-      borderBottomWidth: 0.5,
-      borderBottomColor: 'rgba(0,0,0,0.1)'
-  },
-  postBtn: { 
-      paddingHorizontal: 20, 
-      paddingVertical: 8, 
-      borderRadius: 20, 
-      minWidth: 70, 
-      alignItems: 'center' 
-  },
-
+  // Custom header styles REMOVED
+  
   // Content Layout
   scrollContent: { paddingVertical: 10 },
   inputRow: { flexDirection: 'row', paddingHorizontal: 15 },
