@@ -1,14 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useRouter } from 'expo-router'; // ✅ Added Stack
+import { Stack, useRouter } from 'expo-router';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert,
   Image,
-  KeyboardAvoidingView, Platform,
   ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
@@ -104,13 +103,12 @@ export default function CreatePostScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* ✅ NATIVE HEADER CONFIGURATION */}
+      {/* Header */}
       <Stack.Screen 
         options={{
-            title: 'Create Post',
+            title: '', 
             headerStyle: { backgroundColor: theme.background },
-            headerTintColor: theme.text,
-            headerTitleStyle: { fontWeight: 'bold' },
+            headerShadowVisible: false,
             headerLeft: () => (
                 <TouchableOpacity onPress={() => router.back()}>
                     <Text style={{ color: theme.text, fontSize: 16 }}>Cancel</Text>
@@ -135,7 +133,6 @@ export default function CreatePostScreen() {
         }}
       />
 
-      {/* 2. Scrollable Content Area */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
          <View style={styles.inputRow}>
              <Image source={{ uri: avatar }} style={styles.avatar} />
@@ -151,7 +148,7 @@ export default function CreatePostScreen() {
                     onChangeText={setText}
                 />
 
-                {/* Media Preview inside the scroll area */}
+                {/* Media Preview */}
                 {media && (
                     <View style={styles.previewWrapper}>
                         {media.type === 'video' ? (
@@ -165,17 +162,32 @@ export default function CreatePostScreen() {
                             <Image source={{ uri: media.uri }} style={styles.mediaPreview} />
                         )}
                         <TouchableOpacity style={styles.removeBtn} onPress={() => setMedia(null)}>
-                            <Ionicons name="close" size={18} color="white" />
+                            <Ionicons name="close" size={16} color="white" />
                         </TouchableOpacity>
                     </View>
                 )}
              </View>
          </View>
 
-         {/* Genre/Tag Selector UI */}
-         <View style={{ marginTop: 20, paddingHorizontal: 15 }}>
-            <Text style={{ color: theme.subText, fontSize: 12, marginBottom: 8, fontWeight: 'bold' }}>
-                ADD A TOPIC TAG (Optional)
+         {/* ✅ UPDATED: Smaller, Compact Toolbar */}
+         <View style={styles.inlineToolbar}>
+            <TouchableOpacity onPress={pickMedia} style={styles.toolIcon}>
+                <Ionicons name="image-outline" size={20} color={theme.tint} />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.toolIcon}>
+                <Ionicons name="camera-outline" size={20} color={theme.tint} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolIcon}>
+                <Ionicons name="list-outline" size={20} color={theme.tint} />
+            </TouchableOpacity>
+         </View>
+
+         {/* Topic Tag Selector */}
+         <View style={{ marginTop: 5, paddingHorizontal: 15 }}>
+            <Text style={{ color: theme.subText, fontSize: 11, marginBottom: 8, fontWeight: 'bold' }}>
+                ADD A TOPIC TAG
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {GENRES.map(genre => (
@@ -183,9 +195,9 @@ export default function CreatePostScreen() {
                         key={genre}
                         onPress={() => setSelectedTag(genre === selectedTag ? '' : genre)}
                         style={{
-                            paddingHorizontal: 14, 
-                            paddingVertical: 8, 
-                            borderRadius: 20, 
+                            paddingHorizontal: 12, 
+                            paddingVertical: 6, 
+                            borderRadius: 15, 
                             backgroundColor: selectedTag === genre ? theme.tint : theme.card,
                             borderWidth: 1, 
                             borderColor: selectedTag === genre ? theme.tint : theme.border
@@ -193,7 +205,7 @@ export default function CreatePostScreen() {
                     >
                         <Text style={{ 
                             color: selectedTag === genre ? 'white' : theme.text, 
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: '600'
                         }}>{genre}</Text>
                     </TouchableOpacity>
@@ -203,65 +215,41 @@ export default function CreatePostScreen() {
 
       </ScrollView>
 
-      {/* 3. Toolbar Fixed at Bottom */}
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0} 
-      >
-        <View style={[styles.toolbar, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
-            <TouchableOpacity onPress={pickMedia} style={styles.toolIcon}>
-                <Ionicons name="image-outline" size={24} color={theme.tint} />
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.toolIcon}>
-                <Ionicons name="camera-outline" size={24} color={theme.tint} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.toolIcon}>
-                <Ionicons name="list-outline" size={24} color={theme.tint} />
-            </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  
-  // Custom header styles REMOVED
-  
-  // Content Layout
   scrollContent: { paddingVertical: 10 },
   inputRow: { flexDirection: 'row', paddingHorizontal: 15 },
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
   
-  // Input
   input: { 
       fontSize: 18, 
       textAlignVertical: 'top', 
-      minHeight: 50, 
+      minHeight: 60, 
       paddingTop: 10, 
-      paddingBottom: 20,
+      paddingBottom: 10,
       width: '100%' 
   },
 
-  // Media Preview
-  previewWrapper: { position: 'relative', marginTop: 10, marginRight: 10, marginBottom: 20 },
-  mediaPreview: { width: '100%', height: 250, borderRadius: 16 },
+  previewWrapper: { position: 'relative', marginTop: 10, marginRight: 10, marginBottom: 10 },
+  mediaPreview: { width: '100%', height: 200, borderRadius: 12 },
   removeBtn: { 
-      position: 'absolute', top: 8, right: 8, 
-      backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 15, padding: 6 
+      position: 'absolute', top: 6, right: 6, 
+      backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 12, padding: 4 
   },
 
-  // Toolbar
-  toolbar: { 
-      flexDirection: 'row', 
-      paddingVertical: 12, 
-      paddingHorizontal: 20, 
-      borderTopWidth: 0.5, 
-      alignItems: 'center' 
+  // ✅ UPDATED STYLES FOR SMALLER TOOLBAR
+  inlineToolbar: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    marginBottom: 15,
+    marginTop: 0,
+    alignItems: 'center'
   },
-  toolIcon: { marginRight: 25 }
+  toolIcon: { 
+    marginRight: 20 // Reduced spacing
+  }
 });
