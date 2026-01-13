@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, doc, getDoc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, RefreshControl, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,17 +12,43 @@ import { useTheme } from '../../context/ThemeContext';
 export default function FeedScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const [posts, setPosts] = useState<any[]>([]);
   const currentUser = auth.currentUser;
+
+  // ✅ State Management
+  const [posts, setPosts] = useState<any[]>([]);
+  const [filteredPosts, setFilteredPosts] = useState<any[]>([]);
   
+  // ✅ Tab State: 'All' or 'Trending'
+  const [activeTab, setActiveTab] = useState('All'); 
+  const [userInterests, setUserInterests] = useState<string[]>([]); // To store e.g., ['Action', 'Revenge']
+
   // ✅ Search & Refresh State
   const [refreshing, setRefreshing] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [filteredPosts, setFilteredPosts] = useState<any[]>([]);
 
+  // 1. Fetch User Interests (For the Algorithm)
   useEffect(() => {
-    // Initial fetch logic
+    const fetchUserInterests = async () => {
+      if (!currentUser) return;
+      try {
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          // Assuming you store interests or genres in the user doc
+          // If you don't have this yet, it defaults to empty array
+          setUserInterests(data.interests || data.favoriteGenres || []);
+        }
+      } catch (error) {
+        console.log("Error fetching user interests:", error);
+      }
+    };
+    fetchUserInterests();
+  }, []);
+
+  // 2. Fetch All Posts (Realtime)
+  useEffect(() => {
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', null), 
@@ -35,73 +61,99 @@ export default function FeedScreen() {
         ...doc.data()
       }));
       setPosts(postsData);
-      setFilteredPosts(postsData); // Initialize filtered list
     });
     return unsubscribe; 
   }, []);
 
-  // ✅ Search Logic
+  // 3. MAIN ALGORITHM: Filter & Sort based on Tabs and Search
   useEffect(() => {
-    if (searchText.trim() === '') {
-        setFilteredPosts(posts);
-    } else {
+    let result = [...posts];
+
+    // --- STEP A: SEARCH OVERRIDE ---
+    if (searchText.trim() !== '') {
         const lowerText = searchText.toLowerCase();
-        const results = posts.filter(p => 
+        result = result.filter(p => 
             p.text?.toLowerCase().includes(lowerText) || 
             p.username?.toLowerCase().includes(lowerText) ||
             p.displayName?.toLowerCase().includes(lowerText)
         );
-        setFilteredPosts(results);
-    }
-  }, [searchText, posts]);
+    } 
+    else {
+        // --- STEP B: TABS LOGIC ---
+        
+        if (activeTab === 'Trending') {
+            // ALGORITHM: TRENDING
+            // Twitter style: Sort by engagement (Likes + Reposts + Comments)
+            result.sort((a, b) => {
+                const scoreA = (a.likes?.length || 0) + (a.reposts?.length || 0) + (a.commentCount || 0);
+                const scoreB = (b.likes?.length || 0) + (b.reposts?.length || 0) + (b.commentCount || 0);
+                return scoreB - scoreA; // Highest score first
+            });
+        } 
+        else if (activeTab === 'All') {
+            // ALGORITHM: PERSONALIZED / INTEREST BASED
+            if (userInterests.length > 0) {
+                // If user has interests, push matching posts to the top
+                result.sort((a, b) => {
+                    // Check if post text contains any of the user's interests
+                    // (You can also check a 'tags' field if you add one to your posts)
+                    const aMatches = userInterests.some(interest => 
+                        a.text?.toLowerCase().includes(interest.toLowerCase()) || 
+                        a.tags?.includes(interest)
+                    );
+                    const bMatches = userInterests.some(interest => 
+                        b.text?.toLowerCase().includes(interest.toLowerCase()) || 
+                        b.tags?.includes(interest)
+                    );
 
-  // ✅ Pull-to-Refresh Function
+                    // If A matches and B doesn't, A comes first (-1)
+                    if (aMatches && !bMatches) return -1;
+                    if (!aMatches && bMatches) return 1;
+                    return 0; // Keep chronological if both match or neither match
+                });
+            }
+            // If no interests, it remains default Chronological (as fetched)
+        }
+    }
+
+    setFilteredPosts(result);
+  }, [posts, searchText, activeTab, userInterests]);
+
+  // ✅ Pull-to-Refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    // Since onSnapshot is realtime, we simulate a refresh delay for UX
     setTimeout(() => {
         setRefreshing(false);
     }, 1000);
   }, []);
 
+  // ... (Keep your existing toggleLike, toggleRepost, handleShare, goToDetails functions exactly as they were) ...
   const toggleLike = async (postId: string, currentLikes: string[]) => {
     if (!currentUser) return;
     const postRef = doc(db, 'posts', postId);
     const isLiked = currentLikes?.includes(currentUser.uid);
-    await updateDoc(postRef, {
-      likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-    });
+    await updateDoc(postRef, { likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid) });
   };
 
   const toggleRepost = async (postId: string, currentReposts: string[]) => {
     if (!currentUser) return;
     const postRef = doc(db, 'posts', postId);
     const isReposted = currentReposts?.includes(currentUser.uid);
-    await updateDoc(postRef, {
-      reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-    });
+    await updateDoc(postRef, { reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid) });
   };
 
   const handleShare = async (text: string) => {
-    try {
-        await Share.share({ message: `Check out this post on AniYu: "${text}"` });
-    } catch (error) {
-        console.log(error);
-    }
+    try { await Share.share({ message: `Check out this post on AniYu: "${text}"` }); } catch (error) { console.log(error); }
   };
 
-  const goToDetails = (postId: string) => {
-      router.push({ pathname: '/post-details', params: { postId } });
-  };
+  const goToDetails = (postId: string) => { router.push({ pathname: '/post-details', params: { postId } }); };
+  const goToProfile = (userId: string) => { router.push({ pathname: '/feed-profile', params: { userId } }); };
 
-  const goToProfile = (userId: string) => {
-      router.push({ pathname: '/feed-profile', params: { userId } });
-  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* ✅ HEADER: Avatar (Left) -- Title (Center) -- Search (Right) */}
+      {/* ✅ HEADER */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.push('/feed-profile')}>
             <Image 
@@ -110,18 +162,34 @@ export default function FeedScreen() {
             />
         </TouchableOpacity>
         
-        <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.text }}>Community</Text>
+        {/* TABS IN HEADER CENTER */}
+        <View style={styles.tabContainer}>
+            <TouchableOpacity onPress={() => setActiveTab('All')} style={styles.tabButton}>
+                <Text style={[
+                    styles.tabText, 
+                    { color: activeTab === 'All' ? theme.text : theme.subText, fontWeight: activeTab === 'All' ? 'bold' : 'normal' }
+                ]}>All</Text>
+                {activeTab === 'All' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => setActiveTab('Trending')} style={styles.tabButton}>
+                <Text style={[
+                    styles.tabText, 
+                    { color: activeTab === 'Trending' ? theme.text : theme.subText, fontWeight: activeTab === 'Trending' ? 'bold' : 'normal' }
+                ]}>Trending</Text>
+                {activeTab === 'Trending' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
+            </TouchableOpacity>
+        </View>
         
-        {/* Toggle Search Button */}
         <TouchableOpacity onPress={() => {
             setShowSearch(!showSearch);
-            if(showSearch) setSearchText(''); // Clear text when closing
+            if(showSearch) setSearchText('');
         }}>
             <Ionicons name={showSearch ? "close" : "search"} size={24} color={theme.text} />
         </TouchableOpacity>
       </View>
 
-      {/* ✅ SEARCH BAR (Visible only when toggled) */}
+      {/* ✅ SEARCH BAR */}
       {showSearch && (
           <View style={[styles.searchContainer, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
               <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
@@ -138,21 +206,27 @@ export default function FeedScreen() {
           </View>
       )}
 
+      {/* ✅ LIST */}
       <FlatList
-        data={filteredPosts} // 👈 Use filtered list
+        data={filteredPosts}
         keyExtractor={item => item.id}
         contentContainerStyle={{ paddingBottom: 100 }}
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         
-        // ✅ ADD REFRESH CONTROL
-        refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />
+        ListEmptyComponent={
+            <View style={{ padding: 40, alignItems: 'center' }}>
+                <Text style={{ color: theme.subText }}>
+                    {searchText ? "No results found." : "No posts yet."}
+                </Text>
+            </View>
         }
 
         renderItem={({ item }) => {
             const isLiked = item.likes?.includes(currentUser?.uid);
             const isReposted = item.reposts?.includes(currentUser?.uid);
             
+            // Time logic
             let timeAgo = "now";
             if (item.createdAt?.seconds) {
                 const seconds = Math.floor((new Date().getTime() / 1000) - item.createdAt.seconds);
@@ -166,11 +240,7 @@ export default function FeedScreen() {
             const handle = item.username || "unknown";
 
             return (
-                <TouchableOpacity 
-                    activeOpacity={0.7} 
-                    style={styles.tweetContainer}
-                    onPress={() => goToDetails(item.id)}
-                >
+                <TouchableOpacity activeOpacity={0.7} style={styles.tweetContainer} onPress={() => goToDetails(item.id)}>
                     <TouchableOpacity onPress={() => goToProfile(item.userId)}>
                         <View style={styles.avatarContainer}>
                             <Image source={{ uri: item.userAvatar }} style={styles.avatar} />
@@ -179,30 +249,18 @@ export default function FeedScreen() {
 
                     <View style={styles.contentContainer}>
                         <View style={styles.tweetHeader}>
-                            <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-                                {displayName}
-                            </Text>
-                            <Text style={[styles.handle, { color: theme.subText }]} numberOfLines={1}>
-                                @{handle} · {timeAgo}
-                            </Text>
+                            <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>{displayName}</Text>
+                            <Text style={[styles.handle, { color: theme.subText }]} numberOfLines={1}>@{handle} · {timeAgo}</Text>
                         </View>
 
-                        {item.text ? (
-                            <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text>
-                        ) : null}
+                        {item.text ? <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text> : null}
 
                         {item.mediaUrl && item.mediaType === 'image' && (
                             <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" />
                         )}
                         
                         {item.mediaUrl && item.mediaType === 'video' && (
-                            <Video
-                                source={{ uri: item.mediaUrl }}
-                                style={styles.postVideo}
-                                useNativeControls
-                                resizeMode={ResizeMode.COVER}
-                                isLooping
-                            />
+                            <Video source={{ uri: item.mediaUrl }} style={styles.postVideo} useNativeControls resizeMode={ResizeMode.COVER} isLooping />
                         )}
 
                         <View style={styles.actionsRow}>
@@ -247,7 +305,12 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 0.5, alignItems: 'center' },
   headerAvatar: { width: 30, height: 30, borderRadius: 15 },
   
-  // New Search Styles
+  // ✅ New Tab Styles
+  tabContainer: { flexDirection: 'row', gap: 20 },
+  tabButton: { alignItems: 'center', paddingVertical: 5 },
+  tabText: { fontSize: 16 },
+  activeIndicator: { height: 3, width: '100%', borderRadius: 2, marginTop: 4 },
+
   searchContainer: { padding: 10, borderBottomWidth: 0.5 },
   searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 40, borderRadius: 20 },
   searchInput: { flex: 1, marginLeft: 10, fontSize: 16 },
