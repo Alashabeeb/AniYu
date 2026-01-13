@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av'; // ✅ Import Video Support
+import { ResizeMode, Video } from 'expo-av';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { arrayRemove, arrayUnion, collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
-import { FlatList, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FlatList, RefreshControl, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
@@ -14,9 +14,15 @@ export default function FeedScreen() {
   const { theme } = useTheme();
   const [posts, setPosts] = useState<any[]>([]);
   const currentUser = auth.currentUser;
+  
+  // ✅ Search & Refresh State
+  const [refreshing, setRefreshing] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [filteredPosts, setFilteredPosts] = useState<any[]>([]);
 
   useEffect(() => {
-    // Only show posts where parentId is null (Top-level posts)
+    // Initial fetch logic
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', null), 
@@ -29,8 +35,33 @@ export default function FeedScreen() {
         ...doc.data()
       }));
       setPosts(postsData);
+      setFilteredPosts(postsData); // Initialize filtered list
     });
     return unsubscribe; 
+  }, []);
+
+  // ✅ Search Logic
+  useEffect(() => {
+    if (searchText.trim() === '') {
+        setFilteredPosts(posts);
+    } else {
+        const lowerText = searchText.toLowerCase();
+        const results = posts.filter(p => 
+            p.text?.toLowerCase().includes(lowerText) || 
+            p.username?.toLowerCase().includes(lowerText) ||
+            p.displayName?.toLowerCase().includes(lowerText)
+        );
+        setFilteredPosts(results);
+    }
+  }, [searchText, posts]);
+
+  // ✅ Pull-to-Refresh Function
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    // Since onSnapshot is realtime, we simulate a refresh delay for UX
+    setTimeout(() => {
+        setRefreshing(false);
+    }, 1000);
   }, []);
 
   const toggleLike = async (postId: string, currentLikes: string[]) => {
@@ -70,6 +101,7 @@ export default function FeedScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
+      {/* ✅ HEADER: Avatar (Left) -- Title (Center) -- Search (Right) */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.push('/feed-profile')}>
             <Image 
@@ -77,15 +109,46 @@ export default function FeedScreen() {
                 style={styles.headerAvatar} 
             />
         </TouchableOpacity>
-        <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.text }}>Feed</Text>
-        <Ionicons name="settings-outline" size={24} color={theme.text} />
+        
+        <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.text }}>Community</Text>
+        
+        {/* Toggle Search Button */}
+        <TouchableOpacity onPress={() => {
+            setShowSearch(!showSearch);
+            if(showSearch) setSearchText(''); // Clear text when closing
+        }}>
+            <Ionicons name={showSearch ? "close" : "search"} size={24} color={theme.text} />
+        </TouchableOpacity>
       </View>
 
+      {/* ✅ SEARCH BAR (Visible only when toggled) */}
+      {showSearch && (
+          <View style={[styles.searchContainer, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
+              <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
+                  <Ionicons name="search" size={20} color={theme.subText} />
+                  <TextInput 
+                      style={[styles.searchInput, { color: theme.text }]}
+                      placeholder="Search posts or users..."
+                      placeholderTextColor={theme.subText}
+                      value={searchText}
+                      onChangeText={setSearchText}
+                      autoFocus
+                  />
+              </View>
+          </View>
+      )}
+
       <FlatList
-        data={posts}
+        data={filteredPosts} // 👈 Use filtered list
         keyExtractor={item => item.id}
         contentContainerStyle={{ paddingBottom: 100 }}
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
+        
+        // ✅ ADD REFRESH CONTROL
+        refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />
+        }
+
         renderItem={({ item }) => {
             const isLiked = item.likes?.includes(currentUser?.uid);
             const isReposted = item.reposts?.includes(currentUser?.uid);
@@ -124,12 +187,10 @@ export default function FeedScreen() {
                             </Text>
                         </View>
 
-                        {/* Post Text */}
                         {item.text ? (
                             <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text>
                         ) : null}
 
-                        {/* ✅ RENDER MEDIA (Image or Video) */}
                         {item.mediaUrl && item.mediaType === 'image' && (
                             <Image source={{ uri: item.mediaUrl }} style={styles.postImage} contentFit="cover" />
                         )}
@@ -145,52 +206,22 @@ export default function FeedScreen() {
                         )}
 
                         <View style={styles.actionsRow}>
-                            {/* LIKE */}
-                            <TouchableOpacity 
-                                style={styles.actionButton} 
-                                onPress={() => toggleLike(item.id, item.likes || [])}
-                            >
-                                <Ionicons 
-                                    name={isLiked ? "heart" : "heart-outline"} 
-                                    size={18} 
-                                    color={isLiked ? "#FF6B6B" : theme.subText} 
-                                />
-                                <Text style={[styles.actionCount, { color: isLiked ? "#FF6B6B" : theme.subText }]}>
-                                    {item.likes ? item.likes.length : 0}
-                                </Text>
+                            <TouchableOpacity style={styles.actionButton} onPress={() => toggleLike(item.id, item.likes || [])}>
+                                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
+                                <Text style={[styles.actionCount, { color: isLiked ? "#FF6B6B" : theme.subText }]}>{item.likes ? item.likes.length : 0}</Text>
                             </TouchableOpacity>
 
-                            {/* COMMENT */}
-                            <TouchableOpacity 
-                                style={styles.actionButton}
-                                onPress={() => goToDetails(item.id)}
-                            >
+                            <TouchableOpacity style={styles.actionButton} onPress={() => goToDetails(item.id)}>
                                 <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
-                                <Text style={[styles.actionCount, { color: theme.subText }]}>
-                                    {item.commentCount || 0}
-                                </Text>
+                                <Text style={[styles.actionCount, { color: theme.subText }]}>{item.commentCount || 0}</Text>
                             </TouchableOpacity>
 
-                            {/* REPOST */}
-                            <TouchableOpacity 
-                                style={styles.actionButton}
-                                onPress={() => toggleRepost(item.id, item.reposts || [])}
-                            >
-                                <Ionicons 
-                                    name="repeat-outline" 
-                                    size={18} 
-                                    color={isReposted ? "#00BA7C" : theme.subText} 
-                                />
-                                <Text style={[styles.actionCount, { color: isReposted ? "#00BA7C" : theme.subText }]}>
-                                    {item.reposts ? item.reposts.length : 0}
-                                </Text>
+                            <TouchableOpacity style={styles.actionButton} onPress={() => toggleRepost(item.id, item.reposts || [])}>
+                                <Ionicons name="repeat-outline" size={18} color={isReposted ? "#00BA7C" : theme.subText} />
+                                <Text style={[styles.actionCount, { color: isReposted ? "#00BA7C" : theme.subText }]}>{item.reposts ? item.reposts.length : 0}</Text>
                             </TouchableOpacity>
 
-                            {/* SHARE */}
-                            <TouchableOpacity 
-                                style={styles.actionButton}
-                                onPress={() => handleShare(item.text)}
-                            >
+                            <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
                                 <Ionicons name="share-outline" size={18} color={theme.subText} />
                             </TouchableOpacity>
                         </View>
@@ -215,6 +246,12 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 0.5, alignItems: 'center' },
   headerAvatar: { width: 30, height: 30, borderRadius: 15 },
+  
+  // New Search Styles
+  searchContainer: { padding: 10, borderBottomWidth: 0.5 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 40, borderRadius: 20 },
+  searchInput: { flex: 1, marginLeft: 10, fontSize: 16 },
+
   separator: { height: 0.5, width: '100%' },
   tweetContainer: { flexDirection: 'row', padding: 12 },
   avatarContainer: { marginRight: 12 },
@@ -224,11 +261,8 @@ const styles = StyleSheet.create({
   name: { fontWeight: 'bold', fontSize: 15, marginRight: 5, flexShrink: 1 },
   handle: { fontSize: 14, flexShrink: 1 },
   tweetText: { fontSize: 15, lineHeight: 20, marginTop: 2, marginBottom: 10 },
-  
-  // ✅ Styles for Images and Videos
   postImage: { width: '100%', height: 250, borderRadius: 15, marginTop: 10, marginBottom: 10 },
   postVideo: { width: '100%', height: 250, borderRadius: 15, marginTop: 10, marginBottom: 10 },
-
   actionsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 40, marginTop: 5 },
   actionButton: { flexDirection: 'row', alignItems: 'center' },
   actionCount: { fontSize: 12, marginLeft: 5 },

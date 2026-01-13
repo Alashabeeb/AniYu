@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 // Mock Data
 const MANGA_DATA = [
@@ -12,18 +12,28 @@ const MANGA_DATA = [
   { id: '4', title: 'Chainsaw Man', image: 'https://cdn.myanimelist.net/images/manga/3/216464.jpg', score: 8.8 },
 ];
 
-export default function MangaGrid({ theme }: any) {
+// ✅ Accept refresh props here
+export default function MangaGrid({ theme, refreshing, onRefresh }: any) {
   const router = useRouter();
-  // Fallback colors
-  const colors = theme || { card: '#1E1E1E', text: 'white', subText: 'gray' };
+  const colors = theme || { card: '#1E1E1E', text: 'white', subText: 'gray', tint: '#007AFF' };
 
   return (
     <FlatList
       data={MANGA_DATA}
       numColumns={2}
-      contentContainerStyle={{ padding: 15 }}
+      contentContainerStyle={{ padding: 15, paddingBottom: 100 }}
       columnWrapperStyle={{ justifyContent: 'space-between' }}
       keyExtractor={item => item.id}
+      
+      // ✅ Attach RefreshControl directly to the FlatList
+      refreshControl={
+        <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor={colors.tint || 'gray'} 
+        />
+      }
+      
       renderItem={({ item }) => (
         <TouchableOpacity 
             style={[styles.card, { backgroundColor: colors.card }]}

@@ -6,13 +6,14 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
+  RefreshControl, // ✅ Import
   ScrollView, StatusBar, StyleSheet,
   Text,
   TextInput, TouchableOpacity,
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../../context/ThemeContext'; // ✅ Import Theme
+import { useTheme } from '../../context/ThemeContext';
 
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
@@ -21,11 +22,12 @@ import { getFavorites, toggleFavorite } from '../../services/favoritesService';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { theme, isDark } = useTheme(); // ✅ Get Theme Data
+  const { theme, isDark } = useTheme();
 
   const [trending, setTrending] = useState<any[]>([]);
   const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // ✅ Refresh State
 
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -56,6 +58,13 @@ export default function HomeScreen() {
     }
   };
 
+  // ✅ Refresh Handler
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadInitialData();
+    setRefreshing(false);
+  }, []);
+
   const handleToggleFav = async (anime: any) => {
       await toggleFavorite(anime);
       await loadFavorites();
@@ -82,7 +91,7 @@ export default function HomeScreen() {
 
   const renderSearchItem = ({ item }: { item: any }) => (
     <TouchableOpacity 
-      style={[styles.searchCard, { backgroundColor: theme.card }]} // Dynamic Card
+      style={[styles.searchCard, { backgroundColor: theme.card }]}
       onPress={() => router.push(`/anime/${item.mal_id}`)}
     >
       <Image source={{ uri: item.images?.jpg?.image_url }} style={styles.searchImage} contentFit="cover" />
@@ -105,10 +114,8 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* Dynamic Status Bar */}
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-      {/* Search Bar */}
       <View style={styles.headerContainer}>
         <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
           <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
@@ -148,7 +155,11 @@ export default function HomeScreen() {
             )}
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          // ✅ Add Refresh Control
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+        >
           <HeroCarousel data={trending.slice(0, 5)} />
           <TrendingRail title="Trending Now" data={trending} favorites={favorites} onToggleFavorite={handleToggleFav} />
           <TrendingRail title="Recommended for You" data={trending.slice(5)} favorites={favorites} onToggleFavorite={handleToggleFav} />
