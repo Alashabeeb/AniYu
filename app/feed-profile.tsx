@@ -75,7 +75,7 @@ export default function FeedProfileScreen() {
             }
             setLoading(false);
         } else if (isOwnProfile && currentUser) {
-             // ✅ CREATE PROFILE IF MISSING (Default Rank: GENIN)
+             // CREATE PROFILE IF MISSING (Default Rank: GENIN)
              const newProfile = {
                 username: currentUser.email?.split('@')[0] || "user",
                 displayName: currentUser.displayName || "New User",
@@ -161,7 +161,6 @@ export default function FeedProfileScreen() {
 
   const followingCount = userData?.following?.length || 0;
   const followersCount = userData?.followers?.length || 0;
-  // ✅ Default Rank is GENIN
   const userRank = userData?.rank || "GENIN"; 
 
   return (
@@ -198,7 +197,7 @@ export default function FeedProfileScreen() {
                             source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} 
                             style={[styles.avatar, { borderColor: theme.background }]} 
                         />
-                        {/* ✅ RANK BADGE */}
+                        {/* RANK BADGE */}
                         <View style={[styles.rankBadge, { borderColor: theme.background, backgroundColor: '#FFD700' }]}>
                              <Text style={styles.rankText}>{userRank}</Text>
                         </View>
@@ -232,13 +231,24 @@ export default function FeedProfileScreen() {
                     <Text style={[styles.username, { color: theme.subText }]}>@{userData?.username || "username"}</Text>
                 </View>
 
+                {/* ✅ UPDATED: STATS ARE NOW CLICKABLE LINKS */}
                 <View style={styles.statsRow}>
-                    <Text style={[styles.statNum, { color: theme.text }]}>
-                        {followingCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
-                    </Text>
-                    <Text style={[styles.statNum, { color: theme.text, marginLeft: 20 }]}>
-                        {followersCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
-                    </Text>
+                    <TouchableOpacity 
+                        onPress={() => router.push({ pathname: '/user-list', params: { type: 'following', userId: targetUserId } })}
+                    >
+                        <Text style={[styles.statNum, { color: theme.text }]}>
+                            {followingCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                        onPress={() => router.push({ pathname: '/user-list', params: { type: 'followers', userId: targetUserId } })}
+                        style={{ marginLeft: 20 }}
+                    >
+                        <Text style={[styles.statNum, { color: theme.text }]}>
+                            {followersCount} <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
+                        </Text>
+                    </TouchableOpacity>
                 </View>
 
                 <View style={[styles.tabRow, { borderBottomColor: theme.border }]}>
@@ -267,7 +277,6 @@ export default function FeedProfileScreen() {
                         <Text style={{ fontSize: 12, color: theme.subText, marginLeft: 5 }}>Reposted</Text>
                     </View>
                 )}
-                {/* ✅ PostCard Handles Click Logic */}
                 <PostCard post={item} />
              </View>
         )}
@@ -281,7 +290,7 @@ export default function FeedProfileScreen() {
         }
       />
 
-      {/* MENU MODAL (For Reporting User Profile) */}
+      {/* MENU MODAL */}
       <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
@@ -303,7 +312,7 @@ export default function FeedProfileScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* REPORT REASON MODAL (For Reporting User Profile) */}
+      {/* REPORT REASON MODAL */}
       <Modal visible={reportModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
             <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
