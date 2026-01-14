@@ -12,6 +12,15 @@ import { useTheme } from '../../context/ThemeContext';
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
 
+// ✅ ADDED: Ranking System Config (Must match [id].tsx)
+const RANKS = [
+    { name: 'GENIN', min: 0, max: 4 },
+    { name: 'CHUNIN', min: 5, max: 19 },
+    { name: 'JONIN', min: 20, max: 49 },
+    { name: 'ANBU', min: 50, max: 99 },
+    { name: 'KAGE', min: 100, max: Infinity },
+];
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { theme } = useTheme();
@@ -58,9 +67,26 @@ export default function ProfileScreen() {
   const followingCount = userData?.following?.length || 0;
   const followersCount = userData?.followers?.length || 0;
   
-  // ✅ FIXED: Default is now GENIN. 
-  // NOTE: If your DB already has "ACADEMY STUDENT" saved, you must watch 1 video to force an update.
+  // ✅ ADDED: Get "Watched" count from DB
+  const completedCount = userData?.completedAnimeCount || 0;
   const userRank = userData?.rank || "GENIN";
+
+  // ✅ ADDED: Progress Bar Logic
+  const currentRankIndex = RANKS.findIndex(r => r.name === userRank);
+  const nextRank = RANKS[currentRankIndex + 1];
+  const currentRankMin = RANKS[currentRankIndex]?.min || 0;
+  
+  let progressPercent = 0;
+  let nextRankName = "MAX";
+
+  if (nextRank) {
+      const totalNeeded = nextRank.min - currentRankMin;
+      const currentProgress = completedCount - currentRankMin;
+      progressPercent = Math.min(Math.max(currentProgress / totalNeeded, 0), 1);
+      nextRankName = nextRank.name;
+  } else {
+      progressPercent = 1; // Max Level
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -101,21 +127,46 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Stats Row */}
+        {/* ✅ UPDATED: Stats Row with 4 Items */}
         <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
             <View style={styles.statItem}>
                 <Text style={[styles.statNum, { color: theme.text }]}>{followingCount}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            
+            {/* New Watched Stat */}
+            <View style={styles.statItem}>
+                <Text style={[styles.statNum, { color: theme.text }]}>{completedCount}</Text>
+                <Text style={[styles.statLabel, { color: theme.subText }]}>Watched</Text>
+            </View>
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
             <View style={styles.statItem}>
                 <Text style={[styles.statNum, { color: theme.text }]}>{favorites.length}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Favorites</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            
             <View style={styles.statItem}>
                 <Text style={[styles.statNum, { color: theme.text }]}>{followersCount}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
+            </View>
+        </View>
+
+        {/* ✅ ADDED: Progress Bar UI */}
+        <View style={{ paddingHorizontal: 20, marginTop: 15 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                <Text style={{ color: theme.tint, fontWeight: 'bold', fontSize: 12 }}>{userRank}</Text>
+                <Text style={{ color: theme.subText, fontSize: 12, fontWeight: 'bold' }}>{nextRankName}</Text>
+            </View>
+            <View style={{ height: 8, backgroundColor: theme.card, borderRadius: 4, overflow: 'hidden' }}>
+                <View style={{ 
+                    height: '100%', 
+                    width: `${progressPercent * 100}%`, 
+                    backgroundColor: theme.tint,
+                    borderRadius: 4 
+                }} />
             </View>
         </View>
 
@@ -179,11 +230,14 @@ const styles = StyleSheet.create({
   username: { fontSize: 14, marginTop: 2 },
   bio: { marginTop: 8, textAlign: 'center', paddingHorizontal: 40, fontSize: 13, lineHeight: 18 },
   editBtn: { marginTop: 15, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  
+  // ✅ UPDATED: Adjusted for 4 stats (space-evenly)
   statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 25, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
-  statItem: { alignItems: 'center' },
+  statItem: { alignItems: 'center', flex: 1 }, // Added flex:1 for equal width
   statNum: { fontSize: 18, fontWeight: 'bold' },
-  statLabel: { fontSize: 12 },
-  divider: { width: 1 },
+  statLabel: { fontSize: 11 }, // Slightly smaller text to fit
+  divider: { width: 1, height: '80%', alignSelf: 'center' },
+  
   menuContainer: { marginTop: 30, paddingHorizontal: 20 },
   menuItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   iconBox: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
