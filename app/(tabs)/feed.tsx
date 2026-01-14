@@ -2,12 +2,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Dimensions,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import PostCard from '../../components/PostCard'; // ✅ Imported PostCard
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function FeedScreen() {
   const router = useRouter();
@@ -16,18 +27,18 @@ export default function FeedScreen() {
 
   // ✅ State Management
   const [posts, setPosts] = useState<any[]>([]);
-  const [filteredPosts, setFilteredPosts] = useState<any[]>([]);
-  
-  // ✅ Tab State: 'All' or 'Trending'
-  const [activeTab, setActiveTab] = useState('All'); 
   const [userInterests, setUserInterests] = useState<string[]>([]);
-
+  
   // ✅ Search & Refresh State
   const [refreshing, setRefreshing] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
 
-  // 1. Fetch User Interests (For the Algorithm)
+  // ✅ Tab & Swipe State
+  const [activeTab, setActiveTab] = useState('All'); 
+  const flatListRef = useRef<FlatList>(null); // Ref to scroll the horizontal list
+
+  // 1. Fetch User Interests
   useEffect(() => {
     const fetchUserInterests = async () => {
       if (!currentUser) return;
@@ -63,60 +74,68 @@ export default function FeedScreen() {
     return unsubscribe; 
   }, []);
 
-  // 3. MAIN ALGORITHM: Filter & Sort based on Tabs and Search
-  useEffect(() => {
-    let result = [...posts];
+  // 3. ✅ DERIVED DATA LISTS (Memoized for performance)
+  // These calculate automatically whenever 'posts' or 'searchText' changes
+  
+  // A. Search Results
+  const searchResults = useMemo(() => {
+    if (!searchText.trim()) return [];
+    const lowerText = searchText.toLowerCase();
+    return posts.filter(p => 
+        p.text?.toLowerCase().includes(lowerText) || 
+        p.username?.toLowerCase().includes(lowerText) ||
+        p.displayName?.toLowerCase().includes(lowerText)
+    );
+  }, [posts, searchText]);
 
-    // --- STEP A: SEARCH OVERRIDE ---
-    if (searchText.trim() !== '') {
-        const lowerText = searchText.toLowerCase();
-        result = result.filter(p => 
-            p.text?.toLowerCase().includes(lowerText) || 
-            p.username?.toLowerCase().includes(lowerText) ||
-            p.displayName?.toLowerCase().includes(lowerText)
-        );
-    } 
-    else {
-        // --- STEP B: TABS LOGIC ---
-        
-        if (activeTab === 'Trending') {
-            // ALGORITHM: TRENDING
-            // Sort by engagement (Likes + Reposts + Comments)
-            result.sort((a, b) => {
-                const scoreA = (a.likes?.length || 0) + (a.reposts?.length || 0) + (a.commentCount || 0);
-                const scoreB = (b.likes?.length || 0) + (b.reposts?.length || 0) + (b.commentCount || 0);
-                return scoreB - scoreA; 
-            });
-        } 
-        else if (activeTab === 'All') {
-            // ALGORITHM: PERSONALIZED / INTEREST BASED
-            if (userInterests.length > 0) {
-                // If user has interests, push matching posts to the top
-                result.sort((a, b) => {
-                    // Check if post text contains any of the user's interests
-                    // (You can also check a 'tags' field if you add one to your posts)
-                    const aMatches = userInterests.some(interest => 
-                        a.text?.toLowerCase().includes(interest.toLowerCase()) || 
-                        a.tags?.includes(interest)
-                    );
-                    const bMatches = userInterests.some(interest => 
-                        b.text?.toLowerCase().includes(interest.toLowerCase()) || 
-                        b.tags?.includes(interest)
-                    );
+  // B. "Trending" List (Sorted by Engagement)
+  const trendingPosts = useMemo(() => {
+    return [...posts].sort((a, b) => {
+        const scoreA = (a.likes?.length || 0) + (a.reposts?.length || 0) + (a.commentCount || 0);
+        const scoreB = (b.likes?.length || 0) + (b.reposts?.length || 0) + (b.commentCount || 0);
+        return scoreB - scoreA; 
+    });
+  }, [posts]);
 
-                    // If A matches and B doesn't, A comes first (-1)
-                    if (aMatches && !bMatches) return -1;
-                    if (!aMatches && bMatches) return 1;
-                    return 0; // Keep chronological if both match or neither match
-                });
-            }
-        }
+  // C. "All" List (Personalized / Chronological)
+  const allPosts = useMemo(() => {
+    if (userInterests.length > 0) {
+        return [...posts].sort((a, b) => {
+            const aMatches = userInterests.some(interest => 
+                a.text?.toLowerCase().includes(interest.toLowerCase()) || 
+                a.tags?.includes(interest)
+            );
+            const bMatches = userInterests.some(interest => 
+                b.text?.toLowerCase().includes(interest.toLowerCase()) || 
+                b.tags?.includes(interest)
+            );
+            // Put matches first
+            if (aMatches && !bMatches) return -1;
+            if (!aMatches && bMatches) return 1;
+            return 0; // Maintain date order otherwise
+        });
     }
+    return posts; // Default to chronological if no interests
+  }, [posts, userInterests]);
 
-    setFilteredPosts(result);
-  }, [posts, searchText, activeTab, userInterests]);
 
-  // ✅ Pull-to-Refresh
+  // ✅ Swipe & Tab Handlers
+  const handleTabPress = (tab: string) => {
+      setActiveTab(tab);
+      if (tab === 'All') {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      } else {
+          flatListRef.current?.scrollToOffset({ offset: SCREEN_WIDTH, animated: true });
+      }
+  };
+
+  const handleMomentumScrollEnd = (event: any) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const index = Math.round(offsetX / SCREEN_WIDTH);
+      if (index === 0) setActiveTab('All');
+      else setActiveTab('Trending');
+  };
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     setTimeout(() => {
@@ -124,10 +143,27 @@ export default function FeedScreen() {
     }, 1000);
   }, []);
 
+  // ✅ Reusable Feed List Component (Vertical)
+  const renderFeedList = (data: any[], emptyMessage: string) => (
+    <FlatList
+        data={data}
+        keyExtractor={item => item.id}
+        contentContainerStyle={{ paddingBottom: 100, width: SCREEN_WIDTH }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+        ListEmptyComponent={
+            <View style={{ padding: 40, alignItems: 'center', width: SCREEN_WIDTH }}>
+                <Text style={{ color: theme.subText }}>{emptyMessage}</Text>
+            </View>
+        }
+        renderItem={({ item }) => <PostCard post={item} />}
+    />
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* ✅ HEADER */}
+      {/* HEADER */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.push('/feed-profile')}>
             <Image 
@@ -136,24 +172,26 @@ export default function FeedScreen() {
             />
         </TouchableOpacity>
         
-        {/* TABS IN HEADER CENTER */}
-        <View style={styles.tabContainer}>
-            <TouchableOpacity onPress={() => setActiveTab('All')} style={styles.tabButton}>
-                <Text style={[
-                    styles.tabText, 
-                    { color: activeTab === 'All' ? theme.text : theme.subText, fontWeight: activeTab === 'All' ? 'bold' : 'normal' }
-                ]}>All</Text>
-                {activeTab === 'All' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
-            </TouchableOpacity>
+        {/* TABS (Clickable) */}
+        {!showSearch && (
+            <View style={styles.tabContainer}>
+                <TouchableOpacity onPress={() => handleTabPress('All')} style={styles.tabButton}>
+                    <Text style={[
+                        styles.tabText, 
+                        { color: activeTab === 'All' ? theme.text : theme.subText, fontWeight: activeTab === 'All' ? 'bold' : 'normal' }
+                    ]}>All</Text>
+                    {activeTab === 'All' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
+                </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setActiveTab('Trending')} style={styles.tabButton}>
-                <Text style={[
-                    styles.tabText, 
-                    { color: activeTab === 'Trending' ? theme.text : theme.subText, fontWeight: activeTab === 'Trending' ? 'bold' : 'normal' }
-                ]}>Trending</Text>
-                {activeTab === 'Trending' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
-            </TouchableOpacity>
-        </View>
+                <TouchableOpacity onPress={() => handleTabPress('Trending')} style={styles.tabButton}>
+                    <Text style={[
+                        styles.tabText, 
+                        { color: activeTab === 'Trending' ? theme.text : theme.subText, fontWeight: activeTab === 'Trending' ? 'bold' : 'normal' }
+                    ]}>Trending</Text>
+                    {activeTab === 'Trending' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
+                </TouchableOpacity>
+            </View>
+        )}
         
         <TouchableOpacity onPress={() => {
             setShowSearch(!showSearch);
@@ -163,7 +201,7 @@ export default function FeedScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ✅ SEARCH BAR */}
+      {/* SEARCH BAR */}
       {showSearch && (
           <View style={[styles.searchContainer, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
               <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
@@ -180,27 +218,29 @@ export default function FeedScreen() {
           </View>
       )}
 
-      {/* ✅ LIST USING POSTCARD COMPONENT */}
-      <FlatList
-        data={filteredPosts}
-        keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingBottom: 100 }}
-        ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
-        
-        ListEmptyComponent={
-            <View style={{ padding: 40, alignItems: 'center' }}>
-                <Text style={{ color: theme.subText }}>
-                    {searchText ? "No results found." : "No posts yet."}
-                </Text>
-            </View>
-        }
-
-        renderItem={({ item }) => (
-            // ✅ Now using PostCard which includes Report/Delete/Like/Repost logic
-            <PostCard post={item} />
-        )}
-      />
+      {/* ✅ MAIN CONTENT */}
+      {showSearch && searchText.trim() !== '' ? (
+          // 1. Search Mode: Single List
+          renderFeedList(searchResults, "No results found.")
+      ) : (
+          // 2. Swipe Mode: Horizontal List containing Two Vertical Lists
+          <FlatList
+            ref={flatListRef}
+            data={[1, 2]} // Dummy data to create 2 pages
+            keyExtractor={item => item.toString()}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
+            scrollEventThrottle={16}
+            initialNumToRender={1}
+            renderItem={({ index }) => {
+                if (index === 0) return renderFeedList(allPosts, "No posts yet.");
+                if (index === 1) return renderFeedList(trendingPosts, "No trending posts yet.");
+                return null;
+            }}
+          />
+      )}
 
       <TouchableOpacity 
         style={[styles.fab, { backgroundColor: theme.tint }]}
