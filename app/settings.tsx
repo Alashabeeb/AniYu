@@ -1,216 +1,145 @@
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert, ScrollView, StyleSheet, Switch, Text, TextInput,
-    TouchableOpacity, View
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../context/ThemeContext'; // ✅ Use the Theme Hook
+import { useTheme } from '../context/ThemeContext';
+import { clearHistory } from '../services/historyService';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { theme, isDark, toggleTheme } = useTheme(); // Get theme colors
+  const { theme, toggleTheme, isDark } = useTheme();
   
-  const [loading, setLoading] = useState(false);
-  
-  // User Profile State
-  const [formData, setFormData] = useState({
-    username: '@OtakuKing', // Fixed
-    displayName: 'Otaku King',
-    email: 'king@otaku.com',
-    phone: '+1 234 567 890',
-    password: '',
-  });
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
-  // Load saved profile on mount
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
-    const saved = await AsyncStorage.getItem('user_profile');
-    if (saved) {
-      setFormData(JSON.parse(saved));
-    }
+  const handleClearHistory = async () => {
+      Alert.alert(
+          "Clear History",
+          "Are you sure you want to delete your watch history?",
+          [
+              { text: "Cancel", style: "cancel" },
+              { 
+                  text: "Delete", 
+                  style: "destructive", 
+                  onPress: async () => {
+                      await clearHistory();
+                      Alert.alert("Success", "History cleared.");
+                  } 
+              }
+          ]
+      );
   };
-
-  const handleSave = async () => {
-    setLoading(true);
-    // Simulate API delay
-    setTimeout(async () => {
-        await AsyncStorage.setItem('user_profile', JSON.stringify(formData));
-        setLoading(false);
-        Alert.alert("Success", "Profile updated successfully!");
-    }, 1000);
-  };
-
-  // Helper to update state
-  const updateField = (key: string, value: string) => {
-    setFormData(prev => ({ ...prev, [key]: value }));
-  };
-
-  // Dynamic Styles based on Theme
-  const styles = getStyles(theme);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Stack.Screen options={{ 
-          headerTitle: 'Settings', 
-          headerStyle: { backgroundColor: theme.background },
-          headerTintColor: theme.text,
-          headerBackTitle: '' 
-      }} />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <Stack.Screen options={{ headerShown: false }} />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* Header */}
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 20 }}>
         
-        {/* 1. APPEARANCE */}
-        <View style={styles.section}>
-            <Text style={styles.sectionHeader}>APPEARANCE</Text>
-            <View style={styles.row}>
-                <View style={styles.rowLabel}>
-                    <Ionicons name={isDark ? "moon" : "sunny"} size={22} color={theme.text} />
-                    <Text style={styles.rowText}>Dark Mode</Text>
+        {/* Appearance Section */}
+        <Text style={[styles.sectionTitle, { color: theme.tint }]}>APPEARANCE</Text>
+        <View style={[styles.section, { backgroundColor: theme.card }]}>
+            <View style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="moon-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Dark Mode</Text>
                 </View>
                 <Switch 
                     value={isDark} 
-                    onValueChange={toggleTheme} // ✅ Toggles global theme
-                    trackColor={{ false: "#ccc", true: "#FF6B6B" }}
-                    thumbColor={isDark ? "#fff" : "#f4f3f4"}
+                    onValueChange={toggleTheme} 
+                    trackColor={{ false: '#767577', true: theme.tint }}
+                    thumbColor={'white'}
                 />
             </View>
         </View>
 
-        {/* 2. PROFILE SETTINGS */}
-        <View style={styles.section}>
-            <Text style={styles.sectionHeader}>PROFILE SETTINGS</Text>
-            
-            {/* Username (Fixed) */}
-            <View style={styles.inputGroup}>
-                <Text style={styles.label}>Username (Unique)</Text>
-                <View style={[styles.inputContainer, styles.disabledInput]}>
-                    <Text style={[styles.inputText, { color: 'gray' }]}>{formData.username}</Text>
-                    <Ionicons name="lock-closed" size={16} color="gray" />
+        {/* Notifications Section */}
+        <Text style={[styles.sectionTitle, { color: theme.tint, marginTop: 25 }]}>NOTIFICATIONS</Text>
+        <View style={[styles.section, { backgroundColor: theme.card }]}>
+            <View style={styles.row}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="notifications-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Push Notifications</Text>
                 </View>
-            </View>
-
-            {/* Display Name */}
-            <View style={styles.inputGroup}>
-                <Text style={styles.label}>Display Name</Text>
-                <TextInput 
-                    style={styles.input} 
-                    value={formData.displayName}
-                    onChangeText={(t) => updateField('displayName', t)}
-                    placeholderTextColor="gray"
-                />
-            </View>
-
-            {/* Email */}
-            <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email Address</Text>
-                <TextInput 
-                    style={styles.input} 
-                    value={formData.email}
-                    onChangeText={(t) => updateField('email', t)}
-                    keyboardType="email-address"
-                    placeholderTextColor="gray"
-                />
-            </View>
-
-             {/* Phone */}
-             <View style={styles.inputGroup}>
-                <Text style={styles.label}>Phone Number</Text>
-                <TextInput 
-                    style={styles.input} 
-                    value={formData.phone}
-                    onChangeText={(t) => updateField('phone', t)}
-                    keyboardType="phone-pad"
-                    placeholderTextColor="gray"
+                <Switch 
+                    value={notificationsEnabled} 
+                    onValueChange={setNotificationsEnabled} 
+                    trackColor={{ false: '#767577', true: theme.tint }}
+                    thumbColor={'white'}
                 />
             </View>
         </View>
 
-        {/* 3. SECURITY */}
-        <View style={styles.section}>
-            <Text style={styles.sectionHeader}>SECURITY</Text>
-            <View style={styles.inputGroup}>
-                <Text style={styles.label}>New Password</Text>
-                <TextInput 
-                    style={styles.input} 
-                    value={formData.password}
-                    onChangeText={(t) => updateField('password', t)}
-                    secureTextEntry
-                    placeholder="Enter new password to change"
-                    placeholderTextColor="gray"
-                />
-            </View>
+        {/* Data & Storage Section */}
+        <Text style={[styles.sectionTitle, { color: theme.tint, marginTop: 25 }]}>DATA & STORAGE</Text>
+        <View style={[styles.section, { backgroundColor: theme.card }]}>
+            
+            <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]} onPress={() => router.push('/downloads')}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="download-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Manage Downloads</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.subText} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.row} onPress={handleClearHistory}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="time-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Clear Watch History</Text>
+                </View>
+                <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+            </TouchableOpacity>
         </View>
 
-        {/* 4. ACTIONS */}
-        <TouchableOpacity 
-            style={styles.saveButton} 
-            onPress={handleSave}
-            disabled={loading}
-        >
-            {loading ? (
-                <ActivityIndicator color="white" />
-            ) : (
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-            )}
-        </TouchableOpacity>
+        {/* About Section */}
+        <Text style={[styles.sectionTitle, { color: theme.tint, marginTop: 25 }]}>ABOUT</Text>
+        <View style={[styles.section, { backgroundColor: theme.card }]}>
+            <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="information-circle-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Version</Text>
+                </View>
+                <Text style={{ color: theme.subText }}>1.0.0</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.row}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="document-text-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Terms of Service</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.subText} />
+            </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity 
-            style={styles.logoutBtn} 
-            onPress={() => router.replace('/')} // Mock Logout
-        >
-            <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
-
+        <View style={{ height: 50 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// Function to generate styles based on current theme
-const getStyles = (theme: any) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.background },
-  scrollContent: { padding: 20 },
-  
-  section: { marginBottom: 25, backgroundColor: theme.card, borderRadius: 12, padding: 15 },
-  sectionHeader: { color: theme.subText, fontSize: 12, fontWeight: 'bold', marginBottom: 15 },
-  
-  row: { 
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', 
-  },
-  rowLabel: { flexDirection: 'row', alignItems: 'center' },
-  rowText: { color: theme.text, fontSize: 16, marginLeft: 15 },
-
-  // Input Styles
-  inputGroup: { marginBottom: 15 },
-  label: { color: theme.subText, fontSize: 14, marginBottom: 8 },
-  inputContainer: { 
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      backgroundColor: theme.input, borderRadius: 8, padding: 12, borderWidth: 1, borderColor: theme.border 
-  },
-  input: { 
-      backgroundColor: theme.input, color: theme.text, borderRadius: 8, padding: 12, 
-      borderWidth: 1, borderColor: theme.border, fontSize: 16 
-  },
-  disabledInput: { backgroundColor: theme.border, opacity: 0.7 },
-  inputText: { fontSize: 16 },
-
-  // Buttons
-  saveButton: { 
-      backgroundColor: theme.tint, padding: 16, borderRadius: 12, 
-      alignItems: 'center', marginBottom: 15 
-  },
-  saveButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-
-  logoutBtn: { 
-      padding: 15, borderRadius: 12, alignItems: 'center', 
-      borderWidth: 1, borderColor: '#FF6B6B', backgroundColor: 'transparent'
-  },
-  logoutText: { color: '#FF6B6B', fontWeight: 'bold', fontSize: 16 },
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1 },
+  backBtn: { marginRight: 15 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold' },
+  sectionTitle: { fontSize: 13, fontWeight: 'bold', marginBottom: 10, marginLeft: 5 },
+  section: { borderRadius: 12, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 },
+  rowLabel: { fontSize: 16, fontWeight: '500' }
 });
