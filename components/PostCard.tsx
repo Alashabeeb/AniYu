@@ -1,18 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { addDoc, arrayRemove, arrayUnion, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+// ✅ NEW VIDEO IMPORTS
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View
+    ActivityIndicator,
+    Alert,
+    Modal,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
@@ -41,6 +42,17 @@ export default function PostCard({ post }: PostCardProps) {
 
   const isLiked = post.likes?.includes(currentUser?.uid);
   const isReposted = post.reposts?.includes(currentUser?.uid);
+  const isOwner = post.userId === currentUser?.uid;
+
+  // ✅ NEW VIDEO PLAYER SETUP
+  // Only initialize player if it's a video
+  const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
+  const player = useVideoPlayer(videoSource, player => {
+    if (videoSource) {
+        player.loop = true;
+        // player.play(); // Optional: Auto-play (careful with lists)
+    }
+  });
 
   // Time logic
   let timeAgo = "now";
@@ -68,6 +80,24 @@ export default function PostCard({ post }: PostCardProps) {
     });
   };
 
+  const handleDelete = async () => {
+    setMenuVisible(false);
+    Alert.alert("Delete Post", "Are you sure you want to delete this post?", [
+        { text: "Cancel", style: "cancel" },
+        { 
+            text: "Delete", 
+            style: "destructive", 
+            onPress: async () => {
+                try {
+                    await deleteDoc(doc(db, "posts", post.id));
+                } catch (error) {
+                    Alert.alert("Error", "Could not delete post.");
+                }
+            } 
+        }
+    ]);
+  };
+
   const submitReport = async (reason: string) => {
     if (!currentUser) return;
     setReportLoading(true);
@@ -81,10 +111,10 @@ export default function PostCard({ post }: PostCardProps) {
         createdAt: serverTimestamp(),
         status: 'pending'
       });
-      Alert.alert("Report Submitted", "Thank you for making our community safer. We will review this post.");
+      Alert.alert("Report Submitted", "Thank you. We will review this post.");
       setReportModalVisible(false);
     } catch (error) {
-      Alert.alert("Error", "Could not submit report. Please try again.");
+      Alert.alert("Error", "Could not submit report.");
     } finally {
       setReportLoading(false);
     }
@@ -93,7 +123,6 @@ export default function PostCard({ post }: PostCardProps) {
   return (
     <View style={[styles.container, { borderBottomColor: theme.border }]}>
       
-      {/* Avatar & Main Content */}
       <View style={{ flexDirection: 'row' }}>
         <TouchableOpacity onPress={() => router.push({ pathname: '/feed-profile', params: { userId: post.userId } })}>
           <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
@@ -101,7 +130,6 @@ export default function PostCard({ post }: PostCardProps) {
 
         <View style={{ flex: 1, marginLeft: 12 }}>
           
-          {/* Header: Name, Handle, Time + MENU DOTS */}
           <View style={styles.headerRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
               <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
@@ -112,16 +140,13 @@ export default function PostCard({ post }: PostCardProps) {
               </Text>
             </View>
 
-            {/* 🚨 Three Dots Button */}
-            <TouchableOpacity onPress={() => setMenuVisible(true)} style={{ padding: 4 }}>
+            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.dotsButton}>
                 <Ionicons name="ellipsis-horizontal" size={20} color={theme.subText} />
             </TouchableOpacity>
           </View>
 
-          {/* Post Text */}
           {post.text ? <Text style={[styles.text, { color: theme.text }]}>{post.text}</Text> : null}
 
-          {/* Tags */}
           {post.tags && post.tags.length > 0 && (
              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {post.tags.map((tag: string, index: number) => (
@@ -130,21 +155,22 @@ export default function PostCard({ post }: PostCardProps) {
              </View>
           )}
 
-          {/* Media */}
+          {/* Media Rendering */}
           {post.mediaUrl && post.mediaType === 'image' && (
             <Image source={{ uri: post.mediaUrl }} style={styles.media} contentFit="cover" />
           )}
+          
+          {/* ✅ UPDATED VIDEO COMPONENT */}
           {post.mediaUrl && post.mediaType === 'video' && (
-            <Video
-              source={{ uri: post.mediaUrl }}
-              style={styles.media}
-              useNativeControls
-              resizeMode={ResizeMode.COVER}
-              isLooping
+            <VideoView 
+                player={player} 
+                style={styles.media} 
+                contentFit="cover"
+                allowsFullscreen 
+                allowsPictureInPicture
             />
           )}
 
-          {/* Actions */}
           <View style={styles.actions}>
             <TouchableOpacity style={styles.actionBtn} onPress={handleLike}>
               <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
@@ -168,24 +194,26 @@ export default function PostCard({ post }: PostCardProps) {
         </View>
       </View>
 
-      {/* 🟢 1. OPTIONS MENU MODAL (Small popup near the dots usually, but centered/bottom for mobile) */}
+      {/* Menu Modal */}
       <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
                 <View style={[styles.menuContainer, { backgroundColor: theme.card }]}>
-                    <TouchableOpacity 
-                        style={styles.menuItem} 
-                        onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
-                    >
-                        <Ionicons name="flag-outline" size={20} color="red" />
-                        <Text style={[styles.menuText, { color: 'red' }]}>Report Post</Text>
-                    </TouchableOpacity>
-                    
-                    {/* Add more options here if needed, e.g., "Copy Link" */}
-                    <TouchableOpacity 
-                        style={styles.menuItem} 
-                        onPress={() => setMenuVisible(false)}
-                    >
+                    {isOwner ? (
+                        <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
+                            <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                            <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Delete Post</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity 
+                            style={styles.menuItem} 
+                            onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
+                        >
+                            <Ionicons name="flag-outline" size={20} color="red" />
+                            <Text style={[styles.menuText, { color: 'red' }]}>Report Post</Text>
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
                          <Ionicons name="close" size={20} color={theme.text} />
                          <Text style={[styles.menuText, { color: theme.text }]}>Cancel</Text>
                     </TouchableOpacity>
@@ -194,7 +222,7 @@ export default function PostCard({ post }: PostCardProps) {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* 🔴 2. REPORT REASON MODAL */}
+      {/* Report Modal */}
       <Modal visible={reportModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
             <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
@@ -202,7 +230,6 @@ export default function PostCard({ post }: PostCardProps) {
                 <Text style={{ color: theme.subText, marginBottom: 15, textAlign: 'center' }}>
                     Why are you reporting this post?
                 </Text>
-
                 {REPORT_REASONS.map((reason) => (
                     <TouchableOpacity 
                         key={reason} 
@@ -214,14 +241,9 @@ export default function PostCard({ post }: PostCardProps) {
                         <Ionicons name="chevron-forward" size={16} color={theme.subText} />
                     </TouchableOpacity>
                 ))}
-
-                <TouchableOpacity 
-                    style={{ marginTop: 10, padding: 10 }}
-                    onPress={() => setReportModalVisible(false)}
-                >
+                <TouchableOpacity style={{ marginTop: 10, padding: 10 }} onPress={() => setReportModalVisible(false)}>
                     <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Cancel</Text>
                 </TouchableOpacity>
-
                 {reportLoading && <ActivityIndicator style={{ position: 'absolute' }} size="large" color={theme.tint} />}
             </View>
         </View>
@@ -237,22 +259,17 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   name: { fontWeight: 'bold', fontSize: 15, marginRight: 6, flexShrink: 1 },
   handle: { fontSize: 14, flexShrink: 1 },
+  dotsButton: { padding: 5, marginTop: -5 }, 
   text: { fontSize: 15, lineHeight: 22, marginBottom: 8 },
   media: { width: '100%', height: 250, borderRadius: 12, marginBottom: 10, backgroundColor: '#f0f0f0' },
   actions: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 20 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', minWidth: 50 },
   count: { fontSize: 12, marginLeft: 5 },
-
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   menuContainer: { width: 250, borderRadius: 12, padding: 10, elevation: 5 },
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 12 },
   menuText: { fontSize: 16, marginLeft: 12, fontWeight: '500' },
-
   reportContainer: { width: '90%', borderRadius: 16, padding: 20, alignItems: 'center', elevation: 10 },
   reportTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 5 },
-  reasonBtn: { 
-      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      width: '100%', padding: 15, borderBottomWidth: 0.5 
-  }
+  reasonBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: 15, borderBottomWidth: 0.5 }
 });

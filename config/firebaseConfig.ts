@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
 import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore'; // ✅ Changed from getFirestore
 import { getStorage } from 'firebase/storage';
 
 // Your configuration
@@ -24,10 +24,12 @@ const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(AsyncStorage)
 });
 
-// 3. Initialize Database
-const db = getFirestore(app);
+// 3. Initialize Database (✅ FIXED: Using Long Polling to prevent transport errors)
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true, 
+});
+
 const storage = getStorage(app);
 
 // 4. Export them for use in the app
 export { auth, db, storage };
-

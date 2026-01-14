@@ -1,25 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+// ✅ NEW VIDEO IMPORTS
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
-    addDoc,
-    arrayRemove, arrayUnion,
-    collection, doc,
-    getDoc,
-    increment,
-    onSnapshot, orderBy,
-    query, serverTimestamp, updateDoc,
-    where
+  addDoc,
+  arrayRemove, arrayUnion,
+  collection, deleteDoc, doc,
+  getDoc,
+  increment,
+  onSnapshot, orderBy,
+  query, serverTimestamp, updateDoc,
+  where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList, KeyboardAvoidingView, Platform, Share, StyleSheet,
-    Text, TextInput, TouchableOpacity, View
+  ActivityIndicator,
+  Alert,
+  FlatList, KeyboardAvoidingView, Modal, Platform, Share, StyleSheet,
+  Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+
+const REPORT_REASONS = [
+  "Offensive content",
+  "Abusive behavior",
+  "Spam",
+  "Misinformation",
+  "Sexual content",
+  "Other"
+];
 
 export default function PostDetailsScreen() {
   const router = useRouter();
@@ -32,13 +44,24 @@ export default function PostDetailsScreen() {
   const [newComment, setNewComment] = useState('');
   const [sending, setSending] = useState(false);
 
+  // Menu State
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  // ✅ Initialize Video Player (only if needed)
+  const videoSource = post?.mediaType === 'video' && post?.mediaUrl ? post.mediaUrl : null;
+  const player = useVideoPlayer(videoSource, player => {
+      if (videoSource) player.loop = true;
+  });
+
+  const isOwner = post?.userId === user?.uid;
+
   useEffect(() => {
     if (!postId) return;
-
     const postUnsub = onSnapshot(doc(db, 'posts', postId as string), (doc) => {
       if (doc.exists()) setPost({ id: doc.id, ...doc.data() });
     });
-
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', postId), 
@@ -47,7 +70,6 @@ export default function PostDetailsScreen() {
     const commentsUnsub = onSnapshot(q, (snapshot) => {
       setComments(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-
     return () => { postUnsub(); commentsUnsub(); };
   }, [postId]);
 
@@ -66,14 +88,45 @@ export default function PostDetailsScreen() {
       router.push({ pathname: '/post-details', params: { postId: id } });
   };
 
+  const handleDelete = () => {
+      setMenuVisible(false);
+      Alert.alert("Delete Post", "Are you sure?", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Delete", style: "destructive", onPress: async () => {
+              await deleteDoc(doc(db, "posts", postId as string));
+              router.back();
+          }}
+      ]);
+  };
+
+  const submitReport = async (reason: string) => {
+      if (!user) return;
+      setReportLoading(true);
+      try {
+        await addDoc(collection(db, 'reports'), {
+          type: 'post',
+          targetId: postId,
+          targetContent: post?.text || 'media',
+          reportedBy: user.uid,
+          reason: reason,
+          createdAt: serverTimestamp(),
+          status: 'pending'
+        });
+        Alert.alert("Report Submitted", "Thank you.");
+        setReportModalVisible(false);
+      } catch (error) {
+        Alert.alert("Error", "Could not submit.");
+      } finally {
+        setReportLoading(false);
+      }
+  };
+
   const handleSendComment = async () => {
     if (!newComment.trim() || !user) return;
     setSending(true);
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
       const userData = userDoc.exists() ? userDoc.data() : {};
-      
-      // ✅ Correctly separating Username (@handle) vs DisplayName (Bold Name)
       const realUsername = userData.username || user.email?.split('@')[0] || "user"; 
       const realDisplayName = userData.displayName || user.displayName || "Anonymous";
       const realAvatar = userData.avatar || user.photoURL;
@@ -90,17 +143,10 @@ export default function PostDetailsScreen() {
         reposts: [],
         commentCount: 0
       });
-
-      await updateDoc(doc(db, 'posts', postId as string), {
-        commentCount: increment(1)
-      });
-
+      await updateDoc(doc(db, 'posts', postId as string), { commentCount: increment(1) });
       setNewComment('');
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSending(false);
-    }
+    } catch (e) { console.error(e); } 
+    finally { setSending(false); }
   };
 
   if (!post) return <View style={[styles.container, { backgroundColor: theme.background }]} />;
@@ -118,10 +164,6 @@ export default function PostDetailsScreen() {
       const isLiked = item.likes?.includes(user?.uid);
       const isReposted = item.reposts?.includes(user?.uid);
       const timeAgo = formatTimeAgo(item.createdAt);
-
-      const displayName = item.displayName || item.username;
-      const handle = item.username || "user";
-
       return (
         <TouchableOpacity 
             style={[styles.commentItem, { borderBottomColor: theme.border }]}
@@ -131,32 +173,23 @@ export default function PostDetailsScreen() {
             <Image source={{ uri: item.userAvatar }} style={styles.commentAvatar} />
             <View style={{ flex: 1 }}>
                 <View style={styles.row}>
-                    <Text style={[styles.commentName, { color: theme.text }]} numberOfLines={1}>
-                        {displayName}
-                    </Text>
-                    <Text style={[styles.commentHandle, { color: theme.subText }]} numberOfLines={1}>
-                        @{handle} · {timeAgo}
-                    </Text>
+                    <Text style={[styles.commentName, { color: theme.text }]} numberOfLines={1}>{item.displayName || item.username}</Text>
+                    <Text style={[styles.commentHandle, { color: theme.subText }]} numberOfLines={1}>@{item.username} · {timeAgo}</Text>
                 </View>
-
                 <Text style={{ color: theme.text, marginTop: 2, marginBottom: 8 }}>{item.text}</Text>
-
                 <View style={styles.commentActions}>
                     <TouchableOpacity style={styles.actionButton} onPress={() => toggleAction(item.id, 'likes', item.likes || [])}>
                         <Ionicons name={isLiked ? "heart" : "heart-outline"} size={16} color={isLiked ? "#FF6B6B" : theme.subText} />
                         <Text style={[styles.actionText, { color: theme.subText }]}>{item.likes?.length || 0}</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.actionButton} onPress={() => goToDetails(item.id)}>
                         <Ionicons name="chatbubble-outline" size={16} color={theme.subText} />
                         <Text style={[styles.actionText, { color: theme.subText }]}>{item.commentCount || 0}</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.actionButton} onPress={() => toggleAction(item.id, 'reposts', item.reposts || [])}>
                         <Ionicons name="repeat-outline" size={16} color={isReposted ? "#00BA7C" : theme.subText} />
                          <Text style={[styles.actionText, { color: theme.subText }]}>{item.reposts?.length || 0}</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
                         <Ionicons name="share-outline" size={16} color={theme.subText} />
                     </TouchableOpacity>
@@ -170,20 +203,19 @@ export default function PostDetailsScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => router.back()}>
+                <Ionicons name="arrow-back" size={24} color={theme.text} />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Post</Text>
+        </View>
+        <TouchableOpacity onPress={() => setMenuVisible(true)}>
+             <Ionicons name="ellipsis-horizontal" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Post</Text>
       </View>
 
-      {/* ✅ WRAP EVERYTHING IN KEYBOARD AVOIDING VIEW */}
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0} // Set to 0 because it's inside SafeArea
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <FlatList
             data={comments}
             keyExtractor={item => item.id}
@@ -199,6 +231,20 @@ export default function PostDetailsScreen() {
                   </View>
                   <Text style={[styles.postText, { color: theme.text }]}>{post.text}</Text>
                   
+                  {/* ✅ UPDATED VIDEO VIEW */}
+                  {post.mediaUrl && post.mediaType === 'video' && (
+                      <VideoView 
+                        player={player} 
+                        style={styles.postVideo} 
+                        contentFit="cover"
+                        allowsFullscreen
+                        allowsPictureInPicture
+                      />
+                  )}
+                  {post.mediaUrl && post.mediaType === 'image' && (
+                      <Image source={{ uri: post.mediaUrl }} style={styles.postImage} contentFit="cover" />
+                  )}
+
                   <Text style={{ color: theme.subText, marginTop: 10, fontSize: 12 }}>
                      {post.createdAt?.seconds ? new Date(post.createdAt.seconds * 1000).toLocaleString() : 'Just now'}
                   </Text>
@@ -220,7 +266,6 @@ export default function PostDetailsScreen() {
             renderItem={renderComment}
           />
 
-          {/* Input Bar */}
           <View style={[styles.inputContainer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
               <TextInput
                   style={[styles.input, { color: theme.text, backgroundColor: theme.card }]}
@@ -234,32 +279,90 @@ export default function PostDetailsScreen() {
               </TouchableOpacity>
           </View>
       </KeyboardAvoidingView>
+
+      <Modal visible={menuVisible} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
+            <View style={styles.modalOverlay}>
+                <View style={[styles.menuContainer, { backgroundColor: theme.card }]}>
+                    {isOwner ? (
+                        <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
+                            <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                            <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Delete Post</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity 
+                            style={styles.menuItem} 
+                            onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
+                        >
+                            <Ionicons name="flag-outline" size={20} color="red" />
+                            <Text style={[styles.menuText, { color: 'red' }]}>Report Post</Text>
+                        </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
+                         <Ionicons name="close" size={20} color={theme.text} />
+                         <Text style={[styles.menuText, { color: theme.text }]}>Cancel</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal visible={reportModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+            <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
+                <Text style={[styles.reportTitle, { color: theme.text }]}>Report Post</Text>
+                <Text style={{ color: theme.subText, marginBottom: 15, textAlign: 'center' }}>Why?</Text>
+                {REPORT_REASONS.map((reason) => (
+                    <TouchableOpacity 
+                        key={reason} 
+                        style={[styles.reasonBtn, { borderColor: theme.border }]}
+                        onPress={() => submitReport(reason)}
+                        disabled={reportLoading}
+                    >
+                        <Text style={{ color: theme.text }}>{reason}</Text>
+                        <Ionicons name="chevron-forward" size={16} color={theme.subText} />
+                    </TouchableOpacity>
+                ))}
+                <TouchableOpacity style={{ marginTop: 10, padding: 10 }} onPress={() => setReportModalVisible(false)}>
+                    <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Cancel</Text>
+                </TouchableOpacity>
+                {reportLoading && <ActivityIndicator style={{ position: 'absolute' }} size="large" color={theme.tint} />}
+            </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 0.5 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', marginLeft: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 0.5, alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', marginLeft: 15 },
   mainPost: { padding: 15, borderBottomWidth: 0.5 },
   row: { flexDirection: 'row', alignItems: 'center' },
   avatar: { width: 50, height: 50, borderRadius: 25 },
   name: { fontWeight: 'bold', fontSize: 16 },
   handle: { fontSize: 14 },
   postText: { fontSize: 18, marginTop: 10, lineHeight: 26 },
+  postImage: { width: '100%', height: 250, borderRadius: 15, marginTop: 10 },
+  postVideo: { width: '100%', height: 250, borderRadius: 15, marginTop: 10 },
   statsRow: { flexDirection: 'row', marginTop: 15, paddingVertical: 10, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
   mainActions: { flexDirection: 'row', justifyContent: 'space-around', paddingTop: 10 },
-  
   commentItem: { flexDirection: 'row', padding: 15, borderBottomWidth: 0.5 },
   commentAvatar: { width: 35, height: 35, borderRadius: 17.5, marginRight: 10 },
   commentName: { fontWeight: 'bold', fontSize: 14, marginRight: 5 },
   commentHandle: { fontSize: 12 }, 
-  
   commentActions: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 40, marginTop: 5 },
   actionButton: { flexDirection: 'row', alignItems: 'center' },
   actionText: { fontSize: 12, marginLeft: 5 },
-  
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 0.5, paddingBottom: 10 }, 
   input: { flex: 1, borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, marginRight: 10, fontSize: 16 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  menuContainer: { width: 250, borderRadius: 12, padding: 10, elevation: 5 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 12 },
+  menuText: { fontSize: 16, marginLeft: 12, fontWeight: '500' },
+  reportContainer: { width: '90%', borderRadius: 16, padding: 20, alignItems: 'center', elevation: 10 },
+  reportTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 5 },
+  reasonBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: 15, borderBottomWidth: 0.5 }
 });
