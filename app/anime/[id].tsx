@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { doc, getDoc, increment, updateDoc } from 'firebase/firestore';
+// ✅ ADDED: setDoc and arrayUnion for tracking episode progress
+import { arrayUnion, doc, getDoc, increment, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View
@@ -14,13 +15,13 @@ import { getAnimeDetails, getAnimeEpisodes } from '../../services/animeService';
 import { addDownload, DownloadItem, getDownloads } from '../../services/downloadService';
 import { addToHistory } from '../../services/historyService';
 
-// RANKING SYSTEM
+// ✅ UPDATED: Competitive Ranks (Based on COMPLETED SERIES, not episodes)
 const RANKS = [
-    { name: 'GENIN', min: 0, max: 49 },
-    { name: 'CHUNIN', min: 50, max: 99 },
-    { name: 'JONIN', min: 100, max: 199 },
-    { name: 'ANBU', min: 200, max: 499 },
-    { name: 'KAGE', min: 500, max: Infinity },
+    { name: 'GENIN', min: 0, max: 4 },       // 0-4 Completed Series
+    { name: 'CHUNIN', min: 5, max: 19 },      // 5-19 Completed Series
+    { name: 'JONIN', min: 20, max: 49 },      // 20-49 Completed Series
+    { name: 'ANBU', min: 50, max: 99 },       // 50-99 Completed Series
+    { name: 'KAGE', min: 100, max: Infinity },// 100+ Completed Series (Legendary)
 ];
 
 export default function AnimeDetailScreen() {
@@ -37,7 +38,7 @@ export default function AnimeDetailScreen() {
   const videoSource = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
   
   const player = useVideoPlayer(videoSource, player => { 
-      player.loop = false;
+      player.loop = false; // Must be false to detect completion
       player.play(); 
   });
 
@@ -49,27 +50,62 @@ export default function AnimeDetailScreen() {
       return () => subscription.remove();
   }, [player]);
 
+  // ✅ NEW LOGIC: Count Series Completion
   const handleVideoFinished = async () => {
       const user = auth.currentUser;
-      if (!user) return;
+      // We need anime info and current episode to track progress
+      if (!user || !anime || !currentEpId) return;
 
       try {
-          const userRef = doc(db, 'users', user.uid);
-          await updateDoc(userRef, { watchedCount: increment(1) });
+          // 1. Reference to this specific anime's progress (Subcollection to keep it organized)
+          const progressRef = doc(db, 'users', user.uid, 'anime_progress', String(anime.mal_id));
+          
+          // 2. Add this episode to the user's "Watched List" for this show
+          // (arrayUnion ensures we don't count the same episode twice)
+          await setDoc(progressRef, {
+              watchedEpisodes: arrayUnion(currentEpId),
+              totalEpisodes: anime.episodes || episodes.length // Use API total or fallback to list length
+          }, { merge: true });
 
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-              const data = userSnap.data();
-              const count = data.watchedCount || 0;
-              const newRank = RANKS.find(r => count >= r.min && count <= r.max)?.name || "GENIN";
-              
-              if (data.rank !== newRank) {
-                  await updateDoc(userRef, { rank: newRank });
-                  Alert.alert("🎉 LEVEL UP!", `You are now a ${newRank}!`);
+          // 3. Check if the User has finished the WHOLE series
+          const progressSnap = await getDoc(progressRef);
+          if (progressSnap.exists()) {
+              const data = progressSnap.data();
+              const watchedCount = data.watchedEpisodes?.length || 0;
+              const total = data.totalEpisodes || 0;
+              const alreadyCompleted = data.isCompleted || false;
+
+              // CONDITION: Have they watched ALL episodes? And is it the FIRST time finishing?
+              if (watchedCount >= total && total > 0 && !alreadyCompleted) {
+                  
+                  // A. Mark Series as Completed in DB
+                  await updateDoc(progressRef, { isCompleted: true });
+
+                  // B. Increment the main "Completed Anime" counter (This is what determines Rank)
+                  const userRef = doc(db, 'users', user.uid);
+                  await updateDoc(userRef, { 
+                      completedAnimeCount: increment(1) 
+                  });
+                  
+                  // C. Check for Rank Up
+                  const userSnap = await getDoc(userRef);
+                  if (userSnap.exists()) {
+                      const userData = userSnap.data();
+                      const score = userData.completedAnimeCount || 0;
+                      
+                      const newRank = RANKS.find(r => score >= r.min && score <= r.max)?.name || "GENIN";
+                      
+                      if (userData.rank !== newRank) {
+                          await updateDoc(userRef, { rank: newRank });
+                          Alert.alert("🎉 RANK PROMOTION!", `You are now a ${newRank}!\n(Completed ${score} Anime Series)`);
+                      } else {
+                          Alert.alert("🏆 SERIES COMPLETED!", `You finished ${anime.title}!\nIt now counts towards your Rank.`);
+                      }
+                  }
               }
           }
       } catch (error) {
-          console.log("Error updating rank:", error);
+          console.log("Error updating progress:", error);
       }
   };
 
@@ -91,7 +127,7 @@ export default function AnimeDetailScreen() {
       setEpisodes(episodesData);
       
       const myDownloads = allDownloads
-        // ✅ FIXED: Added "?." check and fallback "|| ''" to stop the red underline
+        // Fixed Red Underline: Convert to String and use safe check
         .filter((d: DownloadItem) => String(d.mal_id) === String(detailsData?.mal_id || ''))
         .map((d: DownloadItem) => d.episodeId); 
         
