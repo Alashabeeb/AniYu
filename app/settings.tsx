@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react'; // Added useEffect
 import {
     Alert,
     ScrollView,
@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { clearHistory } from '../services/historyService';
+// ✅ ADDED: Notification Service imports
+import { getNotificationPreference, setNotificationPreference } from '../services/notificationService';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -20,29 +22,31 @@ export default function SettingsScreen() {
   
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
+  // ✅ ADDED: Load saved preference
+  useEffect(() => {
+      loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+      const enabled = await getNotificationPreference();
+      setNotificationsEnabled(enabled);
+  };
+
+  // ✅ ADDED: Toggle function
+  const toggleNotifications = async (value: boolean) => {
+      setNotificationsEnabled(value);
+      await setNotificationPreference(value);
+  };
+
   const handleClearHistory = async () => {
-      Alert.alert(
-          "Clear History",
-          "Are you sure you want to delete your watch history?",
-          [
-              { text: "Cancel", style: "cancel" },
-              { 
-                  text: "Delete", 
-                  style: "destructive", 
-                  onPress: async () => {
-                      await clearHistory();
-                      Alert.alert("Success", "History cleared.");
-                  } 
-              }
-          ]
-      );
+      // ... (Same as before)
+      Alert.alert("Clear History", "Are you sure?", [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: async () => { await clearHistory(); Alert.alert("Success", "History cleared."); } }]);
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
@@ -52,7 +56,7 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 20 }}>
         
-        {/* Appearance Section */}
+        {/* Appearance */}
         <Text style={[styles.sectionTitle, { color: theme.tint }]}>APPEARANCE</Text>
         <View style={[styles.section, { backgroundColor: theme.card }]}>
             <View style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
@@ -69,27 +73,27 @@ export default function SettingsScreen() {
             </View>
         </View>
 
-        {/* Notifications Section */}
+        {/* Notifications */}
         <Text style={[styles.sectionTitle, { color: theme.tint, marginTop: 25 }]}>NOTIFICATIONS</Text>
         <View style={[styles.section, { backgroundColor: theme.card }]}>
             <View style={styles.row}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="notifications-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Push Notifications</Text>
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>Pop-up Notifications</Text>
                 </View>
+                {/* ✅ UPDATED: Connected to toggle function */}
                 <Switch 
                     value={notificationsEnabled} 
-                    onValueChange={setNotificationsEnabled} 
+                    onValueChange={toggleNotifications} 
                     trackColor={{ false: '#767577', true: theme.tint }}
                     thumbColor={'white'}
                 />
             </View>
         </View>
 
-        {/* Data & Storage Section */}
+        {/* Data & About sections remain the same... */}
         <Text style={[styles.sectionTitle, { color: theme.tint, marginTop: 25 }]}>DATA & STORAGE</Text>
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            
             <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]} onPress={() => router.push('/downloads')}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="download-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
@@ -107,27 +111,16 @@ export default function SettingsScreen() {
             </TouchableOpacity>
         </View>
 
-        {/* About Section */}
         <Text style={[styles.sectionTitle, { color: theme.tint, marginTop: 25 }]}>ABOUT</Text>
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            <TouchableOpacity style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
+            <TouchableOpacity style={styles.row}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="information-circle-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
                     <Text style={[styles.rowLabel, { color: theme.text }]}>Version</Text>
                 </View>
                 <Text style={{ color: theme.subText }}>1.0.0</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.row}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="document-text-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Terms of Service</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={theme.subText} />
-            </TouchableOpacity>
         </View>
-
-        <View style={{ height: 50 }} />
       </ScrollView>
     </SafeAreaView>
   );

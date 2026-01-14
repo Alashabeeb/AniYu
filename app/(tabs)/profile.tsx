@@ -12,7 +12,7 @@ import { useTheme } from '../../context/ThemeContext';
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
 
-// ✅ ADDED: Ranking System Config (Must match [id].tsx)
+// ✅ RANKING SYSTEM CONFIGURATION
 const RANKS = [
     { name: 'GENIN', min: 0, max: 4 },
     { name: 'CHUNIN', min: 5, max: 19 },
@@ -67,11 +67,11 @@ export default function ProfileScreen() {
   const followingCount = userData?.following?.length || 0;
   const followersCount = userData?.followers?.length || 0;
   
-  // ✅ ADDED: Get "Watched" count from DB
+  // Get "Watched" count from DB
   const completedCount = userData?.completedAnimeCount || 0;
   const userRank = userData?.rank || "GENIN";
 
-  // ✅ ADDED: Progress Bar Logic
+  // Progress Bar Logic
   const currentRankIndex = RANKS.findIndex(r => r.name === userRank);
   const nextRank = RANKS[currentRankIndex + 1];
   const currentRankMin = RANKS[currentRankIndex]?.min || 0;
@@ -127,34 +127,53 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ✅ UPDATED: Stats Row with 4 Items */}
+        {/* ✅ UPDATED: Stats Row with Clickable Actions */}
         <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
-            <View style={styles.statItem}>
+            
+            {/* Following */}
+            <TouchableOpacity 
+                style={styles.statItem}
+                onPress={() => router.push({ pathname: '/user-list', params: { type: 'following' } })}
+            >
                 <Text style={[styles.statNum, { color: theme.text }]}>{followingCount}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Following</Text>
-            </View>
+            </TouchableOpacity>
+
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             
-            {/* New Watched Stat */}
-            <View style={styles.statItem}>
+            {/* Watched */}
+            <TouchableOpacity 
+                style={styles.statItem}
+                onPress={() => router.push({ pathname: '/anime-list', params: { type: 'watched' } })}
+            >
                 <Text style={[styles.statNum, { color: theme.text }]}>{completedCount}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Watched</Text>
-            </View>
+            </TouchableOpacity>
+
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-            <View style={styles.statItem}>
+            {/* Favorites */}
+            <TouchableOpacity 
+                style={styles.statItem}
+                onPress={() => router.push({ pathname: '/anime-list', params: { type: 'favorites' } })}
+            >
                 <Text style={[styles.statNum, { color: theme.text }]}>{favorites.length}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Favorites</Text>
-            </View>
+            </TouchableOpacity>
+
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             
-            <View style={styles.statItem}>
+            {/* Followers */}
+            <TouchableOpacity 
+                style={styles.statItem}
+                onPress={() => router.push({ pathname: '/user-list', params: { type: 'followers' } })}
+            >
                 <Text style={[styles.statNum, { color: theme.text }]}>{followersCount}</Text>
                 <Text style={[styles.statLabel, { color: theme.subText }]}>Followers</Text>
-            </View>
+            </TouchableOpacity>
         </View>
 
-        {/* ✅ ADDED: Progress Bar UI */}
+        {/* Progress Bar UI */}
         <View style={{ paddingHorizontal: 20, marginTop: 15 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
                 <Text style={{ color: theme.tint, fontWeight: 'bold', fontSize: 12 }}>{userRank}</Text>
@@ -180,8 +199,8 @@ export default function ProfileScreen() {
         <View style={styles.menuContainer}>
             <MenuItem icon="settings-outline" label="Settings" theme={theme} onPress={() => router.push('/settings')} isLink />
             <MenuItem icon="download-outline" label="Downloads" theme={theme} onPress={() => router.push('/downloads')} isLink />
-            <MenuItem icon="notifications-outline" label="Notifications" theme={theme} />
-            <MenuItem icon="help-circle-outline" label="Help & Support" theme={theme} />
+            <MenuItem icon="notifications-outline" label="Notifications" theme={theme} onPress={() => router.push('/notifications')} isLink />
+            <MenuItem icon="help-circle-outline" label="Help & Support" theme={theme} onPress={() => router.push('/help-support')} isLink />
             
             <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(255, 107, 107, 0.1)' }]}>
@@ -231,11 +250,11 @@ const styles = StyleSheet.create({
   bio: { marginTop: 8, textAlign: 'center', paddingHorizontal: 40, fontSize: 13, lineHeight: 18 },
   editBtn: { marginTop: 15, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
   
-  // ✅ UPDATED: Adjusted for 4 stats (space-evenly)
+  // Adjusted for 4 stats (space-evenly)
   statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 25, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
-  statItem: { alignItems: 'center', flex: 1 }, // Added flex:1 for equal width
+  statItem: { alignItems: 'center', flex: 1 },
   statNum: { fontSize: 18, fontWeight: 'bold' },
-  statLabel: { fontSize: 11 }, // Slightly smaller text to fit
+  statLabel: { fontSize: 11 },
   divider: { width: 1, height: '80%', alignSelf: 'center' },
   
   menuContainer: { marginTop: 30, paddingHorizontal: 20 },
