@@ -1,20 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { doc, getDoc, increment, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../../context/ThemeContext'; // ✅ Theme
+import { auth, db } from '../../config/firebaseConfig';
+import { useTheme } from '../../context/ThemeContext';
 
 import { getAnimeDetails, getAnimeEpisodes } from '../../services/animeService';
 import { addDownload, DownloadItem, getDownloads } from '../../services/downloadService';
 import { addToHistory } from '../../services/historyService';
 
+// RANKING SYSTEM
+const RANKS = [
+    { name: 'GENIN', min: 0, max: 49 },
+    { name: 'CHUNIN', min: 50, max: 99 },
+    { name: 'JONIN', min: 100, max: 199 },
+    { name: 'ANBU', min: 200, max: 499 },
+    { name: 'KAGE', min: 500, max: Infinity },
+];
+
 export default function AnimeDetailScreen() {
   const { id, episodeId } = useLocalSearchParams();
-  const { theme } = useTheme(); // ✅ Use Theme
+  const { theme } = useTheme();
   
   const [anime, setAnime] = useState<any>(null);
   const [episodes, setEpisodes] = useState<any[]>([]);
@@ -24,7 +35,43 @@ export default function AnimeDetailScreen() {
   const [currentEpId, setCurrentEpId] = useState<number | null>(null);
 
   const videoSource = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
-  const player = useVideoPlayer(videoSource, player => { player.loop = true; player.play(); });
+  
+  const player = useVideoPlayer(videoSource, player => { 
+      player.loop = false;
+      player.play(); 
+  });
+
+  // LISTEN FOR VIDEO COMPLETION
+  useEffect(() => {
+      const subscription = player.addListener('playToEnd', () => {
+          handleVideoFinished();
+      });
+      return () => subscription.remove();
+  }, [player]);
+
+  const handleVideoFinished = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      try {
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, { watchedCount: increment(1) });
+
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+              const data = userSnap.data();
+              const count = data.watchedCount || 0;
+              const newRank = RANKS.find(r => count >= r.min && count <= r.max)?.name || "GENIN";
+              
+              if (data.rank !== newRank) {
+                  await updateDoc(userRef, { rank: newRank });
+                  Alert.alert("🎉 LEVEL UP!", `You are now a ${newRank}!`);
+              }
+          }
+      } catch (error) {
+          console.log("Error updating rank:", error);
+      }
+  };
 
   useEffect(() => {
     if (episodeId) { setCurrentEpId(Number(episodeId)); setActiveTab('Episodes'); }
@@ -42,9 +89,12 @@ export default function AnimeDetailScreen() {
       ]);
       setAnime(detailsData);
       setEpisodes(episodesData);
+      
       const myDownloads = allDownloads
-        .filter((d: DownloadItem) => d.mal_id === detailsData.mal_id)
+        // ✅ FIXED: Added "?." check and fallback "|| ''" to stop the red underline
+        .filter((d: DownloadItem) => String(d.mal_id) === String(detailsData?.mal_id || ''))
         .map((d: DownloadItem) => d.episodeId); 
+        
       setDownloadedEpIds(myDownloads.map(String));
 
       if (!episodeId && episodesData.length > 0) setCurrentEpId(episodesData[0].mal_id);
@@ -55,6 +105,7 @@ export default function AnimeDetailScreen() {
   const handleEpisodePress = (ep: any) => {
     setCurrentEpId(ep.mal_id);
     if (anime) addToHistory(anime, ep.title || `Episode ${ep.mal_id}`);
+    player.replay();
   };
 
   const handleDownload = async (ep: any) => {
@@ -74,7 +125,11 @@ export default function AnimeDetailScreen() {
 
       <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1 }}>
         <View style={styles.videoContainer}>
-            <VideoView style={styles.video} player={player} allowsFullscreen allowsPictureInPicture />
+            <VideoView 
+                style={styles.video} 
+                player={player} 
+                allowsPictureInPicture 
+            />
         </View>
 
         <View style={[styles.infoContainer, { borderBottomColor: theme.border }]}>

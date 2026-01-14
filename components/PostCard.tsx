@@ -1,19 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-// ✅ NEW VIDEO IMPORTS
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { addDoc, arrayRemove, arrayUnion, collection, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import {
+  addDoc,
+  arrayRemove,
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+  updateDoc
+} from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable, // ✅ Changed to Pressable for better touch handling
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View
 } from 'react-native';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
@@ -44,13 +53,11 @@ export default function PostCard({ post }: PostCardProps) {
   const isReposted = post.reposts?.includes(currentUser?.uid);
   const isOwner = post.userId === currentUser?.uid;
 
-  // ✅ NEW VIDEO PLAYER SETUP
-  // Only initialize player if it's a video
+  // ✅ Video Player Setup
   const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => {
     if (videoSource) {
         player.loop = true;
-        // player.play(); // Optional: Auto-play (careful with lists)
     }
   });
 
@@ -63,6 +70,11 @@ export default function PostCard({ post }: PostCardProps) {
     else if (seconds < 86400) timeAgo = `${Math.floor(seconds / 3600)}h`;
     else timeAgo = new Date(post.createdAt.seconds * 1000).toLocaleDateString();
   }
+
+  // ✅ Navigation Wrapper
+  const handleGoToDetails = () => {
+    router.push({ pathname: '/post-details', params: { postId: post.id } });
+  };
 
   const handleLike = async () => {
     if (!currentUser) return;
@@ -121,10 +133,18 @@ export default function PostCard({ post }: PostCardProps) {
   };
 
   return (
-    <View style={[styles.container, { borderBottomColor: theme.border }]}>
-      
+    // ✅ WRAP EVERYTHING IN PRESSABLE TO MAKE CARD CLICKABLE
+    <Pressable 
+      onPress={handleGoToDetails} 
+      style={[styles.container, { borderBottomColor: theme.border }]}
+    >
       <View style={{ flexDirection: 'row' }}>
-        <TouchableOpacity onPress={() => router.push({ pathname: '/feed-profile', params: { userId: post.userId } })}>
+        
+        {/* Avatar Link (Stops propagation so it goes to profile, not post details) */}
+        <TouchableOpacity onPress={(e) => {
+            e.stopPropagation(); // Prevent going to details
+            router.push({ pathname: '/feed-profile', params: { userId: post.userId } });
+        }}>
           <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
         </TouchableOpacity>
 
@@ -140,7 +160,8 @@ export default function PostCard({ post }: PostCardProps) {
               </Text>
             </View>
 
-            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.dotsButton}>
+            {/* Menu Button (Stops propagation) */}
+            <TouchableOpacity onPress={(e) => { e.stopPropagation(); setMenuVisible(true); }} style={styles.dotsButton}>
                 <Ionicons name="ellipsis-horizontal" size={20} color={theme.subText} />
             </TouchableOpacity>
           </View>
@@ -160,8 +181,8 @@ export default function PostCard({ post }: PostCardProps) {
             <Image source={{ uri: post.mediaUrl }} style={styles.media} contentFit="cover" />
           )}
           
-          {/* ✅ UPDATED VIDEO COMPONENT */}
           {post.mediaUrl && post.mediaType === 'video' && (
+            // Video view handles its own touches for playback
             <VideoView 
                 player={player} 
                 style={styles.media} 
@@ -171,30 +192,31 @@ export default function PostCard({ post }: PostCardProps) {
             />
           )}
 
+          {/* Action Buttons (Stop propagation so they don't trigger navigation) */}
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleLike}>
+            <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleLike(); }}>
               <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
               <Text style={[styles.count, { color: isLiked ? "#FF6B6B" : theme.subText }]}>{post.likes?.length || 0}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionBtn} onPress={() => router.push({ pathname: '/post-details', params: { postId: post.id } })}>
+            <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleGoToDetails(); }}>
               <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
               <Text style={[styles.count, { color: theme.subText }]}>{post.commentCount || 0}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionBtn} onPress={handleRepost}>
+            <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleRepost(); }}>
               <Ionicons name="repeat-outline" size={18} color={isReposted ? "#00BA7C" : theme.subText} />
               <Text style={[styles.count, { color: isReposted ? "#00BA7C" : theme.subText }]}>{post.reposts?.length || 0}</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionBtn}>
+            <TouchableOpacity style={styles.actionBtn} onPress={(e) => e.stopPropagation()}>
                 <Ionicons name="share-social-outline" size={18} color={theme.subText} />
             </TouchableOpacity>
           </View>
         </View>
       </View>
 
-      {/* Menu Modal */}
+      {/* 🟢 MENU MODAL */}
       <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
@@ -222,7 +244,7 @@ export default function PostCard({ post }: PostCardProps) {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Report Modal */}
+      {/* 🔴 REPORT REASON MODAL */}
       <Modal visible={reportModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
             <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
@@ -249,7 +271,7 @@ export default function PostCard({ post }: PostCardProps) {
         </View>
       </Modal>
 
-    </View>
+    </Pressable>
   );
 }
 
@@ -259,7 +281,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
   name: { fontWeight: 'bold', fontSize: 15, marginRight: 6, flexShrink: 1 },
   handle: { fontSize: 14, flexShrink: 1 },
-  dotsButton: { padding: 5, marginTop: -5 }, 
+  dotsButton: { padding: 5, marginTop: -5 },
   text: { fontSize: 15, lineHeight: 22, marginBottom: 8 },
   media: { width: '100%', height: 250, borderRadius: 12, marginBottom: 10, backgroundColor: '#f0f0f0' },
   actions: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 20 },

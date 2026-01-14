@@ -6,15 +6,12 @@ import {
     arrayRemove,
     arrayUnion,
     collection,
-    deleteDoc,
     doc,
-    getDoc,
-    getDocs,
+    onSnapshot,
     orderBy,
     query,
     serverTimestamp,
     setDoc,
-    updateDoc,
     where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
@@ -23,7 +20,6 @@ import {
     Alert,
     FlatList,
     Modal,
-    Share,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -31,16 +27,16 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import PostCard from '../components/PostCard';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 
 const REPORT_REASONS = [
-    "Offensive content",
-    "Abusive behavior",
-    "Spam",
-    "Misinformation",
-    "Sexual content",
     "Pretending to be someone else",
+    "Fake account",
+    "Inappropriate profile info",
+    "Harassment or bullying",
+    "Spam",
     "Other"
 ];
 
@@ -50,7 +46,6 @@ export default function FeedProfileScreen() {
   const { userId } = useLocalSearchParams(); 
   const currentUser = auth.currentUser;
 
-  // targetUserId can be string OR undefined
   const targetUserId = (userId as string) || currentUser?.uid; 
   const isOwnProfile = targetUserId === currentUser?.uid;
 
@@ -61,69 +56,67 @@ export default function FeedProfileScreen() {
   const [activeTab, setActiveTab] = useState('Posts'); 
   const [isFollowing, setIsFollowing] = useState(false); 
 
-  // Report State
+  // Report User State
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
-  const [reportTarget, setReportTarget] = useState<{ type: 'user' | 'post', id: string, content?: string } | null>(null);
 
   useEffect(() => {
-    fetchData();
-  }, [targetUserId]);
-
-  const fetchData = async () => {
     if (!targetUserId) return;
-    try {
-        const userRef = doc(db, "users", targetUserId);
-        const userSnap = await getDoc(userRef);
 
-        if (userSnap.exists()) {
-            const data = userSnap.data();
+    // 1. Get User Profile
+    const userRef = doc(db, "users", targetUserId);
+    const unsubUser = onSnapshot(userRef, async (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
             setUserData(data);
             if (currentUser && data.followers?.includes(currentUser.uid)) {
                 setIsFollowing(true);
             }
+            setLoading(false);
         } else if (isOwnProfile && currentUser) {
-            const newProfile = {
+             // ✅ CREATE PROFILE IF MISSING (Default Rank: GENIN)
+             const newProfile = {
                 username: currentUser.email?.split('@')[0] || "user",
                 displayName: currentUser.displayName || "New User",
                 email: currentUser.email,
                 avatar: currentUser.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime',
                 followers: [],
                 following: [],
-                createdAt: new Date()
+                watchedCount: 0,
+                createdAt: new Date(),
+                rank: "GENIN" 
             };
             await setDoc(userRef, newProfile);
-            setUserData(newProfile);
+            setLoading(false);
         }
+    });
 
-        const qMyPosts = query(
-            collection(db, 'posts'), 
-            where('userId', '==', targetUserId), 
-            orderBy('createdAt', 'desc')
-        );
-        const myPostsSnap = await getDocs(qMyPosts);
-        setMyPosts(myPostsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // 2. Get Posts
+    const qMyPosts = query(
+        collection(db, 'posts'), 
+        where('userId', '==', targetUserId), 
+        orderBy('createdAt', 'desc')
+    );
+    const unsubPosts = onSnapshot(qMyPosts, (snapshot) => {
+        setMyPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
 
-        const qReposts = query(
-            collection(db, 'posts'),
-            where('reposts', 'array-contains', targetUserId),
-            orderBy('createdAt', 'desc')
-        );
-        const repostSnap = await getDocs(qReposts);
-        setRepostedPosts(repostSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // 3. Get Reposts
+    const qReposts = query(
+        collection(db, 'posts'),
+        where('reposts', 'array-contains', targetUserId),
+        orderBy('createdAt', 'desc')
+    );
+    const unsubReposts = onSnapshot(qReposts, (snapshot) => {
+        setRepostedPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
 
-    } catch (e) {
-        console.error("Error fetching data:", e);
-    } finally {
-        setLoading(false);
-    }
-  };
+    return () => { unsubUser(); unsubPosts(); unsubReposts(); };
+  }, [targetUserId]);
 
   const handleFollow = async () => {
       if (!currentUser || isOwnProfile || !targetUserId) return;
-      setIsFollowing(!isFollowing); 
-
       const myRef = doc(db, "users", currentUser.uid);
       const targetRef = doc(db, "users", targetUserId);
 
@@ -136,115 +129,27 @@ export default function FeedProfileScreen() {
       }
   };
 
-  const handleDelete = (postId: string) => {
-    if (!isOwnProfile) return; 
-    Alert.alert("Delete Post", "Are you sure?", [
-        { text: "Cancel", style: "cancel" },
-        { 
-            text: "Delete", 
-            style: "destructive", 
-            onPress: async () => {
-                await deleteDoc(doc(db, "posts", postId));
-                setMyPosts(prev => prev.filter(p => p.id !== postId));
-                setRepostedPosts(prev => prev.filter(p => p.id !== postId));
-            } 
-        }
-    ]);
-  };
-
-  const toggleLike = async (postId: string, currentLikes: string[]) => {
-     if (!currentUser) return;
-     const updateList = (list: any[]) => list.map(p => {
-        if (p.id === postId) {
-            const isLiked = p.likes?.includes(currentUser.uid);
-            const newLikes = isLiked 
-                ? p.likes.filter((uid: string) => uid !== currentUser.uid)
-                : [...(p.likes || []), currentUser.uid];
-            return { ...p, likes: newLikes };
-        }
-        return p;
-     });
-     setMyPosts(updateList);
-     setRepostedPosts(updateList);
-
-     const postRef = doc(db, 'posts', postId);
-     const isLiked = currentLikes?.includes(currentUser.uid);
-     await updateDoc(postRef, {
-       likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-     });
-  };
-
-  const toggleRepost = async (postId: string, currentReposts: string[]) => {
-    if (!currentUser) return;
-    const postRef = doc(db, 'posts', postId);
-    const isReposted = currentReposts?.includes(currentUser.uid);
-
-    const updateList = (list: any[]) => list.map(p => {
-        if (p.id === postId) {
-            const newReposts = isReposted 
-                ? p.reposts.filter((uid: string) => uid !== currentUser.uid)
-                : [...(p.reposts || []), currentUser.uid];
-            return { ...p, reposts: newReposts };
-        }
-        return p;
-    });
-
-    setMyPosts(updateList);
-    setRepostedPosts(updateList);
-
-    await updateDoc(postRef, {
-      reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-    });
-    
-    if (isOwnProfile) fetchData(); 
-  };
-
-  const handleShare = async (text: string) => {
-    try { await Share.share({ message: `Check out this post: "${text}"` }); } catch (error) { console.log(error); }
-  };
-
-  const goToDetails = (postId: string) => {
-      router.push({ pathname: '/post-details', params: { postId } });
-  };
-
-  // ✅ SUBMIT REPORT
-  const submitReport = async (reason: string) => {
-    if (!currentUser || !reportTarget) return;
+  const submitReportUser = async (reason: string) => {
+    if (!currentUser || !targetUserId) return;
     setReportLoading(true);
     try {
       await addDoc(collection(db, 'reports'), {
-        type: reportTarget.type,
-        targetId: reportTarget.id,
-        targetContent: reportTarget.content || 'Profile',
+        type: 'user',
+        targetId: targetUserId,
+        targetName: userData?.username || 'Unknown',
         reportedBy: currentUser.uid,
         reason: reason,
         createdAt: serverTimestamp(),
         status: 'pending'
       });
-      Alert.alert("Report Submitted", "Thank you. We will review this.");
+      Alert.alert("Report Submitted", "We will review this profile.");
       setReportModalVisible(false);
-      setReportTarget(null);
     } catch (error) {
       Alert.alert("Error", "Could not submit report.");
     } finally {
       setReportLoading(false);
     }
   };
-
-  // ✅ OPEN MENU HELPERS
-  const openUserMenu = () => {
-      // 🟢 FIX: Ensure targetUserId exists before setting it to state
-      if (!targetUserId) return; 
-      
-      setReportTarget({ type: 'user', id: targetUserId });
-      setMenuVisible(true);
-  };
-
-  const openPostMenu = (post: any) => {
-      setReportTarget({ type: 'post', id: post.id, content: post.text });
-      setMenuVisible(true);
-  };
-
 
   if (loading) {
     return (
@@ -256,20 +161,23 @@ export default function FeedProfileScreen() {
 
   const followingCount = userData?.following?.length || 0;
   const followersCount = userData?.followers?.length || 0;
+  // ✅ Default Rank is GENIN
+  const userRank = userData?.rank || "GENIN"; 
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       
+      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: 'white' }]}>{userData?.displayName || "User"}</Text>
         
-        {/* Report Button (Only for other users) */}
+        {/* Report Menu Button (Only for others) */}
         {!isOwnProfile && (
-            <TouchableOpacity onPress={openUserMenu} style={[styles.backBtn, { marginLeft: 'auto', backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+            <TouchableOpacity onPress={() => setMenuVisible(true)} style={[styles.backBtn, { marginLeft: 'auto', backgroundColor: 'rgba(0,0,0,0.5)' }]}>
                 <Ionicons name="ellipsis-horizontal" size={24} color="white" />
             </TouchableOpacity>
         )}
@@ -284,10 +192,17 @@ export default function FeedProfileScreen() {
             <View>
                 <View style={styles.banner} />
                 <View style={styles.profileInfo}>
-                    <Image 
-                        source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} 
-                        style={[styles.avatar, { borderColor: theme.background }]} 
-                    />
+                    
+                    <View>
+                        <Image 
+                            source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} 
+                            style={[styles.avatar, { borderColor: theme.background }]} 
+                        />
+                        {/* ✅ RANK BADGE */}
+                        <View style={[styles.rankBadge, { borderColor: theme.background, backgroundColor: '#FFD700' }]}>
+                             <Text style={styles.rankText}>{userRank}</Text>
+                        </View>
+                    </View>
                     
                     {isOwnProfile ? (
                         <TouchableOpacity 
@@ -344,80 +259,18 @@ export default function FeedProfileScreen() {
             </View>
         )}
         
-        renderItem={({ item }) => {
-            const isLiked = item.likes?.includes(currentUser?.uid);
-            const isReposted = item.reposts?.includes(currentUser?.uid);
-            
-            let timeAgo = "now";
-            if (item.createdAt?.seconds) {
-                timeAgo = new Date(item.createdAt.seconds * 1000).toLocaleDateString(); 
-            }
-
-            return (
-                <TouchableOpacity 
-                    style={styles.tweetContainer}
-                    onPress={() => goToDetails(item.id)}
-                    activeOpacity={0.7}
-                >
-                    <View style={styles.avatarContainer}>
-                        <Image source={{ uri: item.userAvatar }} style={styles.postAvatar} />
+        renderItem={({ item }) => (
+             <View style={{ position: 'relative' }}>
+                {activeTab === 'Reposts' && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingTop: 10 }}>
+                        <Ionicons name="repeat" size={12} color={theme.subText} />
+                        <Text style={{ fontSize: 12, color: theme.subText, marginLeft: 5 }}>Reposted</Text>
                     </View>
-
-                    <View style={styles.contentContainer}>
-                        {activeTab === 'Reposts' && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
-                                <Ionicons name="repeat" size={12} color={theme.subText} />
-                                <Text style={{ fontSize: 12, color: theme.subText, marginLeft: 5 }}>Reposted</Text>
-                            </View>
-                        )}
-
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                            <View style={styles.tweetHeader}>
-                                <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-                                    {item.displayName || item.username}
-                                </Text>
-                                <Text style={[styles.handle, { color: theme.subText }]} numberOfLines={1}>
-                                    @{item.username} · {timeAgo}
-                                </Text>
-                            </View>
-                            
-                            {isOwnProfile && item.userId === currentUser?.uid ? (
-                                <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                                    <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity onPress={() => openPostMenu(item)}>
-                                    <Ionicons name="ellipsis-horizontal" size={16} color={theme.subText} />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-
-                        <Text style={[styles.tweetText, { color: theme.text }]}>{item.text}</Text>
-
-                        <View style={styles.actionsRow}>
-                            <TouchableOpacity style={styles.actionButton} onPress={() => toggleLike(item.id, item.likes || [])}>
-                                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
-                                <Text style={[styles.actionCount, { color: isLiked ? "#FF6B6B" : theme.subText }]}>{item.likes ? item.likes.length : 0}</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.actionButton} onPress={() => goToDetails(item.id)}>
-                                <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
-                                <Text style={[styles.actionCount, { color: theme.subText }]}>{item.commentCount || 0}</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.actionButton} onPress={() => toggleRepost(item.id, item.reposts || [])}>
-                                <Ionicons name="repeat-outline" size={18} color={isReposted ? "#00BA7C" : theme.subText} />
-                                <Text style={[styles.actionCount, { color: isReposted ? "#00BA7C" : theme.subText }]}>{item.reposts ? item.reposts.length : 0}</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
-                                <Ionicons name="share-outline" size={18} color={theme.subText} />
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            );
-        }}
+                )}
+                {/* ✅ PostCard Handles Click Logic */}
+                <PostCard post={item} />
+             </View>
+        )}
         
         ListEmptyComponent={
             <View style={{ marginTop: 50, alignItems: 'center' }}>
@@ -428,7 +281,7 @@ export default function FeedProfileScreen() {
         }
       />
 
-      {/* ✅ 1. MENU MODAL */}
+      {/* MENU MODAL (For Reporting User Profile) */}
       <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
@@ -438,9 +291,7 @@ export default function FeedProfileScreen() {
                         onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
                     >
                         <Ionicons name="flag-outline" size={20} color="red" />
-                        <Text style={[styles.menuText, { color: 'red' }]}>
-                            {reportTarget?.type === 'user' ? 'Report Profile' : 'Report Post'}
-                        </Text>
+                        <Text style={[styles.menuText, { color: 'red' }]}>Report Profile</Text>
                     </TouchableOpacity>
                     
                     <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
@@ -452,20 +303,20 @@ export default function FeedProfileScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* ✅ 2. REPORT REASON MODAL */}
+      {/* REPORT REASON MODAL (For Reporting User Profile) */}
       <Modal visible={reportModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
             <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
-                <Text style={[styles.reportTitle, { color: theme.text }]}>Report {reportTarget?.type === 'user' ? 'User' : 'Post'}</Text>
+                <Text style={[styles.reportTitle, { color: theme.text }]}>Report User</Text>
                 <Text style={{ color: theme.subText, marginBottom: 15, textAlign: 'center' }}>
-                    Why are you reporting this?
+                    Why are you reporting this profile?
                 </Text>
 
                 {REPORT_REASONS.map((reason) => (
                     <TouchableOpacity 
                         key={reason} 
                         style={[styles.reasonBtn, { borderColor: theme.border }]}
-                        onPress={() => submitReport(reason)}
+                        onPress={() => submitReportUser(reason)}
                         disabled={reportLoading}
                     >
                         <Text style={{ color: theme.text }}>{reason}</Text>
@@ -497,6 +348,19 @@ const styles = StyleSheet.create({
   banner: { height: 120, backgroundColor: '#333' },
   profileInfo: { paddingHorizontal: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: -35 },
   avatar: { width: 70, height: 70, borderRadius: 35, borderWidth: 3 },
+  
+  rankBadge: { 
+      position: 'absolute', 
+      bottom: 0, 
+      right: -5, 
+      paddingHorizontal: 6, 
+      paddingVertical: 2, 
+      borderRadius: 10, 
+      borderWidth: 2,
+      zIndex: 5 
+  },
+  rankText: { fontSize: 9, fontWeight: 'bold', color: 'black' },
+
   editBtn: { paddingHorizontal: 15, paddingVertical: 6, borderRadius: 20, borderWidth: 1, marginBottom: 5 },
   nameSection: { paddingHorizontal: 15, marginTop: 5 },
   displayName: { fontSize: 20, fontWeight: 'bold' },
@@ -508,28 +372,12 @@ const styles = StyleSheet.create({
   tab: { flex: 1, alignItems: 'center', paddingVertical: 12 },
   tabText: { fontWeight: '600' },
   separator: { height: 0.5, width: '100%' },
-  tweetContainer: { flexDirection: 'row', padding: 15 },
-  avatarContainer: { marginRight: 12 },
-  postAvatar: { width: 50, height: 50, borderRadius: 25 },
-  contentContainer: { flex: 1 },
-  tweetHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 2, flex: 1 },
-  name: { fontWeight: 'bold', fontSize: 15, marginRight: 5, flexShrink: 1 },
-  handle: { fontSize: 14, flexShrink: 1 },
-  tweetText: { fontSize: 15, lineHeight: 22, marginTop: 2, marginBottom: 10 },
-  actionsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 30 },
-  actionButton: { flexDirection: 'row', alignItems: 'center' },
-  actionCount: { fontSize: 12, marginLeft: 5 },
 
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   menuContainer: { width: 250, borderRadius: 12, padding: 10, elevation: 5 },
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 12 },
   menuText: { fontSize: 16, marginLeft: 12, fontWeight: '500' },
-
   reportContainer: { width: '90%', borderRadius: 16, padding: 20, alignItems: 'center', elevation: 10 },
   reportTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 5 },
-  reasonBtn: { 
-      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      width: '100%', padding: 15, borderBottomWidth: 0.5 
-  }
+  reasonBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: 15, borderBottomWidth: 0.5 }
 });

@@ -30,11 +30,9 @@ export default function ProfileScreen() {
   const loadProfileData = async () => {
     setRefreshing(true);
     try {
-        // 1. Load Favorites
         const favs = await getFavorites();
         setFavorites(favs);
 
-        // 2. Load User Details from Firestore
         const user = auth.currentUser;
         if (user) {
             const docRef = doc(db, "users", user.uid);
@@ -57,9 +55,12 @@ export default function ProfileScreen() {
     ]);
   };
 
-  // ✅ Calculate Real Stats
   const followingCount = userData?.following?.length || 0;
   const followersCount = userData?.followers?.length || 0;
+  
+  // ✅ FIXED: Default is now GENIN. 
+  // NOTE: If your DB already has "ACADEMY STUDENT" saved, you must watch 1 video to force an update.
+  const userRank = userData?.rank || "GENIN";
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -71,17 +72,16 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-             {/* Dynamic Avatar */}
              <Image 
                 source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} 
                 style={[styles.avatar, { borderColor: theme.tint }]} 
              />
-             <View style={[styles.rankBadge, { borderColor: theme.background }]}>
-                 <Text style={styles.rankText}>JONIN</Text>
+             {/* Dynamic Rank Badge */}
+             <View style={[styles.rankBadge, { borderColor: theme.background, backgroundColor: '#FFD700' }]}>
+                 <Text style={styles.rankText}>{userRank}</Text>
              </View>
           </View>
           
-          {/* Display Name and Username */}
           <Text style={[styles.displayName, { color: theme.text }]}>
             {userData?.displayName || "New User"}
           </Text>
@@ -93,7 +93,6 @@ export default function ProfileScreen() {
             {userData?.bio || "No bio yet."}
           </Text>
 
-          {/* Edit Profile Button */}
           <TouchableOpacity 
             style={[styles.editBtn, { borderColor: theme.border }]}
             onPress={() => router.push('/edit-profile')}
@@ -102,7 +101,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ✅ UPDATED STATS ROW (Following | Favorites | Followers) */}
+        {/* Stats Row */}
         <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
             <View style={styles.statItem}>
                 <Text style={[styles.statNum, { color: theme.text }]}>{followingCount}</Text>
@@ -164,15 +163,22 @@ const styles = StyleSheet.create({
   profileHeader: { alignItems: 'center', marginTop: 20 },
   avatarContainer: { position: 'relative' },
   avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3 },
-  rankBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 2 },
+  rankBadge: { 
+      position: 'absolute', 
+      bottom: 0, 
+      right: 0, 
+      paddingHorizontal: 8, 
+      paddingVertical: 2, 
+      borderRadius: 10, 
+      borderWidth: 2,
+      minWidth: 50,
+      alignItems: 'center'
+  },
   rankText: { fontSize: 10, fontWeight: 'bold', color: 'black' },
-  
-  // Names & Bio
   displayName: { fontSize: 22, fontWeight: 'bold', marginTop: 12 },
   username: { fontSize: 14, marginTop: 2 },
   bio: { marginTop: 8, textAlign: 'center', paddingHorizontal: 40, fontSize: 13, lineHeight: 18 },
   editBtn: { marginTop: 15, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-
   statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 25, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
   statItem: { alignItems: 'center' },
   statNum: { fontSize: 18, fontWeight: 'bold' },

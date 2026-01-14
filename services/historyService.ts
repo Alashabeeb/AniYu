@@ -30,19 +30,25 @@ export const addToHistory = async (anime: any, episodeTitle: string) => {
     // 3. Remove THIS anime if it's already there (so we don't have duplicates of the same show)
     const filtered = validHistory.filter((item) => item.mal_id !== anime.mal_id);
 
-    // 4. Create the new item
+    // ✅ 4. SAFE IMAGE EXTRACTION (Fixes the crash)
+    // Checks multiple paths for the image or falls back to a placeholder
+    const imageUrl = anime.images?.jpg?.large_image_url || 
+                     anime.images?.jpg?.image_url || 
+                     'https://via.placeholder.com/150';
+
+    // 5. Create the new item
     const newItem: HistoryItem = {
       mal_id: anime.mal_id,
       title: anime.title,
-      image: anime.images.jpg.large_image_url,
+      image: imageUrl, // Uses the safe variable
       episode: episodeTitle,
       date: Date.now(),
     };
 
-    // 5. Add new item to the top + keep the old ones
+    // 6. Add new item to the top + keep the old ones
     const newHistory = [newItem, ...filtered];
 
-    // 6. Limit history to last 20 items (optional, keeps app fast)
+    // 7. Limit history to last 20 items (optional, keeps app fast)
     const slicedHistory = newHistory.slice(0, 20);
 
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(slicedHistory));
