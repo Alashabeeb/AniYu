@@ -189,7 +189,17 @@ export default function FeedProfileScreen() {
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
         ListHeaderComponent={() => (
             <View>
-                <View style={styles.banner} />
+                {/* ✅ CUSTOM BANNER DISPLAY */}
+                {userData?.banner ? (
+                    <Image 
+                        source={{ uri: userData.banner }} 
+                        style={styles.banner} 
+                        contentFit="cover"
+                    />
+                ) : (
+                    <View style={[styles.banner, { backgroundColor: '#333' }]} />
+                )}
+
                 <View style={styles.profileInfo}>
                     
                     <View>
