@@ -26,6 +26,8 @@ import {
 } from 'react-native';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+// ✅ IMPORT NOTIFICATION SERVICE
+import { sendSocialNotification } from '../services/notificationService';
 
 interface PostCardProps {
   post: any;
@@ -78,6 +80,18 @@ export default function PostCard({ post }: PostCardProps) {
 
   const handleLike = async () => {
     if (!currentUser) return;
+    
+    // ✅ Send Notification if liking for the first time
+    if (!isLiked) {
+        sendSocialNotification(
+            post.userId, 
+            'like', 
+            { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' },
+            '',
+            post.id
+        );
+    }
+
     const postRef = doc(db, 'posts', post.id);
     await updateDoc(postRef, {
       likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
@@ -86,6 +100,18 @@ export default function PostCard({ post }: PostCardProps) {
 
   const handleRepost = async () => {
     if (!currentUser) return;
+
+    if (!isReposted) {
+        // ✅ Send Notification
+        sendSocialNotification(
+            post.userId, 
+            'repost', 
+            { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' },
+            '',
+            post.id
+        );
+    }
+
     const postRef = doc(db, 'posts', post.id);
     await updateDoc(postRef, {
       reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)

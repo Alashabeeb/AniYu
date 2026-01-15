@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // ❌ Comment out the import that causes the crash in Expo Go
 // import * as Notifications from 'expo-notifications'; 
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../config/firebaseConfig';
 
 const NOTIFICATIONS_KEY = 'user_notifications';
 const PREFERENCE_KEY = 'notifications_enabled';
@@ -19,9 +21,13 @@ export interface AppNotification {
   id: string;
   title: string;
   body: string;
-  date: number;
+  date: any; 
   read: boolean;
-  type: 'anime' | 'manga' | 'system';
+  type: 'anime' | 'manga' | 'system' | 'like' | 'comment' | 'repost' | 'follow'; 
+  targetId?: string; 
+  actorId?: string; 
+  actorName?: string;
+  actorAvatar?: string;
 }
 
 // 1. Get Notification History
@@ -37,7 +43,6 @@ export const getNotifications = async (): Promise<AppNotification[]> => {
 // 2. Add a New "Drop"
 export const addNewDropNotification = async (title: string, body: string, type: 'anime' | 'manga' = 'anime') => {
   try {
-    // A. Add to In-App List (Storage works fine in Expo Go)
     const current = await getNotifications();
     const newNotif: AppNotification = {
       id: Date.now().toString(),
@@ -47,29 +52,12 @@ export const addNewDropNotification = async (title: string, body: string, type: 
       read: false,
       type
     };
-    const updated = [newNotif, ...current].slice(0, 50); // Keep last 50
+    const updated = [newNotif, ...current].slice(0, 50); 
     await AsyncStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(updated));
 
-    // B. Trigger Pop-Up (Modified for Expo Go Compatibility)
     const isEnabled = await getNotificationPreference();
     if (isEnabled) {
-      // ⚠️ REAL NOTIFICATION CODE (Uncomment for Dev Build)
-      /*
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: title,
-          body: body,
-          sound: 'default',
-        },
-        trigger: null,
-      });
-      */
-
-      // ✅ FALLBACK FOR EXPO GO: Use a simple Alert or Console Log
       console.log(`[Notification Popup] ${title}: ${body}`);
-      
-      // Optional: Show an in-app alert to simulate the popup
-      // Alert.alert(title, body); 
     }
 
     return updated;
@@ -79,7 +67,57 @@ export const addNewDropNotification = async (title: string, body: string, type: 
   }
 };
 
-// 3. Mark all as read
+// 3. Send Social Notification (To Firestore)
+export const sendSocialNotification = async (
+    targetUserId: string, 
+    type: 'like' | 'comment' | 'repost' | 'follow', 
+    actor: { uid: string, name: string, avatar: string }, 
+    contentSnippet?: string,
+    targetId?: string
+) => {
+    if (targetUserId === actor.uid) return; 
+
+    try {
+        let title = "New Interaction";
+        let body = "Someone interacted with you.";
+
+        switch(type) {
+            case 'like': 
+                title = "New Like";
+                body = `${actor.name} liked your post.`;
+                break;
+            case 'comment':
+                title = "New Comment";
+                body = `${actor.name} commented: "${contentSnippet || '...'}"`;
+                break;
+            case 'repost':
+                title = "New Repost";
+                body = `${actor.name} reposted your post.`;
+                break;
+            case 'follow':
+                title = "New Follower";
+                body = `${actor.name} started following you.`;
+                break;
+        }
+
+        await addDoc(collection(db, 'users', targetUserId, 'notifications'), {
+            title,
+            body,
+            type,
+            actorId: actor.uid,
+            actorName: actor.name,
+            actorAvatar: actor.avatar,
+            targetId: targetId || null,
+            read: false,
+            createdAt: serverTimestamp()
+        });
+
+    } catch (error) {
+        console.error("Error sending social notification:", error);
+    }
+};
+
+// 4. Mark all as read
 export const markAllAsRead = async () => {
     const current = await getNotifications();
     const updated = current.map(n => ({ ...n, read: true }));
@@ -87,17 +125,31 @@ export const markAllAsRead = async () => {
     return updated;
 };
 
-// 4. Settings: Get Preference
+// ✅ 5. NEW: Mark Single Local Notification as Read
+export const markLocalNotificationAsRead = async (id: string) => {
+    const current = await getNotifications();
+    const updated = current.map(n => n.id === id ? { ...n, read: true } : n);
+    await AsyncStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(updated));
+    return updated;
+};
+
+// ✅ 6. NEW: Get Unread Local Count
+export const getUnreadLocalCount = async () => {
+    const current = await getNotifications();
+    return current.filter(n => !n.read).length;
+};
+
+// 7. Settings: Get Preference
 export const getNotificationPreference = async (): Promise<boolean> => {
   try {
     const val = await AsyncStorage.getItem(PREFERENCE_KEY);
-    return val !== null ? JSON.parse(val) : true; // Default to true
+    return val !== null ? JSON.parse(val) : true; 
   } catch {
     return true;
   }
 };
 
-// 5. Settings: Save Preference
+// 8. Settings: Save Preference
 export const setNotificationPreference = async (enabled: boolean) => {
   await AsyncStorage.setItem(PREFERENCE_KEY, JSON.stringify(enabled));
 };

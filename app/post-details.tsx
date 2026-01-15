@@ -23,6 +23,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+// ✅ IMPORT NOTIFICATION SERVICE
+import { sendSocialNotification } from '../services/notificationService';
 
 const REPORT_REASONS = [
   "Offensive content",
@@ -144,6 +146,18 @@ export default function PostDetailsScreen() {
         commentCount: 0
       });
       await updateDoc(doc(db, 'posts', postId as string), { commentCount: increment(1) });
+      
+      // ✅ SEND NOTIFICATION TO POST OWNER
+      if (post && post.userId) {
+          sendSocialNotification(
+              post.userId, 
+              'comment', 
+              { uid: user.uid, name: realDisplayName, avatar: realAvatar || '' },
+              newComment,
+              postId as string
+          );
+      }
+
       setNewComment('');
     } catch (e) { console.error(e); } 
     finally { setSending(false); }
