@@ -1,14 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// ✅ 1. Import is now active (Uncommented)
-import * as Notifications from 'expo-notifications';
-// ✅ 2. Added Firestore imports for Social Notifications
+// ❌ COMMENTED OUT FOR EXPO GO (Prevents Crash)
+// import * as Notifications from 'expo-notifications'; 
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
 const NOTIFICATIONS_KEY = 'user_notifications';
 const PREFERENCE_KEY = 'notifications_enabled';
 
-// ✅ 3. Handler is now active (Uncommented)
+// ❌ COMMENTED OUT FOR EXPO GO
+/*
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -16,12 +16,13 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+*/
 
 export interface AppNotification {
   id: string;
   title: string;
   body: string;
-  date: any; // Changed to any to handle Firestore Timestamp
+  date: any; 
   read: boolean;
   type: 'anime' | 'manga' | 'system' | 'like' | 'comment' | 'repost' | 'follow';
   targetId?: string;
@@ -55,17 +56,12 @@ export const addNewDropNotification = async (title: string, body: string, type: 
     const updated = [newNotif, ...current].slice(0, 50); 
     await AsyncStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(updated));
 
-    // ✅ 4. Schedule Real Notification (Uncommented)
+    // ✅ EXPO GO SAFE MODE: Just log it, don't schedule a native push
     const isEnabled = await getNotificationPreference();
     if (isEnabled) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: title,
-          body: body,
-          sound: 'default',
-        },
-        trigger: null, // Show immediately
-      });
+      console.log(`[Notification Alert] ${title}: ${body}`);
+      // You could uncomment this if you want a popup inside the app:
+      // alert(`${title}\n${body}`);
     }
 
     return updated;
@@ -75,7 +71,7 @@ export const addNewDropNotification = async (title: string, body: string, type: 
   }
 };
 
-// 3. Send Social Notification (To Firestore)
+// 3. Send Social Notification (To Firestore) - ✅ WORKS IN EXPO GO
 export const sendSocialNotification = async (
     targetUserId: string, 
     type: 'like' | 'comment' | 'repost' | 'follow', 
