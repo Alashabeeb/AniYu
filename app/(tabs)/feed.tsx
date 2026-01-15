@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native'; // ✅ Added for local refresh
+import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
@@ -19,7 +19,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import PostCard from '../../components/PostCard';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
-// ✅ IMPORT Notif Service
 import { getUnreadLocalCount } from '../../services/notificationService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -44,47 +43,25 @@ export default function FeedScreen() {
   const flatListRef = useRef<FlatList>(null); 
 
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
-
-  // ✅ RED DOT STATE
   const [hasUnread, setHasUnread] = useState(false);
 
-  // ✅ LISTEN FOR UNREAD NOTIFICATIONS (Social + Local)
+  // NOTIFICATION CHECK
   useEffect(() => {
       if (!currentUser) return;
-      
-      // 1. Social (Firestore) - Realtime Listener
-      const q = query(
-          collection(db, 'users', currentUser.uid, 'notifications'),
-          where('read', '==', false)
-      );
-
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-          checkUnreadStatus(snapshot.docs.length);
-      });
-
+      const q = query(collection(db, 'users', currentUser.uid, 'notifications'), where('read', '==', false));
+      const unsubscribe = onSnapshot(q, (snapshot) => checkUnreadStatus(snapshot.docs.length));
       return unsubscribe;
   }, []);
 
-  // 2. Local (AsyncStorage) - Check on Focus
   useFocusEffect(
-      useCallback(() => {
-          checkUnreadStatus();
-      }, [])
+      useCallback(() => { checkUnreadStatus(); }, [])
   );
 
   const checkUnreadStatus = async (socialCount?: number) => {
       const localCount = await getUnreadLocalCount();
-      // If socialCount is undefined (called from focus), we assume social state hasn't changed drastically or rely on the snapshot to update shortly.
-      // Ideally, we store social count in a ref or state to combine accurately, but strictly:
-      // If EITHER is > 0, show dot.
-      
-      // Since socialCount comes from the listener, we need to merge it.
-      // Simplified: We set true if we detect unread in the current context check.
-      
       if (socialCount !== undefined) {
            setHasUnread(socialCount > 0 || localCount > 0);
       } else {
-           // We don't have fresh social count here, so just check local + assume social listener handles its part
            if (localCount > 0) setHasUnread(true);
       }
   };
@@ -99,30 +76,26 @@ export default function FeedScreen() {
           const data = userSnap.data();
           setUserInterests(data.interests || data.favoriteGenres || []);
         }
-      } catch (error) {
-        console.log("Error fetching user interests:", error);
-      }
+      } catch (error) { console.log("Error fetching user interests:", error); }
     };
     fetchUserInterests();
   }, []);
 
+  // FETCH POSTS
   useEffect(() => {
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', null), 
         orderBy('createdAt', 'desc')
     );
-    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const postsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPosts(postsData);
     });
     return unsubscribe; 
   }, []);
 
+  // SEARCH USERS
   useEffect(() => {
       if (showSearch && searchTab === 'People' && searchText.trim().length > 1) {
           searchUsers(searchText);
@@ -142,28 +115,35 @@ export default function FeedScreen() {
               limit(20)
           );
           const snapshot = await getDocs(q);
-          const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setUserResults(results);
-      } catch (error) {
-          console.error("Search users error:", error);
-      } finally {
-          setSearchingUsers(false);
-      }
+          setUserResults(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) { console.error(error); } 
+      finally { setSearchingUsers(false); }
   };
 
   const searchResultsPosts = useMemo(() => {
     if (!searchText.trim()) return [];
     const lowerText = searchText.toLowerCase();
-    return posts.filter(p => 
-        p.text?.toLowerCase().includes(lowerText) || 
-        p.tags?.some((t: string) => t.toLowerCase().includes(lowerText))
-    );
+    return posts.filter(p => p.text?.toLowerCase().includes(lowerText) || p.tags?.some((t: string) => t.toLowerCase().includes(lowerText)));
   }, [posts, searchText]);
 
+  // ✅ TRENDING LOGIC: LAST 24 HOURS ONLY (Logic kept, text removed)
   const trendingGroups = useMemo(() => {
     const groups: Record<string, { name: string, posts: any[], stats: { likes: number, comments: number, reposts: number } }> = {};
+    
+    // ⏰ 1. Get Timestamp for 24 Hours Ago
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     posts.forEach(post => {
+        // ⏰ 2. Check Post Date
+        let postDate = new Date(); // Assume 'now' if pending
+        if (post.createdAt?.seconds) {
+            postDate = new Date(post.createdAt.seconds * 1000);
+        }
+
+        // ❌ SKIP IF OLDER THAN 24 HOURS
+        if (postDate < yesterday) return;
+
+        // Grouping Logic
         const postTags = (post.tags && post.tags.length > 0) ? post.tags : ['General'];
         postTags.forEach((tag: string) => {
             const normalizedTag = tag.trim().toUpperCase();
@@ -201,14 +181,10 @@ export default function FeedScreen() {
     return posts; 
   }, [posts, userInterests]);
 
-
   const handleTabPress = (tab: string) => {
       setActiveTab(tab);
-      if (tab === 'All') {
-          flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-      } else {
-          flatListRef.current?.scrollToOffset({ offset: SCREEN_WIDTH, animated: true });
-      }
+      if (tab === 'All') flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      else flatListRef.current?.scrollToOffset({ offset: SCREEN_WIDTH, animated: true });
   };
 
   const handleMomentumScrollEnd = (event: any) => {
@@ -220,9 +196,7 @@ export default function FeedScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {
-        setRefreshing(false);
-    }, 1000);
+    setTimeout(() => { setRefreshing(false); }, 1000);
   }, []);
 
   const renderUserItem = ({ item }: any) => (
@@ -230,10 +204,7 @@ export default function FeedScreen() {
           style={[styles.userCard, { backgroundColor: theme.card }]}
           onPress={() => router.push({ pathname: '/feed-profile', params: { userId: item.id } })}
       >
-          <Image 
-              source={{ uri: item.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} 
-              style={styles.userAvatar} 
-          />
+          <Image source={{ uri: item.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} style={styles.userAvatar} />
           <View style={{ flex: 1 }}>
               <Text style={[styles.userName, { color: theme.text }]}>{item.displayName}</Text>
               <Text style={[styles.userHandle, { color: theme.subText }]}>@{item.username}</Text>
@@ -270,7 +241,7 @@ export default function FeedScreen() {
                           <Text style={[styles.genreTitle, { color: theme.text }]}>{selectedGenre}</Text>
                       </TouchableOpacity>
                   </View>
-                  {renderFeedList(genrePosts, "No posts in this genre.")}
+                  {renderFeedList(genrePosts, "No posts in this genre from the last 24h.")}
               </View>
           );
       }
@@ -282,7 +253,7 @@ export default function FeedScreen() {
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
               ListEmptyComponent={
                   <View style={{ padding: 40, alignItems: 'center', width: SCREEN_WIDTH }}>
-                      <Text style={{ color: theme.subText }}>No trending topics yet.</Text>
+                      <Text style={{ color: theme.subText }}>No trending topics.</Text>
                   </View>
               }
               renderItem={({ item }) => (
@@ -292,6 +263,7 @@ export default function FeedScreen() {
                   >
                       <View style={styles.groupInfo}>
                           <Text style={[styles.groupName, { color: theme.text }]}>#{item.name}</Text>
+                          {/* ✅ REMOVED "(24h)" text here */}
                           <Text style={[styles.groupCount, { color: theme.subText }]}>{item.posts.length} Posts</Text>
                       </View>
                       <View style={styles.groupStats}>
@@ -321,18 +293,13 @@ export default function FeedScreen() {
         {!showSearch ? (
             <>
                 <TouchableOpacity onPress={() => router.push('/feed-profile')}>
-                    <Image 
-                        source={{ uri: currentUser?.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} 
-                        style={styles.headerAvatar} 
-                    />
+                    <Image source={{ uri: currentUser?.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix' }} style={styles.headerAvatar} />
                 </TouchableOpacity>
-                
                 <View style={styles.tabContainer}>
                     <TouchableOpacity onPress={() => handleTabPress('All')} style={styles.tabButton}>
                         <Text style={[styles.tabText, { color: activeTab === 'All' ? theme.text : theme.subText, fontWeight: activeTab === 'All' ? 'bold' : 'normal' }]}>All</Text>
                         {activeTab === 'All' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
                     </TouchableOpacity>
-
                     <TouchableOpacity onPress={() => handleTabPress('Trending')} style={styles.tabButton}>
                         <Text style={[styles.tabText, { color: activeTab === 'Trending' ? theme.text : theme.subText, fontWeight: activeTab === 'Trending' ? 'bold' : 'normal' }]}>Trending</Text>
                         {activeTab === 'Trending' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
@@ -342,21 +309,10 @@ export default function FeedScreen() {
         ) : (
             <View style={[styles.searchBar, { backgroundColor: theme.card, flex: 1, marginRight: 10 }]}>
                 <Ionicons name="search" size={20} color={theme.subText} />
-                <TextInput 
-                    style={[styles.searchInput, { color: theme.text }]}
-                    placeholder={searchTab === 'People' ? "Search people..." : "Search posts..."}
-                    placeholderTextColor={theme.subText}
-                    value={searchText}
-                    onChangeText={setSearchText}
-                    autoFocus
-                />
+                <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder={searchTab === 'People' ? "Search people..." : "Search posts..."} placeholderTextColor={theme.subText} value={searchText} onChangeText={setSearchText} autoFocus />
             </View>
         )}
-        
-        <TouchableOpacity onPress={() => {
-            setShowSearch(!showSearch);
-            if(showSearch) { setSearchText(''); setSearchTab('Posts'); }
-        }}>
+        <TouchableOpacity onPress={() => { setShowSearch(!showSearch); if(showSearch) { setSearchText(''); setSearchTab('Posts'); } }}>
             <Ionicons name={showSearch ? "close" : "search"} size={24} color={theme.text} />
         </TouchableOpacity>
       </View>
@@ -377,19 +333,13 @@ export default function FeedScreen() {
               {searchTab === 'Posts' ? (
                   renderFeedList(searchResultsPosts, searchText ? "No posts found." : "Type to search posts.")
               ) : (
-                  searchingUsers ? (
-                      <ActivityIndicator style={{ marginTop: 20 }} color={theme.tint} />
-                  ) : (
+                  searchingUsers ? <ActivityIndicator style={{ marginTop: 20 }} color={theme.tint} /> : (
                       <FlatList 
                           data={userResults}
                           keyExtractor={item => item.id}
                           renderItem={renderUserItem}
                           contentContainerStyle={{ padding: 15 }}
-                          ListEmptyComponent={
-                              <Text style={{ textAlign: 'center', color: theme.subText, marginTop: 20 }}>
-                                  {searchText ? "No users found." : "Type to search people."}
-                              </Text>
-                          }
+                          ListEmptyComponent={<Text style={{ textAlign: 'center', color: theme.subText, marginTop: 20 }}>{searchText ? "No users found." : "Type to search people."}</Text>}
                       />
                   )
               )}
@@ -415,27 +365,15 @@ export default function FeedScreen() {
 
       {!showSearch && (
         <>
-            {/* ✅ NOTIFICATION FAB WITH RED DOT */}
-            <TouchableOpacity 
-                style={[styles.fab, { backgroundColor: theme.card, bottom: 90 }]} 
-                onPress={() => router.push('/notifications')}
-            >
+            <TouchableOpacity style={[styles.fab, { backgroundColor: theme.card, bottom: 90 }]} onPress={() => router.push('/notifications')}>
                 <Ionicons name="notifications-outline" size={28} color={theme.text} />
-                {/* 🔴 RED DOT */}
-                {hasUnread && (
-                    <View style={styles.redDot} />
-                )}
+                {hasUnread && <View style={styles.redDot} />}
             </TouchableOpacity>
-
-            <TouchableOpacity 
-                style={[styles.fab, { backgroundColor: theme.tint }]}
-                onPress={() => router.push('/create-post')}
-            >
+            <TouchableOpacity style={[styles.fab, { backgroundColor: theme.tint }]} onPress={() => router.push('/create-post')}>
                 <Ionicons name="add" size={30} color="white" />
             </TouchableOpacity>
         </>
       )}
-
     </SafeAreaView>
   );
 }
@@ -444,23 +382,18 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 0.5, alignItems: 'center', height: 60 },
   headerAvatar: { width: 30, height: 30, borderRadius: 15 },
-  
   tabContainer: { flexDirection: 'row', gap: 20 },
   tabButton: { alignItems: 'center', paddingVertical: 5 },
   tabText: { fontSize: 16 },
   activeIndicator: { height: 3, width: '100%', borderRadius: 2, marginTop: 4 },
-
   searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 40, borderRadius: 20 },
   searchInput: { flex: 1, marginLeft: 10, fontSize: 16 },
-
   searchTabs: { flexDirection: 'row', borderBottomWidth: 0.5 },
   searchTabBtn: { flex: 1, alignItems: 'center', paddingVertical: 12 },
-
   userCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, marginBottom: 10 },
   userAvatar: { width: 50, height: 50, borderRadius: 25, marginRight: 15 },
   userName: { fontSize: 16, fontWeight: 'bold' },
   userHandle: { fontSize: 14 },
-  
   groupCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderRadius: 12, marginBottom: 10 },
   groupInfo: { flex: 1 },
   groupName: { fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
@@ -468,12 +401,8 @@ const styles = StyleSheet.create({
   groupStats: { flexDirection: 'row', gap: 8 },
   statPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.05)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, gap: 4 },
   statText: { fontSize: 12, fontWeight: '600' },
-  
   genreHeader: { padding: 15, borderBottomWidth: 0.5, flexDirection: 'row', alignItems: 'center' },
   genreTitle: { fontSize: 20, fontWeight: 'bold', marginLeft: 10 },
-
   fab: { position: 'absolute', bottom: 20, right: 20, width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', elevation: 6, shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 4.65 },
-  
-  // ✅ RED DOT STYLE
   redDot: { position: 'absolute', top: 12, right: 14, width: 10, height: 10, borderRadius: 5, backgroundColor: 'red', borderWidth: 1, borderColor: 'white' }
 });

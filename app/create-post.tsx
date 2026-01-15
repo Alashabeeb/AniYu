@@ -27,7 +27,9 @@ export default function CreatePostScreen() {
   const [loading, setLoading] = useState(false);
   const [media, setMedia] = useState<any>(null);
   const [avatar, setAvatar] = useState(user?.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime');
-  const [selectedTag, setSelectedTag] = useState('');
+  
+  // ✅ UPDATED: State to hold multiple tags (Array)
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   useEffect(() => {
      if(user) {
@@ -53,6 +55,21 @@ export default function CreatePostScreen() {
     const storageRef = ref(storage, filename);
     await uploadBytes(storageRef, blob);
     return await getDownloadURL(storageRef);
+  };
+
+  // ✅ UPDATED: Toggle Tag Selection Logic (Max 3)
+  const toggleTag = (tag: string) => {
+      if (selectedTags.includes(tag)) {
+          // Remove tag if already selected
+          setSelectedTags(selectedTags.filter(t => t !== tag));
+      } else {
+          // Add tag if limit not reached
+          if (selectedTags.length < 3) {
+              setSelectedTags([...selectedTags, tag]);
+          } else {
+              Alert.alert("Limit Reached", "You can only select up to 3 topics.");
+          }
+      }
   };
 
   const handlePost = async () => {
@@ -84,7 +101,7 @@ export default function CreatePostScreen() {
         displayName: realDisplayName, 
         username: realUsername,       
         userAvatar: realAvatar,
-        tags: selectedTag ? [selectedTag] : [], 
+        tags: selectedTags, // ✅ Saves the array of tags
         createdAt: serverTimestamp(),
         likes: [],
         reposts: [],
@@ -169,7 +186,7 @@ export default function CreatePostScreen() {
              </View>
          </View>
 
-         {/* ✅ UPDATED: Smaller, Compact Toolbar */}
+         {/* Compact Toolbar */}
          <View style={styles.inlineToolbar}>
             <TouchableOpacity onPress={pickMedia} style={styles.toolIcon}>
                 <Ionicons name="image-outline" size={20} color={theme.tint} />
@@ -187,29 +204,33 @@ export default function CreatePostScreen() {
          {/* Topic Tag Selector */}
          <View style={{ marginTop: 5, paddingHorizontal: 15 }}>
             <Text style={{ color: theme.subText, fontSize: 11, marginBottom: 8, fontWeight: 'bold' }}>
-                ADD A TOPIC TAG
+                ADD TOPICS ({selectedTags.length}/3)
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {GENRES.map(genre => (
-                    <TouchableOpacity 
-                        key={genre}
-                        onPress={() => setSelectedTag(genre === selectedTag ? '' : genre)}
-                        style={{
-                            paddingHorizontal: 12, 
-                            paddingVertical: 6, 
-                            borderRadius: 15, 
-                            backgroundColor: selectedTag === genre ? theme.tint : theme.card,
-                            borderWidth: 1, 
-                            borderColor: selectedTag === genre ? theme.tint : theme.border
-                        }}
-                    >
-                        <Text style={{ 
-                            color: selectedTag === genre ? 'white' : theme.text, 
-                            fontSize: 11,
-                            fontWeight: '600'
-                        }}>{genre}</Text>
-                    </TouchableOpacity>
-                ))}
+                {GENRES.map(genre => {
+                    // ✅ CHECK IF SELECTED
+                    const isSelected = selectedTags.includes(genre);
+                    return (
+                        <TouchableOpacity 
+                            key={genre}
+                            onPress={() => toggleTag(genre)}
+                            style={{
+                                paddingHorizontal: 12, 
+                                paddingVertical: 6, 
+                                borderRadius: 15, 
+                                backgroundColor: isSelected ? theme.tint : theme.card,
+                                borderWidth: 1, 
+                                borderColor: isSelected ? theme.tint : theme.border
+                            }}
+                        >
+                            <Text style={{ 
+                                color: isSelected ? 'white' : theme.text, 
+                                fontSize: 11,
+                                fontWeight: '600'
+                            }}>{genre}</Text>
+                        </TouchableOpacity>
+                    );
+                })}
             </ScrollView>
          </View>
 
@@ -241,7 +262,6 @@ const styles = StyleSheet.create({
       backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 12, padding: 4 
   },
 
-  // ✅ UPDATED STYLES FOR SMALLER TOOLBAR
   inlineToolbar: {
     flexDirection: 'row',
     paddingHorizontal: 15,
@@ -250,6 +270,6 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   toolIcon: { 
-    marginRight: 20 // Reduced spacing
+    marginRight: 20 
   }
 });
