@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Keyboard,
-  RefreshControl, // ✅ Import
+  RefreshControl,
   ScrollView, StatusBar, StyleSheet,
   Text,
   TextInput, TouchableOpacity,
@@ -17,28 +18,54 @@ import { useTheme } from '../../context/ThemeContext';
 
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
+import { auth, db } from '../../config/firebaseConfig'; // ✅ Added Firebase for Notifications
 import { getTopAnime, searchAnime } from '../../services/animeService';
 import { getFavorites, toggleFavorite } from '../../services/favoritesService';
+import { getUnreadLocalCount } from '../../services/notificationService'; // ✅ Notification Service
 
 export default function HomeScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
+  const currentUser = auth.currentUser;
 
   const [trending, setTrending] = useState<any[]>([]);
   const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false); // ✅ Refresh State
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [query, setQuery] = useState('');
+  const [queryText, setQueryText] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  
+  // ✅ Notification Red Dot State
+  const [hasUnread, setHasUnread] = useState(false);
 
   useEffect(() => { loadInitialData(); }, []);
 
   useFocusEffect(
-    useCallback(() => { loadFavorites(); }, [])
+    useCallback(() => { 
+        loadFavorites(); 
+        checkUnreadStatus(); 
+    }, [])
   );
+
+  // ✅ LISTEN FOR NOTIFICATIONS (Real-time)
+  useEffect(() => {
+      if (!currentUser) return;
+      const q = query(collection(db, 'users', currentUser.uid, 'notifications'), where('read', '==', false));
+      const unsubscribe = onSnapshot(q, (snapshot) => checkUnreadStatus(snapshot.docs.length));
+      return unsubscribe;
+  }, []);
+
+  const checkUnreadStatus = async (socialCount?: number) => {
+      const localCount = await getUnreadLocalCount();
+      if (socialCount !== undefined) {
+           setHasUnread(socialCount > 0 || localCount > 0);
+      } else {
+           if (localCount > 0) setHasUnread(true);
+      }
+  };
 
   const loadFavorites = async () => {
       const favs = await getFavorites();
@@ -58,7 +85,6 @@ export default function HomeScreen() {
     }
   };
 
-  // ✅ Refresh Handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadInitialData();
@@ -71,19 +97,19 @@ export default function HomeScreen() {
   };
 
   const handleSearch = async () => {
-    if (query.trim().length === 0) return;
+    if (queryText.trim().length === 0) return;
     Keyboard.dismiss(); 
     setSearchLoading(true);
     setIsSearching(true);
     try {
-      const results = await searchAnime(query);
+      const results = await searchAnime(queryText);
       setSearchResults(results);
     } catch (error) { console.error(error); } 
     finally { setSearchLoading(false); }
   };
 
   const clearSearch = () => {
-    setQuery('');
+    setQueryText('');
     setIsSearching(false);
     setSearchResults([]);
     Keyboard.dismiss();
@@ -116,6 +142,20 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
+      {/* ✅ NEW HEADER: AniYu (Left) + Notification (Right) */}
+      <View style={styles.topHeader}>
+          <Text style={[styles.brandText, { color: theme.text }]}>AniYu</Text>
+          
+          <TouchableOpacity 
+            style={styles.notificationBtn} 
+            onPress={() => router.push('/notifications')}
+          >
+              <Ionicons name="notifications-outline" size={26} color={theme.text} />
+              {hasUnread && <View style={styles.redDotHeader} />}
+          </TouchableOpacity>
+      </View>
+
+      {/* SEARCH BAR */}
       <View style={styles.headerContainer}>
         <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
           <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
@@ -123,12 +163,12 @@ export default function HomeScreen() {
             placeholder="Search anime..."
             placeholderTextColor={theme.subText}
             style={[styles.input, { color: theme.text }]}
-            value={query}
-            onChangeText={setQuery}
+            value={queryText}
+            onChangeText={setQueryText}
             onSubmitEditing={handleSearch} 
             returnKeyType="search"
           />
-          {query.length > 0 && (
+          {queryText.length > 0 && (
             <TouchableOpacity onPress={clearSearch}>
                <Ionicons name="close-circle" size={20} color={theme.subText} />
             </TouchableOpacity>
@@ -157,7 +197,6 @@ export default function HomeScreen() {
       ) : (
         <ScrollView 
           showsVerticalScrollIndicator={false}
-          // ✅ Add Refresh Control
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         >
           <HeroCarousel data={trending.slice(0, 5)} />
@@ -178,6 +217,13 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  
+  // ✅ NEW HEADER STYLES
+  topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 5 },
+  brandText: { fontSize: 24, fontWeight: '900', fontFamily: 'System', letterSpacing: 0.5 },
+  notificationBtn: { padding: 5, position: 'relative' },
+  redDotHeader: { position: 'absolute', top: 5, right: 6, width: 8, height: 8, borderRadius: 4, backgroundColor: 'red', borderWidth: 1, borderColor: 'white' },
+
   headerContainer: { paddingHorizontal: 20, paddingBottom: 10, paddingTop: 10 },
   searchBar: { flexDirection: 'row', borderRadius: 12, paddingHorizontal: 15, height: 45, alignItems: 'center' },
   input: { flex: 1, fontSize: 16 },

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-// ✅ NEW VIDEO IMPORTS
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   addDoc,
@@ -23,7 +22,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-// ✅ IMPORT NOTIFICATION SERVICE
 import { sendSocialNotification } from '../services/notificationService';
 
 const REPORT_REASONS = [
@@ -51,7 +49,7 @@ export default function PostDetailsScreen() {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
 
-  // ✅ Initialize Video Player (only if needed)
+  // Initialize Video Player
   const videoSource = post?.mediaType === 'video' && post?.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => {
       if (videoSource) player.loop = true;
@@ -82,8 +80,15 @@ export default function PostDetailsScreen() {
       await updateDoc(ref, { [field]: isActive ? arrayRemove(user.uid) : arrayUnion(user.uid) });
   };
 
-  const handleShare = async (text: string) => {
-      try { await Share.share({ message: text }); } catch (e) {}
+  const handleShare = async (item: any) => {
+      try {
+          await Share.share({
+              message: `Check out this post from ${item.displayName || item.username} on AniYu: ${item.text || 'Check this out!'}`,
+              url: item.mediaUrl || '' 
+          });
+      } catch (error) {
+          console.log("Share error", error);
+      }
   };
 
   const goToDetails = (id: string) => {
@@ -147,7 +152,6 @@ export default function PostDetailsScreen() {
       });
       await updateDoc(doc(db, 'posts', postId as string), { commentCount: increment(1) });
       
-      // ✅ SEND NOTIFICATION TO POST OWNER
       if (post && post.userId) {
           sendSocialNotification(
               post.userId, 
@@ -204,8 +208,10 @@ export default function PostDetailsScreen() {
                         <Ionicons name="repeat-outline" size={16} color={isReposted ? "#00BA7C" : theme.subText} />
                          <Text style={[styles.actionText, { color: theme.subText }]}>{item.reposts?.length || 0}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item.text)}>
-                        <Ionicons name="share-outline" size={16} color={theme.subText} />
+                    
+                    {/* ✅ FIXED: Use share-social-outline */}
+                    <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item)}>
+                        <Ionicons name="share-social-outline" size={16} color={theme.subText} />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -245,7 +251,6 @@ export default function PostDetailsScreen() {
                   </View>
                   <Text style={[styles.postText, { color: theme.text }]}>{post.text}</Text>
                   
-                  {/* ✅ UPDATED VIDEO VIEW */}
                   {post.mediaUrl && post.mediaType === 'video' && (
                       <VideoView 
                         player={player} 
@@ -273,7 +278,9 @@ export default function PostDetailsScreen() {
                        <TouchableOpacity onPress={() => toggleAction(postId as string, 'likes', post.likes || [])}><Ionicons name={post.likes?.includes(user?.uid)?"heart":"heart-outline"} size={22} color={theme.text} /></TouchableOpacity>
                        <TouchableOpacity><Ionicons name="chatbubble-outline" size={22} color={theme.text} /></TouchableOpacity>
                        <TouchableOpacity onPress={() => toggleAction(postId as string, 'reposts', post.reposts || [])}><Ionicons name="repeat-outline" size={22} color={theme.text} /></TouchableOpacity>
-                       <TouchableOpacity onPress={() => handleShare(post.text)}><Ionicons name="share-outline" size={22} color={theme.text} /></TouchableOpacity>
+                       
+                       {/* ✅ FIXED: Use share-social-outline */}
+                       <TouchableOpacity onPress={() => handleShare(post)}><Ionicons name="share-social-outline" size={22} color={theme.text} /></TouchableOpacity>
                   </View>
                </View>
             )}

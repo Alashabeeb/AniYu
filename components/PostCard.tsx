@@ -14,10 +14,10 @@ import {
 } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
-  Pressable, // ✅ Changed to Pressable for better touch handling
+  Pressable,
+  Share, // ✅ ADDED SHARE
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -26,7 +26,6 @@ import {
 } from 'react-native';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-// ✅ IMPORT NOTIFICATION SERVICE
 import { sendSocialNotification } from '../services/notificationService';
 
 interface PostCardProps {
@@ -54,16 +53,11 @@ export default function PostCard({ post }: PostCardProps) {
   const isLiked = post.likes?.includes(currentUser?.uid);
   const isReposted = post.reposts?.includes(currentUser?.uid);
   const isOwner = post.userId === currentUser?.uid;
+  const isPinned = post.pinned === true;
 
-  // ✅ Video Player Setup
   const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
-  const player = useVideoPlayer(videoSource, player => {
-    if (videoSource) {
-        player.loop = true;
-    }
-  });
+  const player = useVideoPlayer(videoSource, player => { if (videoSource) player.loop = true; });
 
-  // Time logic
   let timeAgo = "now";
   if (post.createdAt?.seconds) {
     const seconds = Math.floor((new Date().getTime() / 1000) - post.createdAt.seconds);
@@ -73,66 +67,57 @@ export default function PostCard({ post }: PostCardProps) {
     else timeAgo = new Date(post.createdAt.seconds * 1000).toLocaleDateString();
   }
 
-  // ✅ Navigation Wrapper
   const handleGoToDetails = () => {
     router.push({ pathname: '/post-details', params: { postId: post.id } });
   };
 
   const handleLike = async () => {
     if (!currentUser) return;
-    
-    // ✅ Send Notification if liking for the first time
     if (!isLiked) {
-        sendSocialNotification(
-            post.userId, 
-            'like', 
-            { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' },
-            '',
-            post.id
-        );
+        sendSocialNotification(post.userId, 'like', { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' }, '', post.id);
     }
-
     const postRef = doc(db, 'posts', post.id);
-    await updateDoc(postRef, {
-      likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-    });
+    await updateDoc(postRef, { likes: isLiked ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid) });
   };
 
   const handleRepost = async () => {
     if (!currentUser) return;
-
     if (!isReposted) {
-        // ✅ Send Notification
-        sendSocialNotification(
-            post.userId, 
-            'repost', 
-            { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' },
-            '',
-            post.id
-        );
+        sendSocialNotification(post.userId, 'repost', { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' }, '', post.id);
     }
-
     const postRef = doc(db, 'posts', post.id);
-    await updateDoc(postRef, {
-      reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid)
-    });
+    await updateDoc(postRef, { reposts: isReposted ? arrayRemove(currentUser.uid) : arrayUnion(currentUser.uid) });
+  };
+
+  // ✅ NATIVE SHARE
+  const handleShare = async () => {
+      try {
+          await Share.share({
+              message: `Check out this post from ${post.displayName} on AniYu: ${post.text || 'Check this out!'}`,
+              url: post.mediaUrl || '' 
+          });
+      } catch (error) {
+          console.log("Share error", error);
+      }
+  };
+
+  // ✅ TOGGLE PIN
+  const handlePin = async () => {
+      setMenuVisible(false);
+      try {
+          const postRef = doc(db, 'posts', post.id);
+          await updateDoc(postRef, { pinned: !isPinned });
+          Alert.alert("Success", isPinned ? "Post Unpinned." : "Post Pinned to Profile.");
+      } catch (e) {
+          Alert.alert("Error", "Could not pin post.");
+      }
   };
 
   const handleDelete = async () => {
     setMenuVisible(false);
     Alert.alert("Delete Post", "Are you sure you want to delete this post?", [
         { text: "Cancel", style: "cancel" },
-        { 
-            text: "Delete", 
-            style: "destructive", 
-            onPress: async () => {
-                try {
-                    await deleteDoc(doc(db, "posts", post.id));
-                } catch (error) {
-                    Alert.alert("Error", "Could not delete post.");
-                }
-            } 
-        }
+        { text: "Delete", style: "destructive", onPress: async () => { try { await deleteDoc(doc(db, "posts", post.id)); } catch (error) { Alert.alert("Error", "Could not delete post."); } } }
     ]);
   };
 
@@ -140,53 +125,34 @@ export default function PostCard({ post }: PostCardProps) {
     if (!currentUser) return;
     setReportLoading(true);
     try {
-      await addDoc(collection(db, 'reports'), {
-        type: 'post',
-        targetId: post.id,
-        targetContent: post.text || 'media',
-        reportedBy: currentUser.uid,
-        reason: reason,
-        createdAt: serverTimestamp(),
-        status: 'pending'
-      });
+      await addDoc(collection(db, 'reports'), { type: 'post', targetId: post.id, targetContent: post.text || 'media', reportedBy: currentUser.uid, reason: reason, createdAt: serverTimestamp(), status: 'pending' });
       Alert.alert("Report Submitted", "Thank you. We will review this post.");
       setReportModalVisible(false);
-    } catch (error) {
-      Alert.alert("Error", "Could not submit report.");
-    } finally {
-      setReportLoading(false);
-    }
+    } catch (error) { Alert.alert("Error", "Could not submit report."); } finally { setReportLoading(false); }
   };
 
   return (
-    // ✅ WRAP EVERYTHING IN PRESSABLE TO MAKE CARD CLICKABLE
-    <Pressable 
-      onPress={handleGoToDetails} 
-      style={[styles.container, { borderBottomColor: theme.border }]}
-    >
+    <Pressable onPress={handleGoToDetails} style={[styles.container, { borderBottomColor: theme.border }]}>
+      
+      {/* ✅ PIN INDICATOR */}
+      {isPinned && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, marginLeft: 50 }}>
+              <Ionicons name="pricetag" size={12} color={theme.subText} />
+              <Text style={{ fontSize: 12, color: theme.subText, marginLeft: 5, fontWeight: 'bold' }}>Pinned</Text>
+          </View>
+      )}
+
       <View style={{ flexDirection: 'row' }}>
-        
-        {/* Avatar Link (Stops propagation so it goes to profile, not post details) */}
-        <TouchableOpacity onPress={(e) => {
-            e.stopPropagation(); // Prevent going to details
-            router.push({ pathname: '/feed-profile', params: { userId: post.userId } });
-        }}>
+        <TouchableOpacity onPress={(e) => { e.stopPropagation(); router.push({ pathname: '/feed-profile', params: { userId: post.userId } }); }}>
           <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
         </TouchableOpacity>
 
         <View style={{ flex: 1, marginLeft: 12 }}>
-          
           <View style={styles.headerRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-              <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-                {post.displayName}
-              </Text>
-              <Text style={[styles.handle, { color: theme.subText }]} numberOfLines={1}>
-                @{post.username} · {timeAgo}
-              </Text>
+              <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>{post.displayName}</Text>
+              <Text style={[styles.handle, { color: theme.subText }]} numberOfLines={1}>@{post.username} · {timeAgo}</Text>
             </View>
-
-            {/* Menu Button (Stops propagation) */}
             <TouchableOpacity onPress={(e) => { e.stopPropagation(); setMenuVisible(true); }} style={styles.dotsButton}>
                 <Ionicons name="ellipsis-horizontal" size={20} color={theme.subText} />
             </TouchableOpacity>
@@ -202,61 +168,48 @@ export default function PostCard({ post }: PostCardProps) {
              </View>
           )}
 
-          {/* Media Rendering */}
-          {post.mediaUrl && post.mediaType === 'image' && (
-            <Image source={{ uri: post.mediaUrl }} style={styles.media} contentFit="cover" />
-          )}
-          
-          {post.mediaUrl && post.mediaType === 'video' && (
-            // Video view handles its own touches for playback
-            <VideoView 
-                player={player} 
-                style={styles.media} 
-                contentFit="cover"
-                allowsFullscreen 
-                allowsPictureInPicture
-            />
-          )}
+          {post.mediaUrl && post.mediaType === 'image' && <Image source={{ uri: post.mediaUrl }} style={styles.media} contentFit="cover" />}
+          {post.mediaUrl && post.mediaType === 'video' && <VideoView player={player} style={styles.media} contentFit="cover" allowsFullscreen allowsPictureInPicture />}
 
-          {/* Action Buttons (Stop propagation so they don't trigger navigation) */}
           <View style={styles.actions}>
             <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleLike(); }}>
               <Ionicons name={isLiked ? "heart" : "heart-outline"} size={18} color={isLiked ? "#FF6B6B" : theme.subText} />
               <Text style={[styles.count, { color: isLiked ? "#FF6B6B" : theme.subText }]}>{post.likes?.length || 0}</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleGoToDetails(); }}>
               <Ionicons name="chatbubble-outline" size={18} color={theme.subText} />
               <Text style={[styles.count, { color: theme.subText }]}>{post.commentCount || 0}</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleRepost(); }}>
               <Ionicons name="repeat-outline" size={18} color={isReposted ? "#00BA7C" : theme.subText} />
               <Text style={[styles.count, { color: isReposted ? "#00BA7C" : theme.subText }]}>{post.reposts?.length || 0}</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.actionBtn} onPress={(e) => e.stopPropagation()}>
+            <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleShare(); }}>
                 <Ionicons name="share-social-outline" size={18} color={theme.subText} />
             </TouchableOpacity>
           </View>
         </View>
       </View>
 
-      {/* 🟢 MENU MODAL */}
       <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
                 <View style={[styles.menuContainer, { backgroundColor: theme.card }]}>
                     {isOwner ? (
-                        <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
-                            <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-                            <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Delete Post</Text>
-                        </TouchableOpacity>
+                        <>
+                            {/* ✅ PIN OPTION */}
+                            <TouchableOpacity style={styles.menuItem} onPress={handlePin}>
+                                <Ionicons name={isPinned ? "pricetags-outline" : "pricetag-outline"} size={20} color={theme.text} />
+                                <Text style={[styles.menuText, { color: theme.text }]}>{isPinned ? "Unpin from Profile" : "Pin to Profile"}</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
+                                <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                                <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Delete Post</Text>
+                            </TouchableOpacity>
+                        </>
                     ) : (
-                        <TouchableOpacity 
-                            style={styles.menuItem} 
-                            onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
-                        >
+                        <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}>
                             <Ionicons name="flag-outline" size={20} color="red" />
                             <Text style={[styles.menuText, { color: 'red' }]}>Report Post</Text>
                         </TouchableOpacity>
@@ -270,21 +223,14 @@ export default function PostCard({ post }: PostCardProps) {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* 🔴 REPORT REASON MODAL */}
-      <Modal visible={reportModalVisible} transparent animationType="slide">
+      {/* Report Modal skipped for brevity */}
+       <Modal visible={reportModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
             <View style={[styles.reportContainer, { backgroundColor: theme.background }]}>
                 <Text style={[styles.reportTitle, { color: theme.text }]}>Report Post</Text>
-                <Text style={{ color: theme.subText, marginBottom: 15, textAlign: 'center' }}>
-                    Why are you reporting this post?
-                </Text>
+                <Text style={{ color: theme.subText, marginBottom: 15, textAlign: 'center' }}>Why?</Text>
                 {REPORT_REASONS.map((reason) => (
-                    <TouchableOpacity 
-                        key={reason} 
-                        style={[styles.reasonBtn, { borderColor: theme.border }]}
-                        onPress={() => submitReport(reason)}
-                        disabled={reportLoading}
-                    >
+                    <TouchableOpacity key={reason} style={[styles.reasonBtn, { borderColor: theme.border }]} onPress={() => submitReport(reason)} disabled={reportLoading}>
                         <Text style={{ color: theme.text }}>{reason}</Text>
                         <Ionicons name="chevron-forward" size={16} color={theme.subText} />
                     </TouchableOpacity>
@@ -292,11 +238,9 @@ export default function PostCard({ post }: PostCardProps) {
                 <TouchableOpacity style={{ marginTop: 10, padding: 10 }} onPress={() => setReportModalVisible(false)}>
                     <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Cancel</Text>
                 </TouchableOpacity>
-                {reportLoading && <ActivityIndicator style={{ position: 'absolute' }} size="large" color={theme.tint} />}
             </View>
         </View>
       </Modal>
-
     </Pressable>
   );
 }

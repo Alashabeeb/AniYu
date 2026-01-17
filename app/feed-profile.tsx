@@ -14,7 +14,7 @@ import {
     setDoc,
     where
 } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -31,6 +31,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import PostCard from '../components/PostCard';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+// ✅ IMPORT Notif Service
+import { sendSocialNotification } from '../services/notificationService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -55,16 +57,14 @@ export default function FeedProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<any>(null);
   
-  // ✅ DATA STATES
   const [myPosts, setMyPosts] = useState<any[]>([]);
   const [repostedPosts, setRepostedPosts] = useState<any[]>([]);
-  const [likedPosts, setLikedPosts] = useState<any[]>([]); // New Likes State
+  const [likedPosts, setLikedPosts] = useState<any[]>([]);
 
   const [activeTab, setActiveTab] = useState('Posts'); 
-  const flatListRef = useRef<FlatList>(null); // For Swipe Navigation
+  const flatListRef = useRef<FlatList>(null);
   const [isFollowing, setIsFollowing] = useState(false); 
 
-  // Report User State
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -72,7 +72,7 @@ export default function FeedProfileScreen() {
   useEffect(() => {
     if (!targetUserId) return;
 
-    // 1. Get User Profile
+    // 1. Get User
     const userRef = doc(db, "users", targetUserId);
     const unsubUser = onSnapshot(userRef, async (docSnap) => {
         if (docSnap.exists()) {
@@ -109,28 +109,22 @@ export default function FeedProfileScreen() {
         setMyPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    // 3. Get Reposts
-    const qReposts = query(
-        collection(db, 'posts'),
-        where('reposts', 'array-contains', targetUserId),
-        orderBy('createdAt', 'desc')
-    );
-    const unsubReposts = onSnapshot(qReposts, (snapshot) => {
-        setRepostedPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    // 3. Get Reposts & Likes
+    const qReposts = query(collection(db, 'posts'), where('reposts', 'array-contains', targetUserId), orderBy('createdAt', 'desc'));
+    const unsubReposts = onSnapshot(qReposts, (snap) => setRepostedPosts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
 
-    // ✅ 4. Get Liked Posts
-    const qLikes = query(
-        collection(db, 'posts'),
-        where('likes', 'array-contains', targetUserId),
-        orderBy('createdAt', 'desc')
-    );
-    const unsubLikes = onSnapshot(qLikes, (snapshot) => {
-        setLikedPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    const qLikes = query(collection(db, 'posts'), where('likes', 'array-contains', targetUserId), orderBy('createdAt', 'desc'));
+    const unsubLikes = onSnapshot(qLikes, (snap) => setLikedPosts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
 
     return () => { unsubUser(); unsubPosts(); unsubReposts(); unsubLikes(); };
   }, [targetUserId]);
+
+  // ✅ SORT POSTS: Pinned First
+  const sortedMyPosts = useMemo(() => {
+      return [...myPosts].sort((a, b) => {
+          return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+      });
+  }, [myPosts]);
 
   const handleFollow = async () => {
       if (!currentUser || isOwnProfile || !targetUserId) return;
@@ -143,6 +137,13 @@ export default function FeedProfileScreen() {
       } else {
           await setDoc(myRef, { following: arrayUnion(targetUserId) }, { merge: true });
           await setDoc(targetRef, { followers: arrayUnion(currentUser.uid) }, { merge: true });
+
+          // ✅ SEND NOTIFICATION
+          sendSocialNotification(
+            targetUserId, 
+            'follow', 
+            { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' }
+          );
       }
   };
 
@@ -150,25 +151,12 @@ export default function FeedProfileScreen() {
     if (!currentUser || !targetUserId) return;
     setReportLoading(true);
     try {
-      await addDoc(collection(db, 'reports'), {
-        type: 'user',
-        targetId: targetUserId,
-        targetName: userData?.username || 'Unknown',
-        reportedBy: currentUser.uid,
-        reason: reason,
-        createdAt: serverTimestamp(),
-        status: 'pending'
-      });
+      await addDoc(collection(db, 'reports'), { type: 'user', targetId: targetUserId, targetName: userData?.username || 'Unknown', reportedBy: currentUser.uid, reason, createdAt: serverTimestamp(), status: 'pending' });
       Alert.alert("Report Submitted", "We will review this profile.");
       setReportModalVisible(false);
-    } catch (error) {
-      Alert.alert("Error", "Could not submit report.");
-    } finally {
-      setReportLoading(false);
-    }
+    } catch { Alert.alert("Error", "Could not submit."); } finally { setReportLoading(false); }
   };
 
-  // ✅ TAB HANDLING
   const handleTabPress = (tab: string, index: number) => {
       setActiveTab(tab);
       flatListRef.current?.scrollToOffset({ offset: index * SCREEN_WIDTH, animated: true });
@@ -182,7 +170,6 @@ export default function FeedProfileScreen() {
       else if (index === 2) setActiveTab('Likes');
   };
 
-  // ✅ RENDER LIST HELPER
   const renderList = (data: any[], emptyMsg: string) => (
       <FlatList
           data={data}
@@ -197,13 +184,7 @@ export default function FeedProfileScreen() {
       />
   );
 
-  if (loading) {
-    return (
-        <View style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }]}>
-            <ActivityIndicator color={theme.tint} />
-        </View>
-    );
-  }
+  if (loading) return <View style={{ flex: 1, backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={theme.tint} /></View>;
 
   const followingCount = userData?.following?.length || 0;
   const followersCount = userData?.followers?.length || 0;
@@ -227,9 +208,7 @@ export default function FeedProfileScreen() {
         )}
       </View>
 
-      {/* ✅ PROFILE INFO (FIXED AT TOP) */}
       <View>
-          {/* BANNER */}
           {userData?.banner ? (
               <Image source={{ uri: userData.banner }} style={styles.banner} contentFit="cover" />
           ) : (
@@ -238,34 +217,19 @@ export default function FeedProfileScreen() {
 
           <View style={styles.profileInfo}>
               <View>
-                  <Image 
-                      source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} 
-                      style={[styles.avatar, { borderColor: theme.background }]} 
-                  />
+                  <Image source={{ uri: userData?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} style={[styles.avatar, { borderColor: theme.background }]} />
                   <View style={[styles.rankBadge, { borderColor: theme.background, backgroundColor: '#FFD700' }]}>
                         <Text style={styles.rankText}>{userRank}</Text>
                   </View>
               </View>
               
               {isOwnProfile ? (
-                  <TouchableOpacity 
-                      style={[styles.editBtn, { borderColor: theme.border }]}
-                      onPress={() => router.push('/edit-profile')}
-                  >
+                  <TouchableOpacity style={[styles.editBtn, { borderColor: theme.border }]} onPress={() => router.push('/edit-profile')}>
                       <Text style={{ color: theme.text, fontWeight: 'bold' }}>Edit Profile</Text>
                   </TouchableOpacity>
               ) : (
-                  <TouchableOpacity 
-                      style={[styles.editBtn, { 
-                          backgroundColor: isFollowing ? 'transparent' : theme.tint, 
-                          borderColor: isFollowing ? theme.border : theme.tint,
-                          borderWidth: 1
-                      }]}
-                      onPress={handleFollow}
-                  >
-                      <Text style={{ color: isFollowing ? theme.text : 'white', fontWeight: 'bold' }}>
-                          {isFollowing ? "Following" : "Follow"}
-                      </Text>
+                  <TouchableOpacity style={[styles.editBtn, { backgroundColor: isFollowing ? 'transparent' : theme.tint, borderColor: isFollowing ? theme.border : theme.tint, borderWidth: 1 }]} onPress={handleFollow}>
+                      <Text style={{ color: isFollowing ? theme.text : 'white', fontWeight: 'bold' }}>{isFollowing ? "Following" : "Follow"}</Text>
                   </TouchableOpacity>
               )}
           </View>
@@ -284,7 +248,6 @@ export default function FeedProfileScreen() {
               </TouchableOpacity>
           </View>
 
-          {/* ✅ TABS WITH LIKES */}
           <View style={[styles.tabRow, { borderBottomColor: theme.border }]}>
               <TouchableOpacity onPress={() => handleTabPress('Posts', 0)} style={[styles.tab, activeTab === 'Posts' && { borderBottomColor: theme.tint, borderBottomWidth: 3 }]}>
                   <Text style={[styles.tabText, { color: activeTab === 'Posts' ? theme.text : theme.subText }]}>Posts</Text>
@@ -298,25 +261,25 @@ export default function FeedProfileScreen() {
           </View>
       </View>
 
-      {/* ✅ SWIPEABLE CONTENT LISTS */}
       <FlatList
         ref={flatListRef}
-        data={[1, 2, 3]} // 3 Pages
+        data={[1, 2, 3]} 
         keyExtractor={item => item.toString()}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         renderItem={({ index }) => {
-            if (index === 0) return renderList(myPosts, "No posts yet.");
+            // ✅ Use Sorted Posts (Pinned first)
+            if (index === 0) return renderList(sortedMyPosts, "No posts yet.");
             if (index === 1) return renderList(repostedPosts, "No reposts yet.");
             if (index === 2) return renderList(likedPosts, "No liked posts yet.");
             return null;
         }}
       />
 
-      {/* MODALS */}
-      <Modal visible={menuVisible} transparent animationType="fade">
+      {/* Modals omitted for brevity, same as before */}
+       <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
                 <View style={[styles.menuContainer, { backgroundColor: theme.card }]}>
@@ -347,11 +310,9 @@ export default function FeedProfileScreen() {
                 <TouchableOpacity style={{ marginTop: 10, padding: 10 }} onPress={() => setReportModalVisible(false)}>
                     <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Cancel</Text>
                 </TouchableOpacity>
-                {reportLoading && <ActivityIndicator style={{ position: 'absolute' }} size="large" color={theme.tint} />}
             </View>
         </View>
       </Modal>
-
     </SafeAreaView>
   );
 }
