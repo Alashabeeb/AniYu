@@ -1,10 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import {
+    arrayUnion,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    increment,
+    limit,
+    onSnapshot,
+    orderBy,
+    query,
+    updateDoc,
+    where
+} from 'firebase/firestore';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     FlatList,
     RefreshControl,
@@ -12,7 +26,8 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
+    ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import PostCard from '../../components/PostCard';
@@ -36,12 +51,15 @@ export default function FeedScreen() {
   const [userResults, setUserResults] = useState<any[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
 
-  // ✅ Blocked Users State
+  // Blocked Users State
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
 
   const [activeTab, setActiveTab] = useState('All'); 
   const flatListRef = useRef<FlatList>(null); 
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+
+  // ✅ VIEWS TRACKING: Keep track of posts viewed in this session to avoid double counting
+  const viewedPostsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchUserInterests = async () => {
@@ -58,7 +76,7 @@ export default function FeedScreen() {
     fetchUserInterests();
   }, []);
 
-  // ✅ 1. FETCH BLOCKED USERS (Real-time)
+  // 1. FETCH BLOCKED USERS (Real-time)
   useEffect(() => {
       if (!currentUser) return;
       const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => {
@@ -111,9 +129,33 @@ export default function FeedScreen() {
       }
   };
 
-  // ✅ FILTER POSTS (Exclude Blocked Users)
+  // ✅ BLOCK USER FUNCTION (For Search Results)
+  const handleBlockSearchUser = async (userToBlock: any) => {
+    if (!currentUser) return;
+    Alert.alert("Block User", `Are you sure you want to block @${userToBlock.username}?`, [
+        { text: "Cancel", style: "cancel" },
+        { 
+            text: "Block", 
+            style: "destructive", 
+            onPress: async () => {
+                try {
+                    const myRef = doc(db, 'users', currentUser.uid);
+                    await updateDoc(myRef, {
+                        blockedUsers: arrayUnion(userToBlock.id)
+                    });
+                    // Remove from search results locally
+                    setUserResults(prev => prev.filter(u => u.id !== userToBlock.id));
+                    Alert.alert("Blocked", `You will no longer see content from @${userToBlock.username}.`);
+                } catch (e) {
+                    Alert.alert("Error", "Could not block user.");
+                }
+            }
+        }
+    ]);
+  };
+
+  // FILTER POSTS (Exclude Blocked Users)
   const allPosts = useMemo(() => {
-    // Filter out blocked users first
     const cleanPosts = posts.filter(p => !blockedUsers.includes(p.userId));
 
     if (userInterests.length > 0) {
@@ -126,16 +168,13 @@ export default function FeedScreen() {
         });
     }
     return cleanPosts; 
-  }, [posts, userInterests, blockedUsers]); // Added blockedUsers dependency
+  }, [posts, userInterests, blockedUsers]);
 
-  // Trending Logic (Updated to use clean posts indirectly if needed, but usually trending is global)
+  // Trending Logic
   const trendingGroups = useMemo(() => {
     const groups: Record<string, { name: string, posts: any[], stats: { likes: number, comments: number, reposts: number } }> = {};
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     
-    // We use 'posts' (all posts) for trending calculations usually, 
-    // but you can use 'allPosts' if you want to hide blocked users from trending too.
-    // Let's use 'posts' but filter blocked for display.
     posts.filter(p => !blockedUsers.includes(p.userId)).forEach(post => {
         let postDate = new Date(); 
         if (post.createdAt?.seconds) postDate = new Date(post.createdAt.seconds * 1000);
@@ -175,13 +214,46 @@ export default function FeedScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    // Reset viewed posts on refresh so they can count as views again if needed (optional)
+    // viewedPostsRef.current.clear(); 
     setTimeout(() => { setRefreshing(false); }, 1000);
   }, []);
 
+  // ✅ VIEWABILITY CONFIG (For Impressions)
+  const viewabilityConfig = useRef({
+      itemVisiblePercentThreshold: 50 // Item is considered "viewed" when 50% visible
+  }).current;
+
+  // ✅ ON VIEWABLE ITEMS CHANGED
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      viewableItems.forEach((viewToken) => {
+          if (viewToken.isViewable && viewToken.item?.id) {
+              const postId = viewToken.item.id;
+              
+              // Only count view if not already viewed in this session
+              if (!viewedPostsRef.current.has(postId)) {
+                  viewedPostsRef.current.add(postId);
+                  
+                  // Increment view count in Firestore
+                  try {
+                      updateDoc(doc(db, 'posts', postId), {
+                          views: increment(1)
+                      });
+                  } catch (err) {
+                      console.log("Error incrementing view:", err);
+                  }
+              }
+          }
+      });
+  }).current;
+
+  // ✅ RENDER USER (Updated with Long Press to Block)
   const renderUserItem = ({ item }: any) => (
       <TouchableOpacity 
           style={[styles.userCard, { backgroundColor: theme.card }]}
           onPress={() => router.push({ pathname: '/feed-profile', params: { userId: item.id } })}
+          onLongPress={() => handleBlockSearchUser(item)} // <--- LONG PRESS TO BLOCK
+          delayLongPress={500}
       >
           <Image source={{ uri: item.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} style={styles.userAvatar} />
           <View style={{ flex: 1 }}>
@@ -199,6 +271,9 @@ export default function FeedScreen() {
         contentContainerStyle={{ paddingBottom: 100, width: SCREEN_WIDTH }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+        // ✅ ATTACH VIEWABILITY LOGIC
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
         ListEmptyComponent={
             <View style={{ padding: 40, alignItems: 'center', width: SCREEN_WIDTH }}>
                 <Text style={{ color: theme.subText }}>{emptyMessage}</Text>
@@ -318,7 +393,7 @@ export default function FeedScreen() {
                       contentContainerStyle={{ padding: 15 }}
                       ListEmptyComponent={
                           <Text style={{ textAlign: 'center', color: theme.subText, marginTop: 20 }}>
-                              {searchText ? "No users found." : "Search for people."}
+                              {searchText ? "No users found." : "Search for people. Long press to block."}
                           </Text>
                       }
                   />

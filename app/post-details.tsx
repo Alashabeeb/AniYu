@@ -3,21 +3,21 @@ import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
-  addDoc,
-  arrayRemove, arrayUnion,
-  collection, deleteDoc, doc,
-  getDoc,
-  increment,
-  onSnapshot, orderBy,
-  query, serverTimestamp, updateDoc,
-  where
+    addDoc,
+    arrayRemove, arrayUnion,
+    collection, deleteDoc, doc,
+    getDoc,
+    increment,
+    onSnapshot, orderBy,
+    query, serverTimestamp, updateDoc,
+    where
 } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList, KeyboardAvoidingView, Modal, Platform, Share, StyleSheet,
-  Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
+    ActivityIndicator,
+    Alert,
+    FlatList, KeyboardAvoidingView, Modal, Platform, Share, StyleSheet,
+    Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
@@ -121,6 +121,31 @@ export default function PostDetailsScreen() {
               await deleteDoc(doc(db, "posts", postId as string));
               router.back();
           }}
+      ]);
+  };
+
+  // ✅ BLOCK USER FUNCTION
+  const handleBlockUser = async () => {
+      if (!user || !post) return;
+      setMenuVisible(false);
+      Alert.alert("Block User", `Are you sure you want to block @${post.username}?`, [
+          { text: "Cancel", style: "cancel" },
+          { 
+              text: "Block", 
+              style: "destructive", 
+              onPress: async () => {
+                  try {
+                      const myRef = doc(db, 'users', user.uid);
+                      await updateDoc(myRef, {
+                          blockedUsers: arrayUnion(post.userId)
+                      });
+                      Alert.alert("Blocked", `You have blocked @${post.username}.`);
+                      router.back(); // Go back to feed
+                  } catch (e) {
+                      Alert.alert("Error", "Could not block user.");
+                  }
+              }
+          }
       ]);
   };
 
@@ -289,7 +314,7 @@ export default function PostDetailsScreen() {
                       <Text style={{ color: theme.subText }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.likes?.length || 0}</Text> Likes</Text>
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.reposts?.length || 0}</Text> Reposts</Text>
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.commentCount || 0}</Text> Comments</Text>
-                      {/* ✅ Views Count */}
+                      {/* Views Count */}
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.views || 0}</Text> Views</Text>
                   </View>
 
@@ -329,13 +354,21 @@ export default function PostDetailsScreen() {
                             <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Delete Post</Text>
                         </TouchableOpacity>
                     ) : (
-                        <TouchableOpacity 
-                            style={styles.menuItem} 
-                            onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
-                        >
-                            <Ionicons name="flag-outline" size={20} color="red" />
-                            <Text style={[styles.menuText, { color: 'red' }]}>Report Post</Text>
-                        </TouchableOpacity>
+                        <>
+                            {/* ✅ ADDED BLOCK USER OPTION */}
+                            <TouchableOpacity style={styles.menuItem} onPress={handleBlockUser}>
+                                <Ionicons name="ban-outline" size={20} color="#FF6B6B" />
+                                <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Block @{post?.username}</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity 
+                                style={styles.menuItem} 
+                                onPress={() => { setMenuVisible(false); setReportModalVisible(true); }}
+                            >
+                                <Ionicons name="flag-outline" size={20} color={theme.text} />
+                                <Text style={[styles.menuText, { color: theme.text }]}>Report Post</Text>
+                            </TouchableOpacity>
+                        </>
                     )}
                     <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
                          <Ionicons name="close" size={20} color={theme.text} />
