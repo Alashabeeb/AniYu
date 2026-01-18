@@ -1,10 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from "firebase/app";
-import { getReactNativePersistence, initializeAuth } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore'; // ✅ Changed from getFirestore
-import { getStorage } from 'firebase/storage';
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
-// Your configuration
+// ✅ YOUR CORRECT KEYS
 const firebaseConfig = {
   apiKey: "AIzaSyAIZFWymXq_xaDkWGIUGZ2N4fgSEg5QjrY",
   authDomain: "aniyu-b841b.firebaseapp.com",
@@ -15,21 +14,14 @@ const firebaseConfig = {
   measurementId: "G-N8BEEP8PEC"
 };
 
-// 1. Initialize App
+// Initialize Firebase (Standard Web Version)
 const app = initializeApp(firebaseConfig);
 
-// 2. Initialize Auth with Persistence (CRITICAL for Mobile)
-// This tells Firebase to use the phone's storage to remember the user
-const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(AsyncStorage)
-});
+// ✅ WEB AUTH (No AsyncStorage needed here)
+export const auth = getAuth(app);
 
-// 3. Initialize Database (✅ FIXED: Using Long Polling to prevent transport errors)
-const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true, 
-});
+// ✅ WEB DATABASE
+export const db = getFirestore(app);
 
-const storage = getStorage(app);
-
-// 4. Export them for use in the app
-export { auth, db, storage };
+// ✅ WEB STORAGE
+export const storage = getStorage(app);
