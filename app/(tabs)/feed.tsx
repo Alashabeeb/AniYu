@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import {
-    arrayUnion,
     collection,
     doc,
     getDoc,
@@ -18,7 +17,6 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Dimensions,
     FlatList,
     RefreshControl,
@@ -35,6 +33,9 @@ import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// ✅ GLOBAL CACHE: Tracks posts viewed in this session (Feed Screen)
+const viewedFeedSession = new Set<string>();
 
 export default function FeedScreen() {
   const router = useRouter();
@@ -58,9 +59,6 @@ export default function FeedScreen() {
   const flatListRef = useRef<FlatList>(null); 
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
 
-  // ✅ VIEWS TRACKING: Keep track of posts viewed in this session to avoid double counting
-  const viewedPostsRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
     const fetchUserInterests = async () => {
       if (!currentUser) return;
@@ -76,7 +74,6 @@ export default function FeedScreen() {
     fetchUserInterests();
   }, []);
 
-  // 1. FETCH BLOCKED USERS (Real-time)
   useEffect(() => {
       if (!currentUser) return;
       const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => {
@@ -85,7 +82,6 @@ export default function FeedScreen() {
       return unsub;
   }, []);
 
-  // FETCH POSTS
   useEffect(() => {
     const q = query(
         collection(db, 'posts'), 
@@ -99,7 +95,6 @@ export default function FeedScreen() {
     return unsubscribe; 
   }, []);
 
-  // SEARCH USERS
   useEffect(() => {
       if (showSearch && searchText.trim().length > 0) {
           searchUsers(searchText);
@@ -129,32 +124,6 @@ export default function FeedScreen() {
       }
   };
 
-  // ✅ BLOCK USER FUNCTION (For Search Results)
-  const handleBlockSearchUser = async (userToBlock: any) => {
-    if (!currentUser) return;
-    Alert.alert("Block User", `Are you sure you want to block @${userToBlock.username}?`, [
-        { text: "Cancel", style: "cancel" },
-        { 
-            text: "Block", 
-            style: "destructive", 
-            onPress: async () => {
-                try {
-                    const myRef = doc(db, 'users', currentUser.uid);
-                    await updateDoc(myRef, {
-                        blockedUsers: arrayUnion(userToBlock.id)
-                    });
-                    // Remove from search results locally
-                    setUserResults(prev => prev.filter(u => u.id !== userToBlock.id));
-                    Alert.alert("Blocked", `You will no longer see content from @${userToBlock.username}.`);
-                } catch (e) {
-                    Alert.alert("Error", "Could not block user.");
-                }
-            }
-        }
-    ]);
-  };
-
-  // FILTER POSTS (Exclude Blocked Users)
   const allPosts = useMemo(() => {
     const cleanPosts = posts.filter(p => !blockedUsers.includes(p.userId));
 
@@ -170,7 +139,6 @@ export default function FeedScreen() {
     return cleanPosts; 
   }, [posts, userInterests, blockedUsers]);
 
-  // Trending Logic
   const trendingGroups = useMemo(() => {
     const groups: Record<string, { name: string, posts: any[], stats: { likes: number, comments: number, reposts: number } }> = {};
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -214,46 +182,38 @@ export default function FeedScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    // Reset viewed posts on refresh so they can count as views again if needed (optional)
-    // viewedPostsRef.current.clear(); 
     setTimeout(() => { setRefreshing(false); }, 1000);
   }, []);
 
-  // ✅ VIEWABILITY CONFIG (For Impressions)
+  // ✅ VIEW CONFIG
   const viewabilityConfig = useRef({
-      itemVisiblePercentThreshold: 50 // Item is considered "viewed" when 50% visible
+      itemVisiblePercentThreshold: 50 
   }).current;
 
-  // ✅ ON VIEWABLE ITEMS CHANGED
+  // ✅ HANDLE VIEWS (Uses Global Set)
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
       viewableItems.forEach((viewToken) => {
           if (viewToken.isViewable && viewToken.item?.id) {
               const postId = viewToken.item.id;
               
-              // Only count view if not already viewed in this session
-              if (!viewedPostsRef.current.has(postId)) {
-                  viewedPostsRef.current.add(postId);
-                  
-                  // Increment view count in Firestore
+              if (!viewedFeedSession.has(postId)) {
+                  viewedFeedSession.add(postId);
                   try {
                       updateDoc(doc(db, 'posts', postId), {
                           views: increment(1)
                       });
-                  } catch (err) {
-                      console.log("Error incrementing view:", err);
+                  } catch (error) {
+                      console.log("Error incrementing view:", error);
                   }
               }
           }
       });
   }).current;
 
-  // ✅ RENDER USER (Updated with Long Press to Block)
   const renderUserItem = ({ item }: any) => (
       <TouchableOpacity 
           style={[styles.userCard, { backgroundColor: theme.card }]}
           onPress={() => router.push({ pathname: '/feed-profile', params: { userId: item.id } })}
-          onLongPress={() => handleBlockSearchUser(item)} // <--- LONG PRESS TO BLOCK
-          delayLongPress={500}
       >
           <Image source={{ uri: item.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime' }} style={styles.userAvatar} />
           <View style={{ flex: 1 }}>
@@ -271,7 +231,6 @@ export default function FeedScreen() {
         contentContainerStyle={{ paddingBottom: 100, width: SCREEN_WIDTH }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
-        // ✅ ATTACH VIEWABILITY LOGIC
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         ListEmptyComponent={
@@ -393,7 +352,7 @@ export default function FeedScreen() {
                       contentContainerStyle={{ padding: 15 }}
                       ListEmptyComponent={
                           <Text style={{ textAlign: 'center', color: theme.subText, marginTop: 20 }}>
-                              {searchText ? "No users found." : "Search for people. Long press to block."}
+                              {searchText ? "No users found." : "Search for people."}
                           </Text>
                       }
                   />

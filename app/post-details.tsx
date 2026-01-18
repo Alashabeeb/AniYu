@@ -12,12 +12,12 @@ import {
     query, serverTimestamp, updateDoc,
     where
 } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     FlatList, KeyboardAvoidingView, Modal, Platform, Share, StyleSheet,
-    Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View
+    Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View, ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
@@ -32,6 +32,10 @@ const REPORT_REASONS = [
   "Sexual content",
   "Other"
 ];
+
+// ✅ GLOBAL CACHE: Tracks posts & comments viewed in this session to prevent spamming views
+const viewedSessionIds = new Set<string>();
+const viewedCommentSessionIds = new Set<string>();
 
 export default function PostDetailsScreen() {
   const router = useRouter();
@@ -75,21 +79,49 @@ export default function PostDetailsScreen() {
       setComments(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // ✅ 3. INCREMENT VIEW COUNT (One time per load)
+    // ✅ 3. INCREMENT VIEW COUNT (Post - Once per session)
     const incrementView = async () => {
-        try {
-            const ref = doc(db, 'posts', postId as string);
-            await updateDoc(ref, {
-                views: increment(1)
-            });
-        } catch (e) {
-            console.log("Error incrementing view", e);
+        const pId = postId as string;
+        if (!viewedSessionIds.has(pId)) {
+            viewedSessionIds.add(pId);
+            try {
+                const ref = doc(db, 'posts', pId);
+                await updateDoc(ref, {
+                    views: increment(1)
+                });
+            } catch (e) {
+                console.log("Error incrementing view", e);
+            }
         }
     };
     incrementView();
 
     return () => { postUnsub(); commentsUnsub(); };
   }, [postId]);
+
+  // ✅ 4. COMMENT VIEW TRACKING CONFIG
+  const viewabilityConfig = useRef({
+      itemVisiblePercentThreshold: 50
+  }).current;
+
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      viewableItems.forEach((viewToken) => {
+          if (viewToken.isViewable && viewToken.item?.id) {
+              const commentId = viewToken.item.id;
+              // Check if comment viewed in this session
+              if (!viewedCommentSessionIds.has(commentId)) {
+                  viewedCommentSessionIds.add(commentId);
+                  try {
+                      updateDoc(doc(db, 'posts', commentId), {
+                          views: increment(1)
+                      });
+                  } catch (e) {
+                      console.log("Error incrementing comment view", e);
+                  }
+              }
+          }
+      });
+  }).current;
 
   const toggleAction = async (id: string, field: 'likes' | 'reposts', currentArray: string[]) => {
       if (!user) return;
@@ -124,7 +156,6 @@ export default function PostDetailsScreen() {
       ]);
   };
 
-  // ✅ BLOCK USER FUNCTION
   const handleBlockUser = async () => {
       if (!user || !post) return;
       setMenuVisible(false);
@@ -140,7 +171,7 @@ export default function PostDetailsScreen() {
                           blockedUsers: arrayUnion(post.userId)
                       });
                       Alert.alert("Blocked", `You have blocked @${post.username}.`);
-                      router.back(); // Go back to feed
+                      router.back();
                   } catch (e) {
                       Alert.alert("Error", "Could not block user.");
                   }
@@ -191,7 +222,8 @@ export default function PostDetailsScreen() {
         parentId: postId, 
         likes: [],
         reposts: [],
-        commentCount: 0
+        commentCount: 0,
+        views: 0 // ✅ Initialize views
       });
       await updateDoc(doc(db, 'posts', postId as string), { commentCount: increment(1) });
       
@@ -252,6 +284,12 @@ export default function PostDetailsScreen() {
                          <Text style={[styles.actionText, { color: theme.subText }]}>{item.reposts?.length || 0}</Text>
                     </TouchableOpacity>
                     
+                    {/* ✅ Views Icon for Comment */}
+                    <View style={styles.actionButton}>
+                        <Ionicons name="stats-chart" size={16} color={theme.subText} />
+                        <Text style={[styles.actionText, { color: theme.subText }]}>{item.views || 0}</Text>
+                    </View>
+
                     <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item)}>
                         <Ionicons name="share-social-outline" size={16} color={theme.subText} />
                     </TouchableOpacity>
@@ -282,8 +320,12 @@ export default function PostDetailsScreen() {
             data={comments}
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 20 }}
+            // ✅ Attach Comment View Tracking
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
             ListHeaderComponent={() => (
                <View style={[styles.mainPost, { borderBottomColor: theme.border }]}>
+                  {/* ... (Header content same as before) */}
                   <View style={styles.row}>
                      <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
                      <View style={{ marginLeft: 10 }}>
@@ -314,7 +356,6 @@ export default function PostDetailsScreen() {
                       <Text style={{ color: theme.subText }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.likes?.length || 0}</Text> Likes</Text>
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.reposts?.length || 0}</Text> Reposts</Text>
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.commentCount || 0}</Text> Comments</Text>
-                      {/* Views Count */}
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.views || 0}</Text> Views</Text>
                   </View>
 
@@ -355,7 +396,6 @@ export default function PostDetailsScreen() {
                         </TouchableOpacity>
                     ) : (
                         <>
-                            {/* ✅ ADDED BLOCK USER OPTION */}
                             <TouchableOpacity style={styles.menuItem} onPress={handleBlockUser}>
                                 <Ionicons name="ban-outline" size={20} color="#FF6B6B" />
                                 <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Block @{post?.username}</Text>
