@@ -59,9 +59,13 @@ export default function PostDetailsScreen() {
 
   useEffect(() => {
     if (!postId) return;
+    
+    // 1. Listen for post data
     const postUnsub = onSnapshot(doc(db, 'posts', postId as string), (doc) => {
       if (doc.exists()) setPost({ id: doc.id, ...doc.data() });
     });
+
+    // 2. Fetch comments
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', postId), 
@@ -70,6 +74,20 @@ export default function PostDetailsScreen() {
     const commentsUnsub = onSnapshot(q, (snapshot) => {
       setComments(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
+
+    // ✅ 3. INCREMENT VIEW COUNT (One time per load)
+    const incrementView = async () => {
+        try {
+            const ref = doc(db, 'posts', postId as string);
+            await updateDoc(ref, {
+                views: increment(1)
+            });
+        } catch (e) {
+            console.log("Error incrementing view", e);
+        }
+    };
+    incrementView();
+
     return () => { postUnsub(); commentsUnsub(); };
   }, [postId]);
 
@@ -209,7 +227,6 @@ export default function PostDetailsScreen() {
                          <Text style={[styles.actionText, { color: theme.subText }]}>{item.reposts?.length || 0}</Text>
                     </TouchableOpacity>
                     
-                    {/* ✅ FIXED: Use share-social-outline */}
                     <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item)}>
                         <Ionicons name="share-social-outline" size={16} color={theme.subText} />
                     </TouchableOpacity>
@@ -272,6 +289,8 @@ export default function PostDetailsScreen() {
                       <Text style={{ color: theme.subText }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.likes?.length || 0}</Text> Likes</Text>
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.reposts?.length || 0}</Text> Reposts</Text>
                       <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.commentCount || 0}</Text> Comments</Text>
+                      {/* ✅ Views Count */}
+                      <Text style={{ color: theme.subText, marginLeft: 15 }}><Text style={{ fontWeight: 'bold', color: theme.text }}>{post.views || 0}</Text> Views</Text>
                   </View>
 
                   <View style={styles.mainActions}>
@@ -279,7 +298,6 @@ export default function PostDetailsScreen() {
                        <TouchableOpacity><Ionicons name="chatbubble-outline" size={22} color={theme.text} /></TouchableOpacity>
                        <TouchableOpacity onPress={() => toggleAction(postId as string, 'reposts', post.reposts || [])}><Ionicons name="repeat-outline" size={22} color={theme.text} /></TouchableOpacity>
                        
-                       {/* ✅ FIXED: Use share-social-outline */}
                        <TouchableOpacity onPress={() => handleShare(post)}><Ionicons name="share-social-outline" size={22} color={theme.text} /></TouchableOpacity>
                   </View>
                </View>

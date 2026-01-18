@@ -30,11 +30,14 @@ export default function FeedScreen() {
   const [userInterests, setUserInterests] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   
-  // ✅ Search State (Simpler)
+  // Search State
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [userResults, setUserResults] = useState<any[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+
+  // ✅ Blocked Users State
+  const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
 
   const [activeTab, setActiveTab] = useState('All'); 
   const flatListRef = useRef<FlatList>(null); 
@@ -55,6 +58,15 @@ export default function FeedScreen() {
     fetchUserInterests();
   }, []);
 
+  // ✅ 1. FETCH BLOCKED USERS (Real-time)
+  useEffect(() => {
+      if (!currentUser) return;
+      const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => {
+          setBlockedUsers(doc.data()?.blockedUsers || []);
+      });
+      return unsub;
+  }, []);
+
   // FETCH POSTS
   useEffect(() => {
     const q = query(
@@ -69,21 +81,20 @@ export default function FeedScreen() {
     return unsubscribe; 
   }, []);
 
-  // ✅ FIXED SEARCH USERS (People Only, Robust)
+  // SEARCH USERS
   useEffect(() => {
       if (showSearch && searchText.trim().length > 0) {
           searchUsers(searchText);
       } else {
           setUserResults([]);
       }
-  }, [searchText]); // Removed searchTab dep since we only search people
+  }, [searchText]);
 
   const searchUsers = async (text: string) => {
       setSearchingUsers(true);
       try {
           const lowerText = text.toLowerCase();
           const usersRef = collection(db, 'users');
-          // Standard prefix search logic
           const q = query(
               usersRef, 
               where('username', '>=', lowerText), 
@@ -100,11 +111,32 @@ export default function FeedScreen() {
       }
   };
 
-  // Trending Logic
+  // ✅ FILTER POSTS (Exclude Blocked Users)
+  const allPosts = useMemo(() => {
+    // Filter out blocked users first
+    const cleanPosts = posts.filter(p => !blockedUsers.includes(p.userId));
+
+    if (userInterests.length > 0) {
+        return [...cleanPosts].sort((a, b) => {
+            const aMatches = userInterests.some(interest => a.text?.toLowerCase().includes(interest.toLowerCase()) || a.tags?.includes(interest));
+            const bMatches = userInterests.some(interest => b.text?.toLowerCase().includes(interest.toLowerCase()) || b.tags?.includes(interest));
+            if (aMatches && !bMatches) return -1;
+            if (!aMatches && bMatches) return 1;
+            return 0; 
+        });
+    }
+    return cleanPosts; 
+  }, [posts, userInterests, blockedUsers]); // Added blockedUsers dependency
+
+  // Trending Logic (Updated to use clean posts indirectly if needed, but usually trending is global)
   const trendingGroups = useMemo(() => {
     const groups: Record<string, { name: string, posts: any[], stats: { likes: number, comments: number, reposts: number } }> = {};
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    posts.forEach(post => {
+    
+    // We use 'posts' (all posts) for trending calculations usually, 
+    // but you can use 'allPosts' if you want to hide blocked users from trending too.
+    // Let's use 'posts' but filter blocked for display.
+    posts.filter(p => !blockedUsers.includes(p.userId)).forEach(post => {
         let postDate = new Date(); 
         if (post.createdAt?.seconds) postDate = new Date(post.createdAt.seconds * 1000);
         if (postDate < yesterday) return;
@@ -126,20 +158,7 @@ export default function FeedScreen() {
         const scoreB = b.stats.likes + b.stats.comments + b.stats.reposts;
         return scoreB - scoreA;
     });
-  }, [posts]);
-
-  const allPosts = useMemo(() => {
-    if (userInterests.length > 0) {
-        return [...posts].sort((a, b) => {
-            const aMatches = userInterests.some(interest => a.text?.toLowerCase().includes(interest.toLowerCase()) || a.tags?.includes(interest));
-            const bMatches = userInterests.some(interest => b.text?.toLowerCase().includes(interest.toLowerCase()) || b.tags?.includes(interest));
-            if (aMatches && !bMatches) return -1;
-            if (!aMatches && bMatches) return 1;
-            return 0; 
-        });
-    }
-    return posts; 
-  }, [posts, userInterests]);
+  }, [posts, blockedUsers]);
 
   const handleTabPress = (tab: string) => {
       setActiveTab(tab);
@@ -244,7 +263,7 @@ export default function FeedScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* HEADER: Avatar, Tabs, Search Icon (NO BELL) */}
+      {/* HEADER */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         {!showSearch ? (
             <>
@@ -261,7 +280,6 @@ export default function FeedScreen() {
                         {activeTab === 'Trending' && <View style={[styles.activeIndicator, { backgroundColor: theme.tint }]} />}
                     </TouchableOpacity>
                 </View>
-                {/* Search Trigger */}
                 <TouchableOpacity onPress={() => setShowSearch(true)} style={{ padding: 5 }}>
                     <Ionicons name="search" size={24} color={theme.text} />
                 </TouchableOpacity>

@@ -21,10 +21,43 @@ import { useTheme } from '../context/ThemeContext';
 import { clearHistory } from '../services/historyService';
 import { getNotificationPreference, setNotificationPreference } from '../services/notificationService';
 
+// ✅ 1. TRANSLATION DICTIONARY
+const TRANSLATIONS: any = {
+    'English': {
+        membership: "MEMBERSHIP", subscription: "Subscription", email: "Email", changePass: "Change Password",
+        appExp: "APP EXPERIENCE", streamCell: "Stream on Cellular", darkMode: "Dark Mode", quality: "Video Quality",
+        langHeader: "LANGUAGE", appLang: "App Language", audioLang: "Audio Language", subtitles: "Subtitles",
+        data: "DATA & STORAGE", notifs: "Pop-up Notifications", downloads: "Manage Downloads", clearHist: "Clear Watch History",
+        privacy: "PRIVACY & SAFETY", restriction: "Content Restriction", blocked: "Blocked Users", delete: "Delete My Account",
+        manage: "Manage", free: "Free Plan", premium: "Premium", premiumPlus: "Premium+"
+    },
+    'Spanish': {
+        membership: "MEMBRESÍA", subscription: "Suscripción", email: "Correo", changePass: "Cambiar Contraseña",
+        appExp: "EXPERIENCIA APP", streamCell: "Datos Móviles", darkMode: "Modo Oscuro", quality: "Calidad de Video",
+        langHeader: "IDIOMA", appLang: "Idioma de App", audioLang: "Audio", subtitles: "Subtítulos",
+        data: "DATOS Y ALMACENAMIENTO", notifs: "Notificaciones", downloads: "Descargas", clearHist: "Borrar Historial",
+        privacy: "PRIVACIDAD", restriction: "Restricción", blocked: "Bloqueados", delete: "Eliminar Cuenta",
+        manage: "Gestionar", free: "Plan Gratuito", premium: "Premium", premiumPlus: "Premium+"
+    },
+    'French': {
+        membership: "ABONNEMENT", subscription: "Forfait", email: "E-mail", changePass: "Changer Mot de Passe",
+        appExp: "EXPÉRIENCE APP", streamCell: "Streaming Cellulaire", darkMode: "Mode Sombre", quality: "Qualité Vidéo",
+        langHeader: "LANGUE", appLang: "Langue de l'App", audioLang: "Langue Audio", subtitles: "Sous-titres",
+        data: "DONNÉES & STOCKAGE", notifs: "Notifications", downloads: "Téléchargements", clearHist: "Effacer Historique",
+        privacy: "CONFIDENTIALITÉ", restriction: "Restriction", blocked: "Bloqués", delete: "Supprimer Compte",
+        manage: "Gérer", free: "Gratuit", premium: "Premium", premiumPlus: "Premium+"
+    }
+};
+
 const LANGUAGES = [
     "English", "Spanish", "French", "German", "Chinese", "Japanese", 
-    "Korean", "Portuguese", "Russian", "Arabic", "Italian", "Hindi", 
-    "Indonesian", "Vietnamese", "Turkish", "Thai"
+    "Korean", "Portuguese", "Russian", "Arabic", "Italian"
+];
+
+const SUBSCRIPTION_OPTS = [
+    { id: 'Free Plan', name: 'Free Plan', price: '$0.00', features: 'Ads • 480p' },
+    { id: 'Premium', name: 'Premium', price: '$4.99/mo', features: 'No Ads • 1080p • Background Play' },
+    { id: 'Premium+', name: 'Premium+', price: '$9.99/mo', features: 'No Ads • 4K • Offline • Early Access' },
 ];
 
 export default function SettingsScreen() {
@@ -32,26 +65,25 @@ export default function SettingsScreen() {
   const { theme, toggleTheme, isDark } = useTheme();
   const user = auth.currentUser;
   
-  // Preferences State
+  // State
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [cellularEnabled, setCellularEnabled] = useState(true); // ✅ Default ON
+  const [cellularEnabled, setCellularEnabled] = useState(true);
   
-  // Selection State
+  // Selections
+  const [subscription, setSubscription] = useState('Free Plan');
   const [videoQuality, setVideoQuality] = useState('480p');
   const [appLanguage, setAppLanguage] = useState('English');
   const [audioLanguage, setAudioLanguage] = useState('Japanese (Original)');
   const [subtitleLanguage, setSubtitleLanguage] = useState('English');
   const [contentRating, setContentRating] = useState('16+');
 
-  // Modal State
+  // Modals
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState(''); 
   const [loading, setLoading] = useState(false);
   const [newEmail, setNewEmail] = useState('');
 
-  useEffect(() => {
-      loadSettings();
-  }, []);
+  useEffect(() => { loadSettings(); }, []);
 
   const loadSettings = async () => {
       const enabled = await getNotificationPreference();
@@ -61,6 +93,12 @@ export default function SettingsScreen() {
   const toggleNotifications = async (value: boolean) => {
       setNotificationsEnabled(value);
       await setNotificationPreference(value);
+  };
+
+  // ✅ HELPER: Get Translation
+  const t = (key: string) => {
+      const dict = TRANSLATIONS[appLanguage] || TRANSLATIONS['English'];
+      return dict[key] || TRANSLATIONS['English'][key] || key;
   };
 
   // --- ACTIONS ---
@@ -74,7 +112,7 @@ export default function SettingsScreen() {
           setModalVisible(false);
           setNewEmail('');
       } catch (e: any) {
-          Alert.alert("Error", "Please log out and log in again to update your email. (Security Requirement)");
+          Alert.alert("Error", "Please log out and log in again to update your email.");
       } finally {
           setLoading(false);
       }
@@ -82,38 +120,33 @@ export default function SettingsScreen() {
 
   const handleChangePassword = async () => {
       if (!user?.email) return;
-      Alert.alert("Change Password", `Send a password reset email to ${user.email}?`, [
+      Alert.alert(t('changePass'), `Send reset email to ${user.email}?`, [
           { text: "Cancel", style: "cancel" },
           { 
-              text: "Send Email", 
+              text: "Send", 
               onPress: async () => {
                   try {
                       await sendPasswordResetEmail(auth, user.email!);
-                      Alert.alert("Email Sent", "Check your inbox to reset your password.");
-                  } catch (e: any) {
-                      Alert.alert("Error", e.message);
-                  }
+                      Alert.alert("Sent", "Check your inbox.");
+                  } catch (e: any) { Alert.alert("Error", e.message); }
               }
           }
       ]);
   };
 
   const handleDeleteAccount = () => {
-      Alert.alert("Delete Account", "This action is irreversible. Are you sure?", [
+      Alert.alert(t('delete'), "Irreversible action. Are you sure?", [
           { text: "Cancel", style: "cancel" },
           { 
-              text: "Delete Forever", 
+              text: "Delete", 
               style: "destructive", 
               onPress: async () => {
                   try {
                       setLoading(true);
                       await deleteUser(user!);
                       router.replace('/login');
-                  } catch (e: any) {
-                      Alert.alert("Error", "Please log out and log in again to delete your account.");
-                  } finally {
-                      setLoading(false);
-                  }
+                  } catch (e: any) { Alert.alert("Error", "Re-login required."); } 
+                  finally { setLoading(false); }
               }
           }
       ]);
@@ -127,10 +160,11 @@ export default function SettingsScreen() {
 
   const handleSelection = (value: string) => {
       if (modalType === 'quality') setVideoQuality(value);
-      if (modalType === 'language') setAppLanguage(value);
+      if (modalType === 'language') setAppLanguage(value); // ✅ This triggers re-render with new language
       if (modalType === 'audio') setAudioLanguage(value);
       if (modalType === 'subtitle') setSubtitleLanguage(value);
       if (modalType === 'rating') setContentRating(value);
+      if (modalType === 'subscription') setSubscription(value);
       setModalVisible(false);
   };
 
@@ -170,28 +204,27 @@ export default function SettingsScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>{t('settings') || 'Settings'}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 50 }}>
         
         {/* 1. MEMBERSHIP */}
-        {renderSectionHeader("MEMBERSHIP")}
+        {renderSectionHeader(t('membership'))}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            {renderRow("card-outline", "Subscription", "Free Plan")}
-            {/* ✅ Clickable Email */}
-            {renderRow("mail-outline", "Email", user?.email || "No Email", () => openModal('email'))}
-            {renderRow("key-outline", "Change Password", "", handleChangePassword)}
+            {/* ✅ Subscription is now clickable */}
+            {renderRow("card-outline", t('subscription'), subscription, () => openModal('subscription'))}
+            {renderRow("mail-outline", t('email'), user?.email || "No Email", () => openModal('email'))}
+            {renderRow("key-outline", t('changePass'), "", handleChangePassword)}
         </View>
 
         {/* 2. APP EXPERIENCE */}
-        {renderSectionHeader("APP EXPERIENCE")}
+        {renderSectionHeader(t('appExp'))}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            {/* Cellular Toggle */}
             <View style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="cellular-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Stream on Cellular</Text>
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>{t('streamCell')}</Text>
                 </View>
                 <Switch 
                     value={cellularEnabled} 
@@ -201,46 +234,44 @@ export default function SettingsScreen() {
                 />
             </View>
 
-            {/* Dark Mode */}
             <View style={[styles.row, { borderBottomColor: theme.border, borderBottomWidth: 1 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="moon-outline" size={22} color={theme.text} style={{ marginRight: 15 }} />
-                    <Text style={[styles.rowLabel, { color: theme.text }]}>Dark Mode</Text>
+                    <Text style={[styles.rowLabel, { color: theme.text }]}>{t('darkMode')}</Text>
                 </View>
                 <Switch value={isDark} onValueChange={toggleTheme} trackColor={{ false: '#767577', true: theme.tint }} thumbColor={'white'} />
             </View>
 
-            {renderRow("videocam-outline", "Video Quality", videoQuality, () => openModal('quality'))}
+            {renderRow("videocam-outline", t('quality'), videoQuality, () => openModal('quality'))}
         </View>
 
         {/* 3. LANGUAGE */}
-        {renderSectionHeader("LANGUAGE")}
+        {renderSectionHeader(t('langHeader'))}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            {renderRow("language-outline", "App Language", appLanguage, () => openModal('language'))}
-            {/* ✅ Audio & Subtitles Clickable */}
-            {renderRow("mic-outline", "Audio Language", audioLanguage, () => openModal('audio'))}
-            {renderRow("chatbox-ellipses-outline", "Subtitles", subtitleLanguage, () => openModal('subtitle'))}
+            {renderRow("language-outline", t('appLang'), appLanguage, () => openModal('language'))}
+            {renderRow("mic-outline", t('audioLang'), audioLanguage, () => openModal('audio'))}
+            {renderRow("chatbox-ellipses-outline", t('subtitles'), subtitleLanguage, () => openModal('subtitle'))}
         </View>
 
         {/* 4. DATA & STORAGE */}
-        {renderSectionHeader("DATA & STORAGE")}
+        {renderSectionHeader(t('data'))}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            {renderRow("notifications-outline", "Pop-up Notifications", <Switch value={notificationsEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#767577', true: theme.tint }} thumbColor={'white'} />)}
-            {renderRow("download-outline", "Manage Downloads", "", () => router.push('/downloads'))}
-            {renderRow("time-outline", "Clear Watch History", "", async () => { await clearHistory(); Alert.alert("Success", "History Cleared"); }, true)}
+            {renderRow("notifications-outline", t('notifs'), <Switch value={notificationsEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#767577', true: theme.tint }} thumbColor={'white'} />)}
+            {renderRow("download-outline", t('downloads'), "", () => router.push('/downloads'))}
+            {renderRow("time-outline", t('clearHist'), "", async () => { await clearHistory(); Alert.alert("Success", "History Cleared"); }, true)}
         </View>
 
-        {/* 5. PRIVACY & SAFETY (Moved to Bottom) */}
-        {renderSectionHeader("PRIVACY & SAFETY")}
+        {/* 5. PRIVACY & SAFETY */}
+        {renderSectionHeader(t('privacy'))}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
-            {renderRow("shield-checkmark-outline", "Content Restriction", contentRating, () => openModal('rating'))}
-            {renderRow("person-remove-outline", "Blocked Users", "Manage", () => Alert.alert("Coming Soon"))}
-            {renderRow("trash-outline", "Delete My Account", "", handleDeleteAccount, true)}
+            {renderRow("shield-checkmark-outline", t('restriction'), contentRating, () => openModal('rating'))}
+            {/* ✅ UPDATED: Link to Blocked Users Screen */}
+            {renderRow("person-remove-outline", t('blocked'), t('manage'), () => router.push('/blocked-users'))}
+            {renderRow("trash-outline", t('delete'), "", handleDeleteAccount, true)}
         </View>
 
-        {/* Footer Info */}
         <View style={{ marginTop: 30, alignItems: 'center' }}>
-            <Text style={{ color: theme.subText }}>AniYu v1.0.2 (Beta)</Text>
+            <Text style={{ color: theme.subText }}>AniYu v1.0.3 (Beta)</Text>
         </View>
 
       </ScrollView>
@@ -251,10 +282,9 @@ export default function SettingsScreen() {
               <TouchableWithoutFeedback>
                 <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
                     
-                    {/* EMAIL EDIT MODE */}
                     {modalType === 'email' ? (
                         <>
-                            <Text style={[styles.modalTitle, { color: theme.text }]}>Change Email</Text>
+                            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('email')}</Text>
                             <TextInput 
                                 style={[styles.input, { color: theme.text, borderColor: theme.border }]} 
                                 value={newEmail}
@@ -265,17 +295,26 @@ export default function SettingsScreen() {
                                 keyboardType="email-address"
                             />
                             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.tint }]} onPress={handleUpdateEmail}>
-                                <Text style={{ color: 'white', fontWeight: 'bold' }}>Update Email</Text>
+                                <Text style={{ color: 'white', fontWeight: 'bold' }}>Update</Text>
                             </TouchableOpacity>
                         </>
                     ) : (
                         <>
-                            <Text style={[styles.modalTitle, { color: theme.text }]}>
-                                Select Option
-                            </Text>
+                            <Text style={[styles.modalTitle, { color: theme.text }]}>Select</Text>
                             
                             <ScrollView style={{ maxHeight: 300 }}>
-                                {/* Video Quality */}
+                                
+                                {/* ✅ SUBSCRIPTION PLANS */}
+                                {modalType === 'subscription' && SUBSCRIPTION_OPTS.map(opt => (
+                                    <TouchableOpacity key={opt.id} style={styles.modalOption} onPress={() => handleSelection(opt.id)}>
+                                        <View>
+                                            <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold' }}>{opt.name}</Text>
+                                            <Text style={{ color: theme.subText, fontSize: 12 }}>{opt.price} • {opt.features}</Text>
+                                        </View>
+                                        {subscription === opt.id && <Ionicons name="checkmark" size={20} color={theme.tint} />}
+                                    </TouchableOpacity>
+                                ))}
+
                                 {modalType === 'quality' && ['1080p', '720p', '480p', '360p', 'Auto'].map(opt => (
                                     <TouchableOpacity key={opt} style={styles.modalOption} onPress={() => handleSelection(opt)}>
                                         <Text style={{ color: theme.text, fontSize: 16 }}>{opt}</Text>
@@ -283,7 +322,6 @@ export default function SettingsScreen() {
                                     </TouchableOpacity>
                                 ))}
 
-                                {/* App Language (Expanded) */}
                                 {modalType === 'language' && LANGUAGES.map(opt => (
                                     <TouchableOpacity key={opt} style={styles.modalOption} onPress={() => handleSelection(opt)}>
                                         <Text style={{ color: theme.text, fontSize: 16 }}>{opt}</Text>
@@ -291,23 +329,20 @@ export default function SettingsScreen() {
                                     </TouchableOpacity>
                                 ))}
 
-                                {/* Audio Language */}
-                                {modalType === 'audio' && ['Japanese (Original)', 'English (Dub)'].map(opt => (
+                                {modalType === 'audio' && ['Japanese (Original)', 'English (Dub)', 'Spanish (Dub)', 'French (Dub)'].map(opt => (
                                     <TouchableOpacity key={opt} style={styles.modalOption} onPress={() => handleSelection(opt)}>
                                         <Text style={{ color: theme.text, fontSize: 16 }}>{opt}</Text>
                                         {audioLanguage === opt && <Ionicons name="checkmark" size={20} color={theme.tint} />}
                                     </TouchableOpacity>
                                 ))}
 
-                                {/* Subtitle Language */}
-                                {modalType === 'subtitle' && ['English', 'None'].map(opt => (
+                                {modalType === 'subtitle' && ['English', 'Spanish', 'French', 'None'].map(opt => (
                                     <TouchableOpacity key={opt} style={styles.modalOption} onPress={() => handleSelection(opt)}>
                                         <Text style={{ color: theme.text, fontSize: 16 }}>{opt}</Text>
                                         {subtitleLanguage === opt && <Ionicons name="checkmark" size={20} color={theme.tint} />}
                                     </TouchableOpacity>
                                 ))}
 
-                                {/* Content Rating */}
                                 {modalType === 'rating' && ['All Ages', '13+', '16+', '18+'].map(opt => (
                                     <TouchableOpacity key={opt} style={styles.modalOption} onPress={() => handleSelection(opt)}>
                                         <Text style={{ color: theme.text, fontSize: 16 }}>{opt}</Text>
@@ -343,9 +378,9 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 16, fontWeight: '500' },
   
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { width: '80%', borderRadius: 15, padding: 20 },
+  modalContent: { width: '85%', borderRadius: 15, padding: 20 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
-  modalOption: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 15, borderBottomWidth: 0.5, borderBottomColor: '#ccc' },
+  modalOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 0.5, borderBottomColor: '#ccc' },
   
   input: { borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 15, fontSize: 16 },
   saveBtn: { padding: 12, borderRadius: 8, alignItems: 'center' },

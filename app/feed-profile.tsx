@@ -12,6 +12,8 @@ import {
     query,
     serverTimestamp,
     setDoc,
+    updateDoc // ✅ IMPORT updateDoc
+    ,
     where
 } from 'firebase/firestore';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -31,7 +33,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import PostCard from '../components/PostCard';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-// ✅ IMPORT Notif Service
 import { sendSocialNotification } from '../services/notificationService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -119,7 +120,6 @@ export default function FeedProfileScreen() {
     return () => { unsubUser(); unsubPosts(); unsubReposts(); unsubLikes(); };
   }, [targetUserId]);
 
-  // ✅ SORT POSTS: Pinned First
   const sortedMyPosts = useMemo(() => {
       return [...myPosts].sort((a, b) => {
           return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
@@ -138,13 +138,37 @@ export default function FeedProfileScreen() {
           await setDoc(myRef, { following: arrayUnion(targetUserId) }, { merge: true });
           await setDoc(targetRef, { followers: arrayUnion(currentUser.uid) }, { merge: true });
 
-          // ✅ SEND NOTIFICATION
           sendSocialNotification(
             targetUserId, 
             'follow', 
             { uid: currentUser.uid, name: currentUser.displayName || 'User', avatar: currentUser.photoURL || '' }
           );
       }
+  };
+
+  // ✅ HANDLE BLOCK USER
+  const handleBlockUser = async () => {
+      if (!currentUser || isOwnProfile || !targetUserId) return;
+      setMenuVisible(false);
+      Alert.alert("Block User", "Are you sure you want to block this user? You won't see their posts.", [
+          { text: "Cancel", style: "cancel" },
+          { 
+              text: "Block", 
+              style: "destructive",
+              onPress: async () => {
+                  try {
+                      const myRef = doc(db, 'users', currentUser.uid);
+                      await updateDoc(myRef, {
+                          blockedUsers: arrayUnion(targetUserId)
+                      });
+                      Alert.alert("Blocked", "User blocked successfully.");
+                      router.back(); 
+                  } catch (e) {
+                      Alert.alert("Error", "Could not block user.");
+                  }
+              }
+          }
+      ]);
   };
 
   const submitReportUser = async (reason: string) => {
@@ -270,7 +294,6 @@ export default function FeedProfileScreen() {
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleMomentumScrollEnd}
         renderItem={({ index }) => {
-            // ✅ Use Sorted Posts (Pinned first)
             if (index === 0) return renderList(sortedMyPosts, "No posts yet.");
             if (index === 1) return renderList(repostedPosts, "No reposts yet.");
             if (index === 2) return renderList(likedPosts, "No liked posts yet.");
@@ -278,7 +301,6 @@ export default function FeedProfileScreen() {
         }}
       />
 
-      {/* Modals omitted for brevity, same as before */}
        <Modal visible={menuVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={() => setMenuVisible(false)}>
             <View style={styles.modalOverlay}>
@@ -287,6 +309,13 @@ export default function FeedProfileScreen() {
                         <Ionicons name="flag-outline" size={20} color="red" />
                         <Text style={[styles.menuText, { color: 'red' }]}>Report Profile</Text>
                     </TouchableOpacity>
+                    
+                    {/* ✅ BLOCK OPTION */}
+                    <TouchableOpacity style={styles.menuItem} onPress={handleBlockUser}>
+                         <Ionicons name="ban-outline" size={20} color="#FF6B6B" />
+                         <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Block User</Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={styles.menuItem} onPress={() => setMenuVisible(false)}>
                          <Ionicons name="close" size={20} color={theme.text} />
                          <Text style={[styles.menuText, { color: theme.text }]}>Cancel</Text>
