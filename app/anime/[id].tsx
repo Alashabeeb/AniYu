@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-// ✅ ADDED: setDoc and arrayUnion for tracking episode progress
 import { arrayUnion, doc, getDoc, increment, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
@@ -15,13 +14,12 @@ import { getAnimeDetails, getAnimeEpisodes } from '../../services/animeService';
 import { addDownload, DownloadItem, getDownloads } from '../../services/downloadService';
 import { addToHistory } from '../../services/historyService';
 
-// ✅ UPDATED: Competitive Ranks (Based on COMPLETED SERIES, not episodes)
 const RANKS = [
-    { name: 'GENIN', min: 0, max: 4 },       // 0-4 Completed Series
-    { name: 'CHUNIN', min: 5, max: 19 },      // 5-19 Completed Series
-    { name: 'JONIN', min: 20, max: 49 },      // 20-49 Completed Series
-    { name: 'ANBU', min: 50, max: 99 },       // 50-99 Completed Series
-    { name: 'KAGE', min: 100, max: Infinity },// 100+ Completed Series (Legendary)
+    { name: 'GENIN', min: 0, max: 4 },       
+    { name: 'CHUNIN', min: 5, max: 19 },      
+    { name: 'JONIN', min: 20, max: 49 },      
+    { name: 'ANBU', min: 50, max: 99 },       
+    { name: 'KAGE', min: 100, max: Infinity },
 ];
 
 export default function AnimeDetailScreen() {
@@ -38,11 +36,10 @@ export default function AnimeDetailScreen() {
   const videoSource = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
   
   const player = useVideoPlayer(videoSource, player => { 
-      player.loop = false; // Must be false to detect completion
+      player.loop = false; 
       player.play(); 
   });
 
-  // LISTEN FOR VIDEO COMPLETION
   useEffect(() => {
       const subscription = player.addListener('playToEnd', () => {
           handleVideoFinished();
@@ -50,24 +47,18 @@ export default function AnimeDetailScreen() {
       return () => subscription.remove();
   }, [player]);
 
-  // ✅ NEW LOGIC: Count Series Completion
   const handleVideoFinished = async () => {
       const user = auth.currentUser;
-      // We need anime info and current episode to track progress
       if (!user || !anime || !currentEpId) return;
 
       try {
-          // 1. Reference to this specific anime's progress (Subcollection to keep it organized)
           const progressRef = doc(db, 'users', user.uid, 'anime_progress', String(anime.mal_id));
           
-          // 2. Add this episode to the user's "Watched List" for this show
-          // (arrayUnion ensures we don't count the same episode twice)
           await setDoc(progressRef, {
               watchedEpisodes: arrayUnion(currentEpId),
-              totalEpisodes: anime.episodes || episodes.length // Use API total or fallback to list length
+              totalEpisodes: anime.episodes || episodes.length 
           }, { merge: true });
 
-          // 3. Check if the User has finished the WHOLE series
           const progressSnap = await getDoc(progressRef);
           if (progressSnap.exists()) {
               const data = progressSnap.data();
@@ -75,19 +66,14 @@ export default function AnimeDetailScreen() {
               const total = data.totalEpisodes || 0;
               const alreadyCompleted = data.isCompleted || false;
 
-              // CONDITION: Have they watched ALL episodes? And is it the FIRST time finishing?
               if (watchedCount >= total && total > 0 && !alreadyCompleted) {
-                  
-                  // A. Mark Series as Completed in DB
                   await updateDoc(progressRef, { isCompleted: true });
 
-                  // B. Increment the main "Completed Anime" counter (This is what determines Rank)
                   const userRef = doc(db, 'users', user.uid);
                   await updateDoc(userRef, { 
                       completedAnimeCount: increment(1) 
                   });
                   
-                  // C. Check for Rank Up
                   const userSnap = await getDoc(userRef);
                   if (userSnap.exists()) {
                       const userData = userSnap.data();
@@ -127,7 +113,6 @@ export default function AnimeDetailScreen() {
       setEpisodes(episodesData);
       
       const myDownloads = allDownloads
-        // Fixed Red Underline: Convert to String and use safe check
         .filter((d: DownloadItem) => String(d.mal_id) === String(detailsData?.mal_id || ''))
         .map((d: DownloadItem) => d.episodeId); 
         
@@ -157,9 +142,11 @@ export default function AnimeDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Kept transparent header for aesthetic, but SafeAreaView below now handles the spacing */}
       <Stack.Screen options={{ headerTitle: '', headerTransparent: true, headerTintColor: 'white' }} />
 
-      <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1 }}>
+      {/* ✅ FIX: Added 'top' to edges so content starts below status bar */}
+      <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={{ flex: 1 }}>
         <View style={styles.videoContainer}>
             <VideoView 
                 style={styles.video} 

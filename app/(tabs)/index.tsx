@@ -18,10 +18,10 @@ import { useTheme } from '../../context/ThemeContext';
 
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
-import { auth, db } from '../../config/firebaseConfig'; // ✅ Added Firebase for Notifications
+import { auth, db } from '../../config/firebaseConfig';
 import { getTopAnime, searchAnime } from '../../services/animeService';
 import { getFavorites, toggleFavorite } from '../../services/favoritesService';
-import { getUnreadLocalCount } from '../../services/notificationService'; // ✅ Notification Service
+import { getUnreadLocalCount } from '../../services/notificationService';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -38,7 +38,7 @@ export default function HomeScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   
-  // ✅ Notification Red Dot State
+  // Notification Red Dot State
   const [hasUnread, setHasUnread] = useState(false);
 
   useEffect(() => { loadInitialData(); }, []);
@@ -50,7 +50,7 @@ export default function HomeScreen() {
     }, [])
   );
 
-  // ✅ LISTEN FOR NOTIFICATIONS (Real-time)
+  // LISTEN FOR NOTIFICATIONS (Real-time)
   useEffect(() => {
       if (!currentUser) return;
       const q = query(collection(db, 'users', currentUser.uid, 'notifications'), where('read', '==', false));
@@ -63,13 +63,21 @@ export default function HomeScreen() {
       if (socialCount !== undefined) {
            setHasUnread(socialCount > 0 || localCount > 0);
       } else {
-           if (localCount > 0) setHasUnread(true);
+           // ✅ FIX: Explicitly set false if 0 (Fixed bug where dot wouldn't clear)
+           setHasUnread(localCount > 0);
       }
   };
 
   const loadFavorites = async () => {
       const favs = await getFavorites();
-      setFavorites(favs);
+      
+      // ✅ UPDATE: Filter to show ONLY Anime (Exclude Manga/Manhwa)
+      const animeFavs = favs.filter((item: any) => {
+          const type = item.type?.toLowerCase();
+          return type !== 'manga' && type !== 'manhwa' && type !== 'novel' && !item.isManga;
+      });
+      
+      setFavorites(animeFavs);
   };
 
   const loadInitialData = async () => {
@@ -142,7 +150,7 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-      {/* ✅ NEW HEADER: AniYu (Left) + Notification (Right) */}
+      {/* HEADER: AniYu (Left) + Notification (Right) */}
       <View style={styles.topHeader}>
           <Text style={[styles.brandText, { color: theme.text }]}>AniYu</Text>
           
@@ -218,7 +226,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
-  // ✅ NEW HEADER STYLES
+  // HEADER STYLES
   topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 5 },
   brandText: { fontSize: 24, fontWeight: '900', fontFamily: 'System', letterSpacing: 0.5 },
   notificationBtn: { padding: 5, position: 'relative' },
