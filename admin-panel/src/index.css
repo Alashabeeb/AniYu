@@ -1,13 +1,28 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
 
+:root {
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --bg-color: #f9fafb;
+  --card-bg: #ffffff;
+  --text-main: #111827;
+  --text-sub: #6b7280;
+  --border: #e5e7eb;
+}
+
 body {
   margin: 0;
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
-  background-color: #f9fafb;
+  background-color: var(--bg-color);
+  color: var(--text-main);
 }
 
-/* --- LAYOUT UTILITIES --- */
+/* =========================================
+   1. UTILITY CLASSES (Keep Dashboard Working)
+   ========================================= */
+
+/* --- LAYOUT --- */
 .flex { display: flex; }
 .flex-col { flex-direction: column; }
 .flex-row { flex-direction: row; }
@@ -22,7 +37,7 @@ body {
 /* --- SIZING & POSITION --- */
 .h-screen { height: 100vh; }
 .h-full { height: 100%; }
-.h-80 { height: 20rem; } /* 👈 THIS FIXES THE GRAPH */
+.h-80 { height: 20rem; }
 .w-64 { width: 16rem; }
 .w-full { width: 100%; }
 .flex-1 { flex: 1; }
@@ -57,6 +72,7 @@ body {
 .border-gray-200 { border-color: #e5e7eb; }
 
 /* --- TYPOGRAPHY --- */
+.text-xs { font-size: 0.75rem; }
 .text-sm { font-size: 0.875rem; }
 .text-xl { font-size: 1.25rem; font-weight: 800; }
 .text-2xl { font-size: 1.5rem; font-weight: 700; }
@@ -66,7 +82,7 @@ body {
 .font-black { font-weight: 900; }
 .tracking-tighter { letter-spacing: -0.05em; }
 
-/* --- COMPONENTS --- */
+/* --- PADDING/MARGIN --- */
 .p-4 { padding: 1rem; }
 .p-6 { padding: 1.5rem; }
 .pt-4 { padding-top: 1rem; }
@@ -81,18 +97,177 @@ body {
 .rounded-xl { border-radius: 0.75rem; }
 .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
 
-/* --- FORM ELEMENTS --- */
-.appearance-none { -webkit-appearance: none; appearance: none; }
-.leading-tight { line-height: 1.25; }
-.focus\:outline-none:focus { outline: 2px solid transparent; outline-offset: 2px; }
-.focus\:border-blue-500:focus { border-color: #3b82f6; }
-.pointer-events-none { pointer-events: none; }
-
 /* --- GRID --- */
 .grid { display: grid; }
 .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 @media (min-width: 768px) { 
+  .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } 
   .md\:flex-row { flex-direction: row; }
   .md\:relative { position: relative; }
+}
+
+/* =========================================
+   2. NEW STUDIO STYLES (For Anime Upload)
+   ========================================= */
+
+/* --- LAYOUT CONTAINERS --- */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.page-title h1 { font-size: 2rem; font-weight: 900; margin: 0; letter-spacing: -1px; }
+.page-title p { color: var(--text-sub); margin: 5px 0 0 0; }
+
+/* --- CARDS --- */
+.card {
+  background: var(--card-bg);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  margin-bottom: 40px;
+  overflow: hidden;
+  border: 1px solid white;
+}
+
+.card-header {
+  padding: 25px 30px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  background-color: #f9fafb;
+}
+
+.card-header.blue { border-left: 6px solid #3b82f6; color: #1e3a8a; }
+.card-header.purple { border-left: 6px solid #8b5cf6; color: #5b21b6; }
+
+.card-body { padding: 40px; }
+
+/* --- GRID SYSTEM FOR STUDIO --- */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.grid-12 { display: grid; grid-template-columns: 300px 1fr; gap: 40px; }
+
+/* --- STUDIO INPUTS --- */
+.form-group { margin-bottom: 25px; }
+.form-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+  margin-bottom: 10px;
+}
+
+.input-field, .textarea-field {
+  width: 100%;
+  padding: 16px 20px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  background-color: #f9fafb;
+  transition: all 0.2s;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box; /* Fixes padding issues */
+}
+
+.input-field:focus, .textarea-field:focus {
+  background-color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+}
+
+.textarea-field { resize: none; min-height: 120px; }
+
+/* --- UPLOAD ZONES --- */
+.upload-zone {
+  width: 100%;
+  height: 100%;
+  min-height: 350px;
+  border: 3px dashed var(--border);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: #f9fafb;
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-zone:hover { border-color: var(--primary); background-color: #eef2ff; }
+.upload-zone.active { border-color: #10b981; background-color: #ecfdf5; }
+
+.upload-zone img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+}
+
+.upload-zone-small { min-height: 180px; }
+
+/* --- CHIPS --- */
+.chips-container { display: flex; flex-wrap: wrap; gap: 10px; }
+.chip {
+  padding: 10px 20px;
+  border-radius: 50px;
+  border: 1px solid var(--border);
+  background: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.chip:hover { border-color: var(--primary); color: var(--primary); }
+.chip.selected {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
+  transform: translateY(-2px);
+}
+
+/* --- BUTTONS --- */
+.btn-publish {
+  width: 100%;
+  padding: 25px;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 900;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4);
+  transition: transform 0.2s;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+.btn-publish:hover { transform: translateY(-3px); box-shadow: 0 15px 35px rgba(79, 70, 229, 0.5); }
+.btn-publish:active { transform: scale(0.98); }
+
+/* --- RESPONSIVE ADJUSTMENTS --- */
+@media (max-width: 768px) {
+  .grid-12, .grid-2 { grid-template-columns: 1fr; }
+  .card-body { padding: 20px; }
+  .container { padding: 20px 10px; }
 }
