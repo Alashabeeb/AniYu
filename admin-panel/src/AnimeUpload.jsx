@@ -1,24 +1,24 @@
 import {
-    addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, updateDoc
+  addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, updateDoc
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
-    ArrowLeft,
-    Captions,
-    Download,
-    Eye,
-    FileVideo,
-    Film,
-    Image as ImageIcon,
-    Loader2,
-    PlayCircle,
-    Plus,
-    Search,
-    Sparkles,
-    Star,
-    Trash2,
-    Upload,
-    X
+  ArrowLeft,
+  Captions,
+  Download,
+  Eye,
+  FileVideo,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  PlayCircle,
+  Plus,
+  Search,
+  Sparkles,
+  Star,
+  Trash2,
+  Upload, // ✅ Added Download Icon Import
+  X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { db, storage } from './firebase';
@@ -109,6 +109,8 @@ export default function AnimeUpload() {
         existingVideoUrl: doc.data().videoUrl, 
         existingThumbUrl: doc.data().thumbnailUrl,
         existingSubtitles: doc.data().subtitles || [],
+        existingSize: doc.data().size || 0, 
+        downloads: doc.data().downloads || 0, // ✅ Ensure downloads are fetched for editing context
         subtitles: (doc.data().subtitles || []).map((sub, idx) => ({ id: Date.now() + idx, language: sub.language, url: sub.url, file: null })),
         videoFile: null, 
         thumbFile: null, 
@@ -204,7 +206,11 @@ export default function AnimeUpload() {
           if (path.includes('episodes')) setProgress(Math.round(p));
         },
         (error) => reject(error),
-        async () => { resolve(await getDownloadURL(uploadTask.snapshot.ref)); }
+        async () => { 
+            const url = await getDownloadURL(uploadTask.snapshot.ref);
+            // Return URL and Size (bytes)
+            resolve({ url, size: uploadTask.snapshot.totalBytes });
+        }
       );
     });
   };
@@ -219,8 +225,8 @@ export default function AnimeUpload() {
     setProgress(0);
 
     try {
-      const newCoverUrl = await uploadFile(animeCover, 'covers');
-      const finalCoverUrl = newCoverUrl || existingCoverUrl;
+      const coverResult = await uploadFile(animeCover, 'covers');
+      const finalCoverUrl = coverResult?.url || existingCoverUrl;
       let animeId = createdAnimeId;
 
       const animeData = {
@@ -251,23 +257,24 @@ export default function AnimeUpload() {
         
         if (!ep.videoFile && !ep.existingVideoUrl) continue;
 
-        const vidUrl = await uploadFile(ep.videoFile, 'episodes');
-        const thumbUrl = await uploadFile(ep.thumbFile, 'episode_thumbnails');
+        const vidResult = await uploadFile(ep.videoFile, 'episodes');
+        const thumbResult = await uploadFile(ep.thumbFile, 'episode_thumbnails');
 
         const finalSubtitles = [];
         for (const sub of ep.subtitles) {
-            const subUrl = await uploadFile(sub.file, 'subtitles');
+            const subResult = await uploadFile(sub.file, 'subtitles');
             finalSubtitles.push({
                 language: sub.language,
-                url: subUrl || sub.url
+                url: subResult?.url || sub.url
             });
         }
 
         const epData = {
           title: ep.title || `Episode ${ep.number}`, 
           number: Number(ep.number),
-          videoUrl: vidUrl || ep.existingVideoUrl,
-          thumbnailUrl: thumbUrl || ep.existingThumbUrl || finalCoverUrl,
+          videoUrl: vidResult?.url || ep.existingVideoUrl,
+          thumbnailUrl: thumbResult?.url || ep.existingThumbUrl || finalCoverUrl,
+          size: vidResult?.size || ep.existingSize || 0, // ✅ Save file size
           subtitles: finalSubtitles,
           updatedAt: serverTimestamp()
         };
@@ -345,8 +352,15 @@ export default function AnimeUpload() {
                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#2563eb', fontWeight: 600 }}>
                             <Captions size={14} /> <span>{(ep.subtitles || []).length} Subs</span>
                          </div>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#6b7280' }}>
-                            <Download size={14} /> <span>{ep.downloads || 0}</span>
+                         <div style={{ display: 'flex', gap: 15 }}>
+                            {/* ✅ DISPLAY DOWNLOAD COUNT */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#6b7280' }}>
+                                <Download size={14} /> <span>{ep.downloads || 0}</span>
+                            </div>
+                            {/* ✅ DISPLAY FILE SIZE */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#6b7280' }}>
+                                <FileVideo size={14} /> <span>{ep.size ? (ep.size / (1024 * 1024)).toFixed(1) + ' MB' : '0 MB'}</span>
+                            </div>
                          </div>
                       </div>
                     </div>
