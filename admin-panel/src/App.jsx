@@ -23,12 +23,13 @@ function Dashboard() {
   
   const [rawData, setRawData] = useState([]); 
   const [chartData, setChartData] = useState([]); 
-  const [stats, setStats] = useState({ users: 0, reports: 0 });
+  // Updated state to include anime and manga
+  const [stats, setStats] = useState({ users: 0, anime: 0, manga: 0, reports: 0 });
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch Users for Graph & Stats
+        // 1. Fetch Users for Graph & Stats
         const userSnapshot = await getDocs(collection(db, "users"));
         const users = userSnapshot.docs.map(doc => ({
           id: doc.id,
@@ -38,11 +39,18 @@ function Dashboard() {
           lastActiveAt: doc.data().lastActiveAt?.toDate ? doc.data().lastActiveAt.toDate() : new Date(0), 
         }));
 
-        // Fetch Reports Count
+        // 2. Fetch Counts for Cards
         const reportsSnap = await getCountFromServer(collection(db, "reports"));
+        const animeSnap = await getCountFromServer(collection(db, "anime"));
+        const mangaSnap = await getCountFromServer(collection(db, "manga")); // Will be 0 if collection doesn't exist yet
 
         setRawData(users);
-        setStats({ users: users.length, reports: reportsSnap.data().count }); 
+        setStats({ 
+            users: users.length, 
+            anime: animeSnap.data().count,
+            manga: mangaSnap.data().count,
+            reports: reportsSnap.data().count 
+        }); 
       } catch (e) {
         console.error("Error fetching real data:", e);
       }
@@ -133,12 +141,27 @@ function Dashboard() {
         </ResponsiveContainer>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Stat Cards - Now 4 Columns */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Users */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <p className="text-gray-500 text-sm font-medium">Total Registered</p>
             <h2 className="text-3xl font-bold text-gray-800 mt-2">{stats.users}</h2>
         </div>
+        
+        {/* Anime */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+            <p className="text-gray-500 text-sm font-medium">Total Anime</p>
+            <h2 className="text-3xl font-bold text-blue-600 mt-2">{stats.anime}</h2>
+        </div>
+
+        {/* Manga */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+            <p className="text-gray-500 text-sm font-medium">Total Manga</p>
+            <h2 className="text-3xl font-bold text-purple-600 mt-2">{stats.manga}</h2>
+        </div>
+
+        {/* Reports */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <p className="text-gray-500 text-sm font-medium">Pending Reports</p>
             <h2 className="text-3xl font-bold text-red-600 mt-2">{stats.reports}</h2>
