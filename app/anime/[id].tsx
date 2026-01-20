@@ -1,16 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View
+    ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-import { getAnimeDetails, getAnimeEpisodes, incrementAnimeView } from '../../services/animeService';
+import { getAnimeDetails, getAnimeEpisodes, getSimilarAnime, incrementAnimeView } from '../../services/animeService';
 import {
     downloadEpisodeToFile,
     getLocalEpisodeUri,
@@ -32,13 +32,14 @@ const RANKS = [
 export default function AnimeDetailScreen() {
   const { id, episodeId } = useLocalSearchParams();
   const { theme } = useTheme();
+  const router = useRouter();
   
   const [anime, setAnime] = useState<any>(null);
   const [episodes, setEpisodes] = useState<any[]>([]);
+  const [similarAnime, setSimilarAnime] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('Episodes');
+  const [activeTab, setActiveTab] = useState('Overview'); 
   
-  // Local state for downloads
   const [downloadedEpIds, setDownloadedEpIds] = useState<string[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({}); 
   
@@ -81,7 +82,6 @@ export default function AnimeDetailScreen() {
                   const userRef = doc(db, 'users', user.uid);
                   await updateDoc(userRef, { completedAnimeCount: increment(1) });
                   
-                  // Rank Logic...
                   const userSnap = await getDoc(userRef);
                   if (userSnap.exists()) {
                       const score = userSnap.data().completedAnimeCount || 0;
@@ -97,7 +97,7 @@ export default function AnimeDetailScreen() {
   };
 
   useEffect(() => {
-    if (episodeId) { setCurrentEpId(episodeId as string); setActiveTab('Episodes'); }
+    if (episodeId) { setCurrentEpId(episodeId as string); setActiveTab('Overview'); }
   }, [episodeId]);
 
   useEffect(() => { 
@@ -105,10 +105,7 @@ export default function AnimeDetailScreen() {
           loadAllData();
           checkAndIncrementView();
       } 
-      
-      return () => {
-          // Cleanup handled by service
-      };
+      return () => {};
   }, [id]);
 
   useEffect(() => {
@@ -149,7 +146,12 @@ export default function AnimeDetailScreen() {
       setAnime(detailsData);
       setEpisodes(episodesData);
       
-      // 1. Check Completed Downloads
+      const animeData = detailsData as any; 
+      if (animeData?.genres) {
+          const similar = await getSimilarAnime(animeData.genres, id as string);
+          setSimilarAnime(similar);
+      }
+
       const ids: string[] = [];
       for (const ep of episodesData) {
           const localUri = await getLocalEpisodeUri(ep.mal_id);
@@ -157,7 +159,6 @@ export default function AnimeDetailScreen() {
       }
       setDownloadedEpIds(ids);
 
-      // 2. Check Active Background Downloads
       episodesData.forEach(ep => {
           const epId = String(ep.mal_id);
           if (isDownloading(epId)) {
@@ -173,7 +174,9 @@ export default function AnimeDetailScreen() {
           }
       });
 
-      if (!episodeId && episodesData.length > 0) setCurrentEpId(episodesData[0].mal_id);
+      // ✅ REMOVED: No longer auto-selecting the first episode
+      // if (!episodeId && episodesData.length > 0) setCurrentEpId(episodesData[0].mal_id);
+
     } catch (error) { console.error(error); } 
     finally { setLoading(false); }
   };
@@ -232,9 +235,8 @@ export default function AnimeDetailScreen() {
     }
   };
 
-  // ✅ HELPER: FORMAT SIZE
   const formatSize = (bytes: number) => {
-      if (!bytes || bytes === 0) return '0 MB';
+      if (!bytes || bytes === 0) return 'Unknown Size';
       const mb = bytes / (1024 * 1024);
       return mb.toFixed(1) + ' MB';
   };
@@ -247,8 +249,25 @@ export default function AnimeDetailScreen() {
       <Stack.Screen options={{ headerTitle: '', headerTransparent: true, headerTintColor: 'white' }} />
 
       <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={{ flex: 1 }}>
+        
+        {/* ✅ UPDATED: Show Cover Image if no episode is playing */}
         <View style={styles.videoContainer}>
-            <VideoView style={styles.video} player={player} allowsPictureInPicture />
+            {currentVideoSource ? (
+                <VideoView style={styles.video} player={player} allowsPictureInPicture />
+            ) : (
+                <View style={styles.posterContainer}>
+                    <Image 
+                        source={{ uri: anime.images?.jpg?.image_url }} 
+                        style={styles.heroPoster} 
+                        resizeMode="cover"
+                    />
+                    {/* Optional Overlay to indicate 'Select an Episode' */}
+                    <View style={styles.posterOverlay}>
+                        <Ionicons name="play-circle-outline" size={50} color="white" style={{opacity: 0.8}} />
+                        <Text style={{color:'white', fontWeight:'bold', marginTop:5}}>Select an Episode</Text>
+                    </View>
+                </View>
+            )}
         </View>
 
         <View style={[styles.infoContainer, { borderBottomColor: theme.border }]}>
@@ -256,85 +275,112 @@ export default function AnimeDetailScreen() {
             <Text style={[styles.meta, { color: theme.subText }]}>{anime.year || 'N/A'} • {anime.type} • Rating: {anime.score || 'N/A'}</Text>
 
             <View style={styles.tabRow}>
-                <TabButton title="Episodes" active={activeTab === 'Episodes'} onPress={() => setActiveTab('Episodes')} theme={theme} />
-                <TabButton title="Details" active={activeTab === 'Details'} onPress={() => setActiveTab('Details')} theme={theme} />
+                <TabButton title="Overview" active={activeTab === 'Overview'} onPress={() => setActiveTab('Overview')} theme={theme} />
+                <TabButton title="Similar" active={activeTab === 'Similar'} onPress={() => setActiveTab('Similar')} theme={theme} />
             </View>
         </View>
 
         <ScrollView style={styles.contentScroll} contentContainerStyle={{ paddingBottom: 20 }}>
-            {activeTab === 'Episodes' ? (
-                <View style={styles.episodeList}>
-                    {episodes.map((ep) => {
-                        const epIdStr = String(ep.mal_id);
-                        const isActive = currentEpId === epIdStr;
-                        const isDownloaded = downloadedEpIds.includes(epIdStr);
-                        const progress = downloadProgress[epIdStr];
-                        const isDownloading = progress !== undefined;
+            {activeTab === 'Overview' ? (
+                <>
+                    <View style={styles.detailsContainer}>
+                        <Text style={[styles.sectionTitle, { color: theme.text }]}>Synopsis</Text>
+                        <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
+                        
+                        <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
+                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Views</Text><Text style={[styles.val, { color: theme.text }]}>{anime.views || 0}</Text></View>
+                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Episodes</Text><Text style={[styles.val, { color: theme.text }]}>{anime.totalEpisodes || episodes.length}</Text></View>
+                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Rank</Text><Text style={[styles.val, { color: theme.text }]}>#{anime.rank || 'N/A'}</Text></View>
+                        </View>
 
-                        return (
-                            <View key={ep.mal_id} style={styles.epRowWrapper}>
-                                <TouchableOpacity 
-                                    style={[styles.epCard, { backgroundColor: theme.card }, isActive && { borderColor: theme.tint, borderWidth: 1 }]}
-                                    onPress={() => handleEpisodePress(ep)}
-                                >
-                                    <Ionicons name={isActive ? "play" : "play-outline"} size={20} color={isActive ? theme.tint : theme.subText} style={{ marginRight: 10 }} />
-                                    <View style={{ flex: 1 }}>
-                                        <Text numberOfLines={1} style={[styles.epTitle, { color: isActive ? theme.tint : theme.text }]}>{ep.title}</Text>
-                                        <View style={{flexDirection:'row', alignItems:'center', gap: 5}}>
-                                            <Text style={{ color: theme.subText, fontSize: 12 }}>
-                                                {ep.aired ? new Date(ep.aired).toLocaleDateString() : 'Ep ' + ep.number}
-                                            </Text>
-                                            {/* ✅ SHOW FILE SIZE INSTEAD OF DOWNLOAD COUNT */}
-                                            <Text style={{ color: theme.subText, fontSize: 12 }}>• {formatSize(ep.size)}</Text>
-                                            {isDownloaded && <Text style={{ color: theme.tint, fontSize: 10, fontWeight: 'bold' }}> • OFFLINE</Text>}
-                                        </View>
-                                    </View>
-                                </TouchableOpacity>
+                        <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 20 }]}>Genres</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                            {anime.genres?.map((g: any) => (
+                                <View key={g} style={{ backgroundColor: theme.card, padding: 8, borderRadius: 10, marginRight: 8, marginBottom: 8 }}>
+                                    <Text style={{ color: theme.text, fontSize: 12 }}>{g}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </View>
 
-                                <View style={styles.actionContainer}>
-                                    {isDownloading ? (
-                                        <View style={styles.progressWrapper}>
-                                            <Text style={{fontSize: 9, color: theme.tint, marginBottom: 2, textAlign:'center'}}>{Math.round(progress * 100)}%</Text>
-                                            <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
-                                                <View style={[styles.progressBarFill, { width: `${progress * 100}%`, backgroundColor: theme.tint }]} />
+                    <View style={styles.sectionHeader}>
+                        <Text style={[styles.sectionTitle, { color: theme.text, marginLeft: 20, marginBottom: 10 }]}>Episodes ({episodes.length})</Text>
+                    </View>
+                    <View style={styles.episodeList}>
+                        {episodes.map((ep) => {
+                            const epIdStr = String(ep.mal_id);
+                            const isActive = currentEpId === epIdStr;
+                            const isDownloaded = downloadedEpIds.includes(epIdStr);
+                            const progress = downloadProgress[epIdStr];
+                            const isDownloading = progress !== undefined;
+
+                            return (
+                                <View key={ep.mal_id} style={styles.epRowWrapper}>
+                                    <TouchableOpacity 
+                                        style={[styles.epCard, { backgroundColor: theme.card }, isActive && { borderColor: theme.tint, borderWidth: 1 }]}
+                                        onPress={() => handleEpisodePress(ep)}
+                                    >
+                                        <Ionicons name={isActive ? "play" : "play-outline"} size={20} color={isActive ? theme.tint : theme.subText} style={{ marginRight: 10 }} />
+                                        <View style={{ flex: 1 }}>
+                                            <Text numberOfLines={1} style={[styles.epTitle, { color: isActive ? theme.tint : theme.text }]}>{ep.title}</Text>
+                                            <View style={{flexDirection:'row', alignItems:'center', gap: 5}}>
+                                                <Text style={{ color: theme.subText, fontSize: 12 }}>
+                                                    {ep.aired ? new Date(ep.aired).toLocaleDateString() : 'Ep ' + ep.number}
+                                                </Text>
+                                                <Text style={{ color: theme.subText, fontSize: 12 }}>• {formatSize(ep.size)}</Text>
+                                                {isDownloaded && <Text style={{ color: theme.tint, fontSize: 10, fontWeight: 'bold' }}> • Downloaded</Text>}
                                             </View>
                                         </View>
-                                    ) : (
-                                        <TouchableOpacity 
-                                            style={[styles.downloadBtn, { backgroundColor: theme.card }]} 
-                                            onPress={() => handleDownload(ep)}
-                                        >
-                                            <Ionicons 
-                                                name={isDownloaded ? "checkmark-done-circle" : "download-outline"} 
-                                                size={22} 
-                                                color={isDownloaded ? "#4CAF50" : theme.subText} 
-                                            />
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-                            </View>
-                        );
-                    })}
-                </View>
-            ) : (
-                <View style={styles.detailsContainer}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Synopsis</Text>
-                    <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
-                    
-                    <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
-                        <View style={styles.statBox}><Text style={{ color: theme.subText }}>Views</Text><Text style={[styles.val, { color: theme.text }]}>{anime.views || 0}</Text></View>
-                        <View style={styles.statBox}><Text style={{ color: theme.subText }}>Episodes</Text><Text style={[styles.val, { color: theme.text }]}>{anime.totalEpisodes || episodes.length}</Text></View>
-                        <View style={styles.statBox}><Text style={{ color: theme.subText }}>Rank</Text><Text style={[styles.val, { color: theme.text }]}>#{anime.rank || 'N/A'}</Text></View>
-                    </View>
+                                    </TouchableOpacity>
 
-                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 20 }]}>Genres</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                        {anime.genres?.map((g: any) => (
-                            <View key={g} style={{ backgroundColor: theme.card, padding: 8, borderRadius: 10, marginRight: 8, marginBottom: 8 }}>
-                                <Text style={{ color: theme.text, fontSize: 12 }}>{g}</Text>
-                            </View>
-                        ))}
+                                    <View style={styles.actionContainer}>
+                                        {isDownloading ? (
+                                            <View style={styles.progressWrapper}>
+                                                <Text style={{fontSize: 9, color: theme.tint, marginBottom: 2, textAlign:'center'}}>{Math.round(progress * 100)}%</Text>
+                                                <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
+                                                    <View style={[styles.progressBarFill, { width: `${progress * 100}%`, backgroundColor: theme.tint }]} />
+                                                </View>
+                                            </View>
+                                        ) : (
+                                            <TouchableOpacity 
+                                                style={[styles.downloadBtn, { backgroundColor: theme.card }]} 
+                                                onPress={() => handleDownload(ep)}
+                                            >
+                                                <Ionicons 
+                                                    name={isDownloaded ? "checkmark-done-circle" : "download-outline"} 
+                                                    size={22} 
+                                                    color={isDownloaded ? "#4CAF50" : theme.subText} 
+                                                />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                </View>
+                            );
+                        })}
                     </View>
+                </>
+            ) : (
+                <View style={styles.similarContainer}>
+                    {similarAnime.length > 0 ? (
+                        <View style={styles.grid}>
+                            {similarAnime.map((item) => (
+                                <TouchableOpacity 
+                                    key={item.mal_id} 
+                                    style={[styles.similarCard, { backgroundColor: theme.card }]}
+                                    onPress={() => router.push(`/anime/${item.mal_id}`)}
+                                >
+                                    <Image source={{ uri: item.images?.jpg?.image_url }} style={styles.similarPoster} />
+                                    <Text numberOfLines={2} style={[styles.similarTitle, { color: theme.text }]}>{item.title}</Text>
+                                    <Text style={{ color: theme.subText, fontSize: 10 }}>{item.type} • {item.score}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    ) : (
+                        <View style={{ alignItems: 'center', marginTop: 50 }}>
+                            <Ionicons name="film-outline" size={50} color={theme.subText} />
+                            <Text style={{ color: theme.subText, marginTop: 10 }}>No similar anime found.</Text>
+                        </View>
+                    )}
                 </View>
             )}
         </ScrollView>
@@ -356,13 +402,24 @@ const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   videoContainer: { width: '100%', height: 250, backgroundColor: 'black' },
   video: { width: '100%', height: '100%' },
+  // ✅ New Styles for Poster Placeholder
+  posterContainer: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', position: 'relative' },
+  heroPoster: { width: '100%', height: '100%' },
+  posterOverlay: { 
+      position: 'absolute', 
+      backgroundColor: 'rgba(0,0,0,0.4)', 
+      width: '100%', height: '100%', 
+      justifyContent: 'center', alignItems: 'center' 
+  },
+  
   infoContainer: { padding: 16, paddingBottom: 0, borderBottomWidth: 1 },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 5 },
   meta: { fontSize: 13, marginBottom: 15 },
   tabRow: { flexDirection: 'row', marginTop: 5 },
   tabBtn: { marginRight: 20, paddingBottom: 10 },
   contentScroll: { flex: 1 },
-  episodeList: { padding: 16 },
+  
+  episodeList: { padding: 16, paddingTop: 0 },
   epRowWrapper: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   epCard: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8 },
   epTitle: { fontWeight: '600', fontSize: 15, marginBottom: 2 },
@@ -371,10 +428,18 @@ const styles = StyleSheet.create({
   progressWrapper: { width: '100%', alignItems: 'center' },
   progressBarBg: { width: 40, height: 4, borderRadius: 2, overflow: 'hidden' },
   progressBarFill: { height: '100%' },
+  
   detailsContainer: { padding: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
   synopsis: { fontSize: 15, lineHeight: 24, marginBottom: 20 },
   statsGrid: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderRadius: 8, marginBottom: 20 },
   statBox: { alignItems: 'center' },
   val: { fontWeight: 'bold', fontSize: 16 },
+  sectionHeader: { marginTop: 10 },
+
+  similarContainer: { padding: 16 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  similarCard: { width: '48%', marginBottom: 16, borderRadius: 8, padding: 8 },
+  similarPoster: { width: '100%', height: 150, borderRadius: 6, marginBottom: 8 },
+  similarTitle: { fontSize: 13, fontWeight: 'bold', marginBottom: 4 }
 });

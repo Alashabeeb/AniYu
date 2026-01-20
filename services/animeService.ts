@@ -8,7 +8,8 @@ import {
   limit,
   orderBy,
   query,
-  updateDoc
+  updateDoc,
+  where // ✅ Added 'where' for genre filtering
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
@@ -55,7 +56,35 @@ export const getAnimeDetails = async (id: string) => {
   }
 };
 
-// ✅ NEW: Increment View Count
+// ✅ NEW: Fetch Similar Anime based on Genres
+export const getSimilarAnime = async (genres: string[], currentId: string) => {
+  try {
+    if (!genres || genres.length === 0) return [];
+    
+    const animeRef = collection(db, 'anime');
+    // Firestore array-contains-any allows max 10 values
+    const searchGenres = genres.slice(0, 10); 
+    
+    const q = query(
+        animeRef, 
+        where('genres', 'array-contains-any', searchGenres), 
+        limit(20)
+    );
+    
+    const snapshot = await getDocs(q);
+    
+    // Filter out the current anime from results
+    return snapshot.docs
+        .map(doc => ({ mal_id: doc.id, ...doc.data() }))
+        .filter((a: any) => String(a.mal_id) !== String(currentId));
+
+  } catch (error) {
+    console.error("Error fetching similar anime:", error);
+    return [];
+  }
+};
+
+// Increment View Count
 export const incrementAnimeView = async (id: string) => {
   try {
     const docRef = doc(db, 'anime', id);
@@ -82,7 +111,7 @@ export const getAnimeEpisodes = async (id: string) => {
       thumbnail: doc.data().thumbnailUrl,
       subtitles: doc.data().subtitles || [],
       downloads: doc.data().downloads || 0,
-      size: doc.data().size || 0 // ✅ Return the size (bytes)
+      size: doc.data().size || 0
     }));
   } catch (error) {
     console.error("Error fetching episodes:", error);

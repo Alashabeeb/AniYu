@@ -16,43 +16,38 @@ const DOWNLOAD_FOLDER = rootDir + 'anime_downloads/';
 export interface DownloadItem {
   mal_id: string | number;
   episodeId: string | number;
+  number: number; // ✅ Added Episode Number
   title: string;
   animeTitle: string;
+  image?: string;
   localUri: string;
   originalUrl: string;
   size?: number;
 }
 
 // --- GLOBAL STATE FOR ACTIVE DOWNLOADS ---
-// This keeps track of downloads even if you leave the screen
-const activeDownloads: Record<string, boolean> = {}; 
+const activeDownloads: Record<string, DownloadItem> = {}; 
 const activeProgress: Record<string, number> = {}; 
 const progressListeners: Record<string, (progress: number) => void> = {};
 
-// Helper to subscribe to progress
 export const registerDownloadListener = (episodeId: string, callback: (progress: number) => void) => {
     progressListeners[episodeId] = callback;
-    // If we already have progress, update immediately
-    if (activeProgress[episodeId] !== undefined) {
-        callback(activeProgress[episodeId]);
-    }
+    if (activeProgress[episodeId] !== undefined) callback(activeProgress[episodeId]);
 };
 
 export const unregisterDownloadListener = (episodeId: string) => {
     delete progressListeners[episodeId];
 };
 
-export const isDownloading = (episodeId: string) => {
-    return !!activeDownloads[episodeId];
-};
+export const isDownloading = (episodeId: string) => !!activeDownloads[episodeId];
 
-// Ensure the download directory exists
+export const getActiveDownloads = () => Object.values(activeDownloads);
+
 const ensureDirExists = async () => {
   const dirInfo = await getInfoAsync(DOWNLOAD_FOLDER);
   if (!dirInfo.exists) {
     await makeDirectoryAsync(DOWNLOAD_FOLDER, { intermediates: true });
   }
-  
   const noMedia = DOWNLOAD_FOLDER + '.nomedia';
   const noMediaInfo = await getInfoAsync(noMedia);
   if (!noMediaInfo.exists) {
@@ -77,7 +72,15 @@ const saveDownloadRecord = async (newItem: DownloadItem) => {
   await AsyncStorage.setItem(DOWNLOAD_STORAGE_KEY, JSON.stringify(updated));
 };
 
-// THE REAL DOWNLOAD FUNCTION
+// ✅ CANCEL FUNCTION (Placeholder for now, logic exists in prev steps if needed)
+export const cancelDownload = async (episodeId: string | number) => {
+    // Basic cleanup logic for state
+    const epId = String(episodeId);
+    delete activeDownloads[epId];
+    delete activeProgress[epId];
+    delete progressListeners[epId];
+};
+
 export const downloadEpisodeToFile = async (
   anime: any,
   episode: any
@@ -87,11 +90,20 @@ export const downloadEpisodeToFile = async (
   try {
     await ensureDirExists();
 
-    // 1. Mark as Active
-    activeDownloads[epId] = true;
-    activeProgress[epId] = 0;
-
     const fileUri = DOWNLOAD_FOLDER + `${anime.mal_id}_${episode.mal_id}.mp4`;
+
+    // 1. Mark as Active
+    activeDownloads[epId] = {
+        mal_id: anime.mal_id,
+        episodeId: episode.mal_id,
+        number: episode.number, // ✅ Store Number
+        title: episode.title,
+        animeTitle: anime.title,
+        image: anime.images?.jpg?.image_url || anime.image,
+        localUri: '', 
+        originalUrl: episode.url,
+    };
+    activeProgress[epId] = 0;
 
     const downloadResumable = createDownloadResumable(
       episode.url,
@@ -99,20 +111,14 @@ export const downloadEpisodeToFile = async (
       {},
       (downloadProgress) => {
         const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
-        
-        // 2. Update Global State
         activeProgress[epId] = progress;
-        
-        // 3. Notify Listener (if screen is active)
-        if (progressListeners[epId]) {
-            progressListeners[epId](progress);
-        }
+        if (progressListeners[epId]) progressListeners[epId](progress);
       }
     );
 
     const result = await downloadResumable.downloadAsync();
 
-    // 4. Cleanup on Finish
+    // Cleanup active state
     delete activeDownloads[epId];
     delete activeProgress[epId];
     delete progressListeners[epId];
@@ -121,8 +127,10 @@ export const downloadEpisodeToFile = async (
       const record: DownloadItem = {
         mal_id: anime.mal_id,
         episodeId: episode.mal_id,
+        number: episode.number, // ✅ Save Number
         title: episode.title,
         animeTitle: anime.title,
+        image: anime.images?.jpg?.image_url || anime.image, 
         localUri: result.uri,
         originalUrl: episode.url,
       };
@@ -134,7 +142,6 @@ export const downloadEpisodeToFile = async (
 
   } catch (error) {
     console.error("Download failed:", error);
-    // Cleanup on Error
     delete activeDownloads[epId];
     delete activeProgress[epId];
     delete progressListeners[epId];
