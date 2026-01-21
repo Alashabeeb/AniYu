@@ -23,8 +23,14 @@ export default function HeroCarousel({ data }: { data: any[] }) {
         data={data}
         scrollAnimationDuration={1000}
         renderItem={({ item }) => {
-           // ✅ FIX: Check for 'image' (Firebase) OR 'images.jpg...' (API fallback)
-           const imageUrl = item.image || item.images?.jpg?.large_image_url;
+           // ✅ FIX: Check multiple paths to ensure image always appears
+           // 1. item.image (Direct link)
+           // 2. item.images.jpg.large_image_url (Jikan API Standard)
+           // 3. item.images.jpg.image_url (Your Admin Panel Uploads)
+           const imageUrl = item.image || 
+                            item.images?.jpg?.large_image_url || 
+                            item.images?.jpg?.image_url ||
+                            'https://via.placeholder.com/350x500'; // Fallback
 
            return (
             <TouchableOpacity 
@@ -51,7 +57,7 @@ export default function HeroCarousel({ data }: { data: any[] }) {
                             <View style={styles.tag}><Text style={styles.tagText}>{item.type || 'TV'}</Text></View>
                             <View style={[styles.tag, { backgroundColor: '#FF6B6B' }]}>
                                 <Ionicons name="star" size={10} color="white" />
-                                <Text style={styles.tagText}> {item.score}</Text>
+                                <Text style={styles.tagText}> {item.score || 'N/A'}</Text>
                             </View>
                         </View>
                         
