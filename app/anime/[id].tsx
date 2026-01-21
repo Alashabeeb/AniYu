@@ -10,7 +10,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-// ✅ Added getAnimeRank to imports
 import { getAnimeDetails, getAnimeEpisodes, getAnimeRank, getSimilarAnime, incrementAnimeView } from '../../services/animeService';
 import {
     downloadEpisodeToFile,
@@ -41,7 +40,6 @@ export default function AnimeDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Overview'); 
   
-  // ✅ New State for Rank
   const [rank, setRank] = useState<number | string>('N/A');
 
   const [downloadedEpIds, setDownloadedEpIds] = useState<string[]>([]);
@@ -152,13 +150,11 @@ export default function AnimeDetailScreen() {
       
       const animeData = detailsData as any; 
       
-      // 1. Fetch Similar Anime
       if (animeData?.genres) {
           const similar = await getSimilarAnime(animeData.genres, id as string);
           setSimilarAnime(similar);
       }
 
-      // 2. ✅ Calculate Rank based on Views
       if (animeData?.views !== undefined) {
           const calculatedRank = await getAnimeRank(animeData.views);
           setRank(calculatedRank);
@@ -279,7 +275,15 @@ export default function AnimeDetailScreen() {
 
         <View style={[styles.infoContainer, { borderBottomColor: theme.border }]}>
             <Text style={[styles.title, { color: theme.text }]}>{anime.title}</Text>
-            <Text style={[styles.meta, { color: theme.subText }]}>{anime.year || 'N/A'} • {anime.type} • Rating: {anime.score || 'N/A'}</Text>
+            
+            {/* ✅ UPDATED: Added Year */}
+            <View style={{flexDirection:'row', alignItems:'center', marginBottom: 15, gap: 5}}>
+                <Text style={{ color: theme.subText, fontSize: 13 }}>
+                    {anime.year || 'N/A'} • {anime.ageRating || 'N/A'} • {anime.type} •
+                </Text>
+                <Ionicons name="eye-outline" size={14} color={theme.subText} />
+                <Text style={{ color: theme.subText, fontSize: 13 }}>{anime.views || 0}</Text>
+            </View>
 
             <View style={styles.tabRow}>
                 <TabButton title="Overview" active={activeTab === 'Overview'} onPress={() => setActiveTab('Overview')} theme={theme} />
@@ -295,10 +299,26 @@ export default function AnimeDetailScreen() {
                         <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
                         
                         <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
-                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Watched</Text><Text style={[styles.val, { color: theme.text }]}>{anime.views || 0}</Text></View>
-                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Episodes</Text><Text style={[styles.val, { color: theme.text }]}>{anime.totalEpisodes || episodes.length}</Text></View>
-                            {/* ✅ DISPLAY REAL RANK */}
-                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Rank</Text><Text style={[styles.val, { color: theme.text }]}>#{rank}</Text></View>
+                            {/* Rating */}
+                            <View style={styles.statBox}>
+                                <Text style={{ color: theme.subText }}>Rating</Text>
+                                <View style={{flexDirection:'row', alignItems:'center', gap: 4, marginTop: 2}}>
+                                    <Ionicons name="star" size={14} color="#FFD700" />
+                                    <Text style={[styles.val, { color: theme.text }]}>{anime.score || 'N/A'}</Text>
+                                </View>
+                            </View>
+                            
+                            {/* Episodes */}
+                            <View style={styles.statBox}>
+                                <Text style={{ color: theme.subText }}>Episodes</Text>
+                                <Text style={[styles.val, { color: theme.text, marginTop: 2 }]}>{anime.totalEpisodes || episodes.length}</Text>
+                            </View>
+                            
+                            {/* Rank */}
+                            <View style={styles.statBox}>
+                                <Text style={{ color: theme.subText }}>Rank</Text>
+                                <Text style={[styles.val, { color: theme.text, marginTop: 2 }]}>#{rank}</Text>
+                            </View>
                         </View>
 
                         <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 20 }]}>Genres</Text>

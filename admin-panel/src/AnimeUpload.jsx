@@ -55,14 +55,13 @@ export default function AnimeUpload() {
   const [existingCoverUrl, setExistingCoverUrl] = useState(''); 
   const [animeTitle, setAnimeTitle] = useState('');
   const [totalEpisodes, setTotalEpisodes] = useState('');
+  const [releaseYear, setReleaseYear] = useState(''); // ✅ Added Year State
   const [synopsis, setSynopsis] = useState('');
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedAge, setSelectedAge] = useState('12+');
 
   // BODY STATE (Episode Form)
   const [episodes, setEpisodes] = useState([]);
-  
-  // ✅ NEW: Track episodes to delete from DB
   const [deletedEpisodes, setDeletedEpisodes] = useState([]);
 
   // --- FETCH LIST ON MOUNT ---
@@ -84,9 +83,9 @@ export default function AnimeUpload() {
   const handleCreateNew = () => {
     setCreatedAnimeId(null);
     setIsEditMode(false);
-    setAnimeTitle(''); setTotalEpisodes(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
+    setAnimeTitle(''); setTotalEpisodes(''); setReleaseYear(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
     setEpisodes([{ id: Date.now(), number: 1, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
-    setDeletedEpisodes([]); // ✅ Reset deleted list
+    setDeletedEpisodes([]);
     setView('form');
   };
 
@@ -94,13 +93,14 @@ export default function AnimeUpload() {
     setCreatedAnimeId(anime.id);
     setIsEditMode(true);
     setAnimeTitle(anime.title);
-    setTotalEpisodes(anime.totalEpisodes || ''); 
+    setTotalEpisodes(anime.totalEpisodes || '');
+    setReleaseYear(anime.year || ''); // ✅ Load Year
     setSynopsis(anime.synopsis);
     setSelectedGenres(anime.genres || []);
     setSelectedAge(anime.ageRating || '12+');
     setExistingCoverUrl(anime.images?.jpg?.image_url || '');
     setAnimeCover(null);
-    setDeletedEpisodes([]); // ✅ Reset deleted list
+    setDeletedEpisodes([]);
     
     // Fetch Episodes
     setStatus('Fetching episodes...');
@@ -179,15 +179,11 @@ export default function AnimeUpload() {
     setEpisodes([...episodes, { id: Date.now(), number: nextNum, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
   };
 
-  // ✅ UPDATED: Track deleted episodes
   const removeEpisodeForm = (index) => {
     const epToRemove = episodes[index];
-    
-    // If it's an existing episode (from DB), add to deleted list
     if (!epToRemove.isNew && epToRemove.id) {
         setDeletedEpisodes(prev => [...prev, epToRemove]);
     }
-
     const newEps = [...episodes]; 
     newEps.splice(index, 1); 
     setEpisodes(newEps); 
@@ -249,6 +245,7 @@ export default function AnimeUpload() {
       const animeData = {
         title: animeTitle, 
         totalEpisodes: totalEpisodes || 'Unknown', 
+        year: releaseYear || 'N/A', // ✅ SAVE YEAR
         synopsis, 
         genres: selectedGenres, 
         ageRating: selectedAge,
@@ -265,25 +262,14 @@ export default function AnimeUpload() {
         setCreatedAnimeId(animeId);
       }
 
-      // ✅ NEW: Delete removed episodes from DB and Storage
       if (deletedEpisodes.length > 0) {
           setStatus('Removing deleted episodes...');
           for (const delEp of deletedEpisodes) {
               try {
-                  // Delete from Firestore
                   await deleteDoc(doc(db, 'anime', animeId, 'episodes', delEp.id));
-                  
-                  // Delete Video from Storage
-                  if (delEp.existingVideoUrl) {
-                      await deleteObject(ref(storage, delEp.existingVideoUrl)).catch(e => console.warn("Video cleanup failed", e));
-                  }
-                  // Delete Thumb from Storage
-                  if (delEp.existingThumbUrl) {
-                      await deleteObject(ref(storage, delEp.existingThumbUrl)).catch(e => console.warn("Thumb cleanup failed", e));
-                  }
-              } catch (e) {
-                  console.error("Error deleting episode:", e);
-              }
+                  if (delEp.existingVideoUrl) await deleteObject(ref(storage, delEp.existingVideoUrl)).catch(e => {});
+                  if (delEp.existingThumbUrl) await deleteObject(ref(storage, delEp.existingThumbUrl)).catch(e => {});
+              } catch (e) { console.error("Error deleting episode:", e); }
           }
       }
 
@@ -334,7 +320,6 @@ export default function AnimeUpload() {
     } catch (error) { console.error(error); alert('Error: ' + error.message); } finally { setLoading(false); }
   };
 
-  // --- RENDER: DETAILS VIEW ---
   if (view === 'details' && selectedAnime) {
     return (
       <div className="container">
@@ -391,15 +376,8 @@ export default function AnimeUpload() {
                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#2563eb', fontWeight: 600 }}>
                             <Captions size={14} /> <span>{(ep.subtitles || []).length} Subs</span>
                          </div>
-                         <div style={{ display: 'flex', gap: 15 }}>
-                            {/* ✅ DISPLAY DOWNLOAD COUNT */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#6b7280' }}>
-                                <Download size={14} /> <span>{ep.downloads || 0}</span>
-                            </div>
-                            {/* ✅ DISPLAY FILE SIZE */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#6b7280' }}>
-                                <FileVideo size={14} /> <span>{ep.size ? (ep.size / (1024 * 1024)).toFixed(1) + ' MB' : '0 MB'}</span>
-                            </div>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#6b7280' }}>
+                            <Download size={14} /> <span>{ep.downloads || 0}</span>
                          </div>
                       </div>
                     </div>
@@ -499,9 +477,11 @@ export default function AnimeUpload() {
                 </label>
               </div>
               <div>
-                <div className="grid-2" style={{marginBottom:0}}>
+                {/* ✅ UPDATED: Added Year Input */}
+                <div className="grid-3" style={{marginBottom:0, display:'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 20}}>
                     <div className="form-group"><span className="form-label">Title</span><input type="text" className="input-field" value={animeTitle} onChange={e => setAnimeTitle(e.target.value)} /></div>
-                    <div className="form-group"><span className="form-label">Total Episodes</span><input type="number" className="input-field" placeholder="e.g. 12" value={totalEpisodes} onChange={e => setTotalEpisodes(e.target.value)} /></div>
+                    <div className="form-group"><span className="form-label">Total Eps</span><input type="number" className="input-field" placeholder="12" value={totalEpisodes} onChange={e => setTotalEpisodes(e.target.value)} /></div>
+                    <div className="form-group"><span className="form-label">Year</span><input type="number" className="input-field" placeholder="2024" value={releaseYear} onChange={e => setReleaseYear(e.target.value)} /></div>
                 </div>
                 <div className="form-group"><span className="form-label">Synopsis</span><textarea className="textarea-field" value={synopsis} onChange={e => setSynopsis(e.target.value)}></textarea></div>
                 <div className="form-group"><span className="form-label">Genres</span><div className="chips-container">{GENRES_LIST.map(g => <div key={g} className={`chip ${selectedGenres.includes(g) ? 'selected' : ''}`} onClick={() => { if(selectedGenres.includes(g)) setSelectedGenres(prev=>prev.filter(x=>x!==g)); else if(selectedGenres.length<3) setSelectedGenres([...selectedGenres, g]); }}>{g}</div>)}</div></div>
