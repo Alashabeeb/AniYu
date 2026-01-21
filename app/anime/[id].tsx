@@ -10,7 +10,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-import { getAnimeDetails, getAnimeEpisodes, getSimilarAnime, incrementAnimeView } from '../../services/animeService';
+// ✅ Added getAnimeRank to imports
+import { getAnimeDetails, getAnimeEpisodes, getAnimeRank, getSimilarAnime, incrementAnimeView } from '../../services/animeService';
 import {
     downloadEpisodeToFile,
     getLocalEpisodeUri,
@@ -40,6 +41,9 @@ export default function AnimeDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Overview'); 
   
+  // ✅ New State for Rank
+  const [rank, setRank] = useState<number | string>('N/A');
+
   const [downloadedEpIds, setDownloadedEpIds] = useState<string[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({}); 
   
@@ -147,9 +151,17 @@ export default function AnimeDetailScreen() {
       setEpisodes(episodesData);
       
       const animeData = detailsData as any; 
+      
+      // 1. Fetch Similar Anime
       if (animeData?.genres) {
           const similar = await getSimilarAnime(animeData.genres, id as string);
           setSimilarAnime(similar);
+      }
+
+      // 2. ✅ Calculate Rank based on Views
+      if (animeData?.views !== undefined) {
+          const calculatedRank = await getAnimeRank(animeData.views);
+          setRank(calculatedRank);
       }
 
       const ids: string[] = [];
@@ -173,9 +185,6 @@ export default function AnimeDetailScreen() {
               });
           }
       });
-
-      // ✅ REMOVED: No longer auto-selecting the first episode
-      // if (!episodeId && episodesData.length > 0) setCurrentEpId(episodesData[0].mal_id);
 
     } catch (error) { console.error(error); } 
     finally { setLoading(false); }
@@ -250,7 +259,6 @@ export default function AnimeDetailScreen() {
 
       <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={{ flex: 1 }}>
         
-        {/* ✅ UPDATED: Show Cover Image if no episode is playing */}
         <View style={styles.videoContainer}>
             {currentVideoSource ? (
                 <VideoView style={styles.video} player={player} allowsPictureInPicture />
@@ -261,7 +269,6 @@ export default function AnimeDetailScreen() {
                         style={styles.heroPoster} 
                         resizeMode="cover"
                     />
-                    {/* Optional Overlay to indicate 'Select an Episode' */}
                     <View style={styles.posterOverlay}>
                         <Ionicons name="play-circle-outline" size={50} color="white" style={{opacity: 0.8}} />
                         <Text style={{color:'white', fontWeight:'bold', marginTop:5}}>Select an Episode</Text>
@@ -288,9 +295,10 @@ export default function AnimeDetailScreen() {
                         <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
                         
                         <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
-                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Views</Text><Text style={[styles.val, { color: theme.text }]}>{anime.views || 0}</Text></View>
+                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Watched</Text><Text style={[styles.val, { color: theme.text }]}>{anime.views || 0}</Text></View>
                             <View style={styles.statBox}><Text style={{ color: theme.subText }}>Episodes</Text><Text style={[styles.val, { color: theme.text }]}>{anime.totalEpisodes || episodes.length}</Text></View>
-                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Rank</Text><Text style={[styles.val, { color: theme.text }]}>#{anime.rank || 'N/A'}</Text></View>
+                            {/* ✅ DISPLAY REAL RANK */}
+                            <View style={styles.statBox}><Text style={{ color: theme.subText }}>Rank</Text><Text style={[styles.val, { color: theme.text }]}>#{rank}</Text></View>
                         </View>
 
                         <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 20 }]}>Genres</Text>
@@ -402,7 +410,6 @@ const styles = StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   videoContainer: { width: '100%', height: 250, backgroundColor: 'black' },
   video: { width: '100%', height: '100%' },
-  // ✅ New Styles for Poster Placeholder
   posterContainer: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', position: 'relative' },
   heroPoster: { width: '100%', height: '100%' },
   posterOverlay: { 

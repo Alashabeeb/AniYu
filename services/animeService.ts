@@ -9,7 +9,7 @@ import {
   orderBy,
   query,
   updateDoc,
-  where // ✅ Added 'where' for genre filtering
+  where // ✅ Added 'where'
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
@@ -56,13 +56,28 @@ export const getAnimeDetails = async (id: string) => {
   }
 };
 
-// ✅ NEW: Fetch Similar Anime based on Genres
+// ✅ NEW: Calculate Rank based on Views
+export const getAnimeRank = async (currentViews: number) => {
+  try {
+    const animeRef = collection(db, 'anime');
+    // Count how many anime have MORE views than this one
+    const q = query(animeRef, where('views', '>', currentViews));
+    const snapshot = await getDocs(q);
+    
+    // Rank is the number of anime with more views + 1
+    return snapshot.size + 1;
+  } catch (error) {
+    console.error("Error fetching rank:", error);
+    return 'N/A';
+  }
+};
+
+// Fetch Similar Anime based on Genres
 export const getSimilarAnime = async (genres: string[], currentId: string) => {
   try {
     if (!genres || genres.length === 0) return [];
     
     const animeRef = collection(db, 'anime');
-    // Firestore array-contains-any allows max 10 values
     const searchGenres = genres.slice(0, 10); 
     
     const q = query(
@@ -73,7 +88,6 @@ export const getSimilarAnime = async (genres: string[], currentId: string) => {
     
     const snapshot = await getDocs(q);
     
-    // Filter out the current anime from results
     return snapshot.docs
         .map(doc => ({ mal_id: doc.id, ...doc.data() }))
         .filter((a: any) => String(a.mal_id) !== String(currentId));

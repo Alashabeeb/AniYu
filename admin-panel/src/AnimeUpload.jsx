@@ -17,7 +17,7 @@ import {
   Sparkles,
   Star,
   Trash2,
-  Upload, // ✅ Added Download Icon Import
+  Upload,
   X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -35,7 +35,7 @@ const LANGUAGES = ["English", "Spanish", "Portuguese", "French", "German", "Indo
 
 export default function AnimeUpload() {
   // --- GLOBAL STATE ---
-  const [view, setView] = useState('list'); // 'list', 'form', 'details', 'success'
+  const [view, setView] = useState('list');
   const [animeList, setAnimeList] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
   
@@ -61,6 +61,9 @@ export default function AnimeUpload() {
 
   // BODY STATE (Episode Form)
   const [episodes, setEpisodes] = useState([]);
+  
+  // ✅ NEW: Track episodes to delete from DB
+  const [deletedEpisodes, setDeletedEpisodes] = useState([]);
 
   // --- FETCH LIST ON MOUNT ---
   useEffect(() => {
@@ -83,6 +86,7 @@ export default function AnimeUpload() {
     setIsEditMode(false);
     setAnimeTitle(''); setTotalEpisodes(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
     setEpisodes([{ id: Date.now(), number: 1, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
+    setDeletedEpisodes([]); // ✅ Reset deleted list
     setView('form');
   };
 
@@ -96,6 +100,7 @@ export default function AnimeUpload() {
     setSelectedAge(anime.ageRating || '12+');
     setExistingCoverUrl(anime.images?.jpg?.image_url || '');
     setAnimeCover(null);
+    setDeletedEpisodes([]); // ✅ Reset deleted list
     
     // Fetch Episodes
     setStatus('Fetching episodes...');
@@ -110,7 +115,7 @@ export default function AnimeUpload() {
         existingThumbUrl: doc.data().thumbnailUrl,
         existingSubtitles: doc.data().subtitles || [],
         existingSize: doc.data().size || 0, 
-        downloads: doc.data().downloads || 0, // ✅ Ensure downloads are fetched for editing context
+        downloads: doc.data().downloads || 0,
         subtitles: (doc.data().subtitles || []).map((sub, idx) => ({ id: Date.now() + idx, language: sub.language, url: sub.url, file: null })),
         videoFile: null, 
         thumbFile: null, 
@@ -133,7 +138,6 @@ export default function AnimeUpload() {
     } catch (e) { console.error(e); }
   };
 
-  // --- DEEP DELETE FUNCTION ---
   const handleDelete = async (anime) => {
     if (!window.confirm(`WARNING: This will permanently delete "${anime.title}" along with ALL its episodes and files.\n\nAre you sure?`)) return;
     
@@ -174,7 +178,21 @@ export default function AnimeUpload() {
     const nextNum = episodes.length > 0 ? Number(episodes[episodes.length - 1].number) + 1 : 1;
     setEpisodes([...episodes, { id: Date.now(), number: nextNum, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
   };
-  const removeEpisodeForm = (index) => { const newEps = [...episodes]; newEps.splice(index, 1); setEpisodes(newEps); };
+
+  // ✅ UPDATED: Track deleted episodes
+  const removeEpisodeForm = (index) => {
+    const epToRemove = episodes[index];
+    
+    // If it's an existing episode (from DB), add to deleted list
+    if (!epToRemove.isNew && epToRemove.id) {
+        setDeletedEpisodes(prev => [...prev, epToRemove]);
+    }
+
+    const newEps = [...episodes]; 
+    newEps.splice(index, 1); 
+    setEpisodes(newEps); 
+  };
+
   const updateEpisodeState = (index, field, value) => { const newEps = [...episodes]; newEps[index][field] = value; setEpisodes(newEps); };
 
   const addSubtitle = (epIndex) => {
@@ -208,7 +226,6 @@ export default function AnimeUpload() {
         (error) => reject(error),
         async () => { 
             const url = await getDownloadURL(uploadTask.snapshot.ref);
-            // Return URL and Size (bytes)
             resolve({ url, size: uploadTask.snapshot.totalBytes });
         }
       );
@@ -248,6 +265,28 @@ export default function AnimeUpload() {
         setCreatedAnimeId(animeId);
       }
 
+      // ✅ NEW: Delete removed episodes from DB and Storage
+      if (deletedEpisodes.length > 0) {
+          setStatus('Removing deleted episodes...');
+          for (const delEp of deletedEpisodes) {
+              try {
+                  // Delete from Firestore
+                  await deleteDoc(doc(db, 'anime', animeId, 'episodes', delEp.id));
+                  
+                  // Delete Video from Storage
+                  if (delEp.existingVideoUrl) {
+                      await deleteObject(ref(storage, delEp.existingVideoUrl)).catch(e => console.warn("Video cleanup failed", e));
+                  }
+                  // Delete Thumb from Storage
+                  if (delEp.existingThumbUrl) {
+                      await deleteObject(ref(storage, delEp.existingThumbUrl)).catch(e => console.warn("Thumb cleanup failed", e));
+                  }
+              } catch (e) {
+                  console.error("Error deleting episode:", e);
+              }
+          }
+      }
+
       const totalOps = episodes.length;
       let completedOps = 0;
 
@@ -274,7 +313,7 @@ export default function AnimeUpload() {
           number: Number(ep.number),
           videoUrl: vidResult?.url || ep.existingVideoUrl,
           thumbnailUrl: thumbResult?.url || ep.existingThumbUrl || finalCoverUrl,
-          size: vidResult?.size || ep.existingSize || 0, // ✅ Save file size
+          size: vidResult?.size || ep.existingSize || 0,
           subtitles: finalSubtitles,
           updatedAt: serverTimestamp()
         };
