@@ -2,16 +2,47 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Carousel from 'react-native-reanimated-carousel';
+import { auth } from '../config/firebaseConfig'; // ✅ Import Auth to get User ID
 
 const { width } = Dimensions.get('window');
 
 export default function HeroCarousel({ data }: { data: any[] }) {
   const router = useRouter();
 
-  if (!data || data.length === 0) return null;
+  // ✅ LOGIC: Pick 5 Random Anime unique to the User & Date
+  const dailyHeroAnime = useMemo(() => {
+      if (!data || data.length === 0) return [];
+
+      const user = auth.currentUser;
+      const today = new Date();
+      
+      // ✅ Combine Date + User ID (e.g., "2024-10-25-user123")
+      // This ensures every user gets a DIFFERENT list, but it stays the same for 24 hours.
+      const seedString = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}-${user?.uid || 'guest'}`;
+      
+      // Generate hash from the unique string
+      let seed = 0;
+      for (let i = 0; i < seedString.length; i++) {
+          seed = (seed * 31 + seedString.charCodeAt(i)) % 1000000007;
+      }
+
+      // Pseudo-Random Generator using the unique seed
+      const seededRandom = () => {
+          const x = Math.sin(seed++) * 10000;
+          return x - Math.floor(x);
+      };
+
+      // Shuffle using the seeded random
+      const shuffled = [...data].sort(() => 0.5 - seededRandom());
+
+      // Return top 5
+      return shuffled.slice(0, 5);
+  }, [data]); 
+
+  if (dailyHeroAnime.length === 0) return null;
 
   return (
     <View style={{ height: 450 }}>
@@ -20,17 +51,13 @@ export default function HeroCarousel({ data }: { data: any[] }) {
         width={width}
         height={450}
         autoPlay={true}
-        data={data}
+        data={dailyHeroAnime}
         scrollAnimationDuration={1000}
         renderItem={({ item }) => {
-           // ✅ FIX: Check multiple paths to ensure image always appears
-           // 1. item.image (Direct link)
-           // 2. item.images.jpg.large_image_url (Jikan API Standard)
-           // 3. item.images.jpg.image_url (Your Admin Panel Uploads)
            const imageUrl = item.image || 
                             item.images?.jpg?.large_image_url || 
                             item.images?.jpg?.image_url ||
-                            'https://via.placeholder.com/350x500'; // Fallback
+                            'https://via.placeholder.com/350x500'; 
 
            return (
             <TouchableOpacity 
@@ -53,11 +80,17 @@ export default function HeroCarousel({ data }: { data: any[] }) {
                         <Text numberOfLines={2} style={styles.title}>{item.title}</Text>
                         
                         <View style={styles.tags}>
-                            <View style={styles.tag}><Text style={styles.tagText}>#{item.rank || 'Trending'}</Text></View>
-                            <View style={styles.tag}><Text style={styles.tagText}>{item.type || 'TV'}</Text></View>
+                            <View style={styles.tag}>
+                                <Text style={styles.tagText}>{item.year || 'N/A'}</Text>
+                            </View>
+
+                            <View style={styles.tag}>
+                                <Text style={styles.tagText}>{item.type || 'TV'}</Text>
+                            </View>
+                            
                             <View style={[styles.tag, { backgroundColor: '#FF6B6B' }]}>
                                 <Ionicons name="star" size={10} color="white" />
-                                <Text style={styles.tagText}> {item.score || 'N/A'}</Text>
+                                <Text style={styles.tagText}> {item.score ? `${Number(item.score).toFixed(1)}/5` : 'N/A'}</Text>
                             </View>
                         </View>
                         

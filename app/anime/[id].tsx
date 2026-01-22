@@ -4,13 +4,21 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View
+    ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-import { getAnimeDetails, getAnimeEpisodes, getAnimeRank, getSimilarAnime, incrementAnimeView } from '../../services/animeService';
+import {
+    addAnimeReview,
+    getAnimeDetails,
+    getAnimeEpisodes,
+    getAnimeRank,
+    getSimilarAnime,
+    incrementAnimeView
+} from '../../services/animeService';
+
 import {
     downloadEpisodeToFile,
     getLocalEpisodeUri,
@@ -41,6 +49,10 @@ export default function AnimeDetailScreen() {
   const [activeTab, setActiveTab] = useState('Overview'); 
   
   const [rank, setRank] = useState<number | string>('N/A');
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [userRating, setUserRating] = useState(0);
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   const [downloadedEpIds, setDownloadedEpIds] = useState<string[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({}); 
@@ -240,6 +252,26 @@ export default function AnimeDetailScreen() {
     }
   };
 
+  const submitReview = async () => {
+      if (userRating === 0) return Alert.alert("Rate First", "Please tap the stars to rate.");
+      
+      const user = auth.currentUser;
+      if (!user) return Alert.alert("Login Required", "You must be logged in to rate.");
+
+      setSubmittingReview(true);
+      const success = await addAnimeReview(id as string, user.uid, user.displayName || 'User', userRating);
+      setSubmittingReview(false);
+
+      if (success) {
+          Alert.alert("Thank you!", "Your rating has been saved.");
+          setModalVisible(false);
+          setUserRating(0);
+          loadAllData(); 
+      } else {
+          Alert.alert("Error", "Could not submit rating.");
+      }
+  };
+
   const formatSize = (bytes: number) => {
       if (!bytes || bytes === 0) return 'Unknown Size';
       const mb = bytes / (1024 * 1024);
@@ -276,7 +308,6 @@ export default function AnimeDetailScreen() {
         <View style={[styles.infoContainer, { borderBottomColor: theme.border }]}>
             <Text style={[styles.title, { color: theme.text }]}>{anime.title}</Text>
             
-            {/* ✅ UPDATED: Added Year */}
             <View style={{flexDirection:'row', alignItems:'center', marginBottom: 15, gap: 5}}>
                 <Text style={{ color: theme.subText, fontSize: 13 }}>
                     {anime.year || 'N/A'} • {anime.ageRating || 'N/A'} • {anime.type} •
@@ -299,25 +330,41 @@ export default function AnimeDetailScreen() {
                         <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
                         
                         <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
-                            {/* Rating */}
-                            <View style={styles.statBox}>
+                            {/* ✅ UPDATED: Rating (Stars beside Score) */}
+                            <TouchableOpacity style={styles.statBox} onPress={() => setModalVisible(true)}>
                                 <Text style={{ color: theme.subText }}>Rating</Text>
-                                <View style={{flexDirection:'row', alignItems:'center', gap: 4, marginTop: 2}}>
-                                    <Ionicons name="star" size={14} color="#FFD700" />
-                                    <Text style={[styles.val, { color: theme.text }]}>{anime.score || 'N/A'}</Text>
+                                
+                                <View style={{flexDirection:'row', alignItems:'center', gap: 5, marginTop: 4}}>
+                                    {/* Stars */}
+                                    <View style={{flexDirection:'row', gap: 1}}>
+                                        {[1, 2, 3, 4, 5].map(s => (
+                                            <Ionicons 
+                                                key={s} 
+                                                name={Math.round(anime.score || 0) >= (s * 2) ? "star" : "star-outline"} 
+                                                size={12} 
+                                                color="#FFD700" 
+                                            />
+                                        ))}
+                                    </View>
+                                    {/* Score Beside */}
+                                    <Text style={[styles.val, { color: theme.text, fontSize: 13 }]}>
+                                        {anime.score ? `${Number(anime.score).toFixed(1)}/5` : 'N/A'}
+                                    </Text>
                                 </View>
-                            </View>
+
+                                <Text style={{fontSize:10, color: theme.tint, marginTop:2}}>Tap to Rate</Text>
+                            </TouchableOpacity>
                             
                             {/* Episodes */}
                             <View style={styles.statBox}>
                                 <Text style={{ color: theme.subText }}>Episodes</Text>
-                                <Text style={[styles.val, { color: theme.text, marginTop: 2 }]}>{anime.totalEpisodes || episodes.length}</Text>
+                                <Text style={[styles.val, { color: theme.text, marginTop: 4 }]}>{anime.totalEpisodes || episodes.length}</Text>
                             </View>
                             
                             {/* Rank */}
                             <View style={styles.statBox}>
                                 <Text style={{ color: theme.subText }}>Rank</Text>
-                                <Text style={[styles.val, { color: theme.text, marginTop: 2 }]}>#{rank}</Text>
+                                <Text style={[styles.val, { color: theme.text, marginTop: 4 }]}>#{rank}</Text>
                             </View>
                         </View>
 
@@ -399,7 +446,7 @@ export default function AnimeDetailScreen() {
                                 >
                                     <Image source={{ uri: item.images?.jpg?.image_url }} style={styles.similarPoster} />
                                     <Text numberOfLines={2} style={[styles.similarTitle, { color: theme.text }]}>{item.title}</Text>
-                                    <Text style={{ color: theme.subText, fontSize: 10 }}>{item.type} • {item.score}</Text>
+                                    <Text style={{ color: theme.subText, fontSize: 10 }}>{item.type} • {item.score ? Number(item.score).toFixed(1) : 'N/A'}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
@@ -412,6 +459,42 @@ export default function AnimeDetailScreen() {
                 </View>
             )}
         </ScrollView>
+
+        <Modal
+            animationType="fade"
+            transparent={true}
+            visible={modalVisible}
+            onRequestClose={() => setModalVisible(false)}
+        >
+            <View style={styles.modalOverlay}>
+                <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+                    <Text style={[styles.modalTitle, { color: theme.text }]}>Rate this Anime</Text>
+                    
+                    <View style={styles.starRow}>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <TouchableOpacity key={star} onPress={() => setUserRating(star)}>
+                                <Ionicons 
+                                    name={userRating >= star ? "star" : "star-outline"} 
+                                    size={36} 
+                                    color="#FFD700" 
+                                    style={{ marginHorizontal: 5 }}
+                                />
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+
+                    <View style={styles.modalButtons}>
+                        <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.cancelBtn}>
+                            <Text style={{ color: theme.subText }}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={submitReview} style={[styles.submitBtn, { backgroundColor: theme.tint }]}>
+                            {submittingReview ? <ActivityIndicator color="white" /> : <Text style={{ color: 'white', fontWeight: 'bold' }}>Submit</Text>}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+
       </SafeAreaView>
     </View>
   );
@@ -468,5 +551,13 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   similarCard: { width: '48%', marginBottom: 16, borderRadius: 8, padding: 8 },
   similarPoster: { width: '100%', height: 150, borderRadius: 6, marginBottom: 8 },
-  similarTitle: { fontSize: 13, fontWeight: 'bold', marginBottom: 4 }
+  similarTitle: { fontSize: 13, fontWeight: 'bold', marginBottom: 4 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 40 },
+  modalContent: { padding: 25, borderRadius: 16, alignItems: 'center' },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
+  starRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 25 },
+  modalButtons: { flexDirection: 'row', width: '100%', justifyContent: 'space-between', gap: 15 },
+  cancelBtn: { padding: 12, flex: 1, alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: 8 },
+  submitBtn: { padding: 12, flex: 1, alignItems: 'center', borderRadius: 8 }
 });

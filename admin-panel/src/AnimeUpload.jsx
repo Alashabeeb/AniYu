@@ -49,13 +49,14 @@ export default function AnimeUpload() {
   // --- DETAILS VIEW STATE ---
   const [selectedAnime, setSelectedAnime] = useState(null);
   const [selectedAnimeEpisodes, setSelectedAnimeEpisodes] = useState([]);
+  const [selectedAnimeReviews, setSelectedAnimeReviews] = useState([]);
 
   // HEADER STATE (Anime Form)
   const [animeCover, setAnimeCover] = useState(null); 
   const [existingCoverUrl, setExistingCoverUrl] = useState(''); 
   const [animeTitle, setAnimeTitle] = useState('');
   const [totalEpisodes, setTotalEpisodes] = useState('');
-  const [releaseYear, setReleaseYear] = useState(''); // ✅ Added Year State
+  const [releaseYear, setReleaseYear] = useState(''); 
   const [synopsis, setSynopsis] = useState('');
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedAge, setSelectedAge] = useState('12+');
@@ -72,7 +73,9 @@ export default function AnimeUpload() {
   const fetchAnimeList = async () => {
     setLoadingList(true);
     try {
-      const snapshot = await getDocs(collection(db, 'anime'));
+      // ✅ UPDATED: Sort by Views Descending (Highest Views = Rank 1)
+      const q = query(collection(db, 'anime'), orderBy('views', 'desc'));
+      const snapshot = await getDocs(q);
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAnimeList(list);
     } catch (error) { console.error("Error fetching list:", error); } finally { setLoadingList(false); }
@@ -94,7 +97,7 @@ export default function AnimeUpload() {
     setIsEditMode(true);
     setAnimeTitle(anime.title);
     setTotalEpisodes(anime.totalEpisodes || '');
-    setReleaseYear(anime.year || ''); // ✅ Load Year
+    setReleaseYear(anime.year || ''); 
     setSynopsis(anime.synopsis);
     setSelectedGenres(anime.genres || []);
     setSelectedAge(anime.ageRating || '12+');
@@ -135,6 +138,12 @@ export default function AnimeUpload() {
       const epSnap = await getDocs(q);
       const fetchedEps = epSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSelectedAnimeEpisodes(fetchedEps);
+
+      const reviewsQ = query(collection(db, 'anime', anime.id, 'reviews'), orderBy('createdAt', 'desc'));
+      const reviewsSnap = await getDocs(reviewsQ);
+      const fetchedReviews = reviewsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSelectedAnimeReviews(fetchedReviews);
+
     } catch (e) { console.error(e); }
   };
 
@@ -150,7 +159,6 @@ export default function AnimeUpload() {
       }
 
       const epSnapshot = await getDocs(collection(db, 'anime', anime.id, 'episodes'));
-      
       const deletePromises = epSnapshot.docs.map(async (docSnap) => {
           const ep = docSnap.data();
           if (ep.videoUrl) try { await deleteObject(ref(storage, ep.videoUrl)); } catch (e) {}
@@ -245,7 +253,7 @@ export default function AnimeUpload() {
       const animeData = {
         title: animeTitle, 
         totalEpisodes: totalEpisodes || 'Unknown', 
-        year: releaseYear || 'N/A', // ✅ SAVE YEAR
+        year: releaseYear || 'N/A', 
         synopsis, 
         genres: selectedGenres, 
         ageRating: selectedAge,
@@ -320,6 +328,7 @@ export default function AnimeUpload() {
     } catch (error) { console.error(error); alert('Error: ' + error.message); } finally { setLoading(false); }
   };
 
+  // --- RENDER: DETAILS VIEW ---
   if (view === 'details' && selectedAnime) {
     return (
       <div className="container">
@@ -352,14 +361,15 @@ export default function AnimeUpload() {
                 <div style={{ background: '#f9fafb', padding: 15, borderRadius: 12, border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
                   <div><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Views</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#111827'}}><Eye size={16} style={{display:'inline', marginRight:5}}/> {selectedAnime.views || 0}</div></div>
                   <div><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Total Eps</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#111827'}}><PlayCircle size={16} style={{display:'inline', marginRight:5}}/> {selectedAnime.totalEpisodes || selectedAnimeEpisodes.length}</div></div>
-                  <div style={{gridColumn:'span 2'}}><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Fan Rating</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#eab308'}}><Star size={16} fill="#eab308" style={{display:'inline', marginRight:5}}/> {selectedAnime.rating || "N/A"}</div></div>
+                  
+                  <div style={{gridColumn:'span 2'}}><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Fan Rating</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#eab308'}}><Star size={16} fill="#eab308" style={{display:'inline', marginRight:5}}/> {selectedAnime.score ? `${Number(selectedAnime.score).toFixed(1)}/5` : "N/A"}</div></div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* BODY (EPISODES LIST) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+             {/* EPISODES LIST */}
              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <PlayCircle className="text-purple-600"/> Episodes List
              </h2>
@@ -410,13 +420,18 @@ export default function AnimeUpload() {
         </div>
 
         <div style={{ display: 'grid', gap: 20 }}>
-          {animeList.map(anime => (
+          {/* ✅ UPDATED: List items sorted by Rank (Views) */}
+          {animeList.map((anime, index) => (
             <div key={anime.id} className="card" style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', padding: 20, gap: 20 }}>
                 <div style={{ width: 60, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}><img src={anime.images?.jpg?.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
                 <div style={{ flex: 1 }}>
                   <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', fontWeight: 700 }}>{anime.title}</h3>
-                  <div style={{ display: 'flex', gap: 8 }}>{anime.genres?.slice(0, 3).map(g => <span key={g} className="chip" style={{padding:'2px 8px', fontSize:'0.75rem'}}>{g}</span>)}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems:'center' }}>
+                      {/* ✅ ADDED: Rank Indicator */}
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#4f46e5' }}>#{index + 1}</span>
+                      <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>• <Eye size={12} style={{display:'inline', verticalAlign:'middle'}}/> {anime.views || 0}</span>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                    <button onClick={() => handleViewDetails(anime)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 600 }}>View</button>
@@ -477,7 +492,6 @@ export default function AnimeUpload() {
                 </label>
               </div>
               <div>
-                {/* ✅ UPDATED: Added Year Input */}
                 <div className="grid-3" style={{marginBottom:0, display:'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 20}}>
                     <div className="form-group"><span className="form-label">Title</span><input type="text" className="input-field" value={animeTitle} onChange={e => setAnimeTitle(e.target.value)} /></div>
                     <div className="form-group"><span className="form-label">Total Eps</span><input type="number" className="input-field" placeholder="12" value={totalEpisodes} onChange={e => setTotalEpisodes(e.target.value)} /></div>

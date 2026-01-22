@@ -8,8 +8,9 @@ import {
   limit,
   orderBy,
   query,
+  runTransaction,
   updateDoc,
-  where // ✅ Added 'where'
+  where
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
@@ -56,15 +57,12 @@ export const getAnimeDetails = async (id: string) => {
   }
 };
 
-// ✅ NEW: Calculate Rank based on Views
+// Calculate Rank based on Views
 export const getAnimeRank = async (currentViews: number) => {
   try {
     const animeRef = collection(db, 'anime');
-    // Count how many anime have MORE views than this one
     const q = query(animeRef, where('views', '>', currentViews));
     const snapshot = await getDocs(q);
-    
-    // Rank is the number of anime with more views + 1
     return snapshot.size + 1;
   } catch (error) {
     console.error("Error fetching rank:", error);
@@ -139,4 +137,65 @@ export const searchAnime = async (queryText: string) => {
   return allAnime.filter((a: any) => 
     a.title.toLowerCase().includes(queryText.toLowerCase())
   );
+};
+
+// ✅ UPDATED: Handle Re-Rating Logic
+export const addAnimeReview = async (animeId: string, userId: string, userName: string, rating: number) => {
+    try {
+        const animeRef = doc(db, 'anime', animeId);
+        const reviewRef = doc(db, 'anime', animeId, 'reviews', userId); 
+
+        await runTransaction(db, async (transaction) => {
+            const animeDoc = await transaction.get(animeRef);
+            const reviewDoc = await transaction.get(reviewRef);
+
+            if (!animeDoc.exists()) throw "Anime does not exist!";
+
+            const data = animeDoc.data();
+            let currentScore = data.score || 0;
+            let currentCount = data.scored_by || 0;
+            
+            let totalPoints = currentScore * currentCount;
+
+            if (reviewDoc.exists()) {
+                const oldRating = reviewDoc.data().rating || 0;
+                totalPoints = totalPoints - oldRating + rating;
+            } else {
+                totalPoints = totalPoints + rating;
+                currentCount = currentCount + 1; 
+            }
+
+            const newScore = currentCount > 0 ? (totalPoints / currentCount) : 0;
+
+            transaction.update(animeRef, {
+                // ✅ CHANGED: toFixed(1) saves as 3.3 instead of 3.33
+                score: parseFloat(newScore.toFixed(1)), 
+                scored_by: currentCount
+            });
+
+            transaction.set(reviewRef, {
+                userId,
+                userName: userName || 'Anonymous',
+                rating,
+                createdAt: new Date().toISOString()
+            });
+        });
+
+        return true;
+    } catch (error) {
+        console.error("Error adding rating:", error);
+        return false;
+    }
+};
+
+// Get Reviews
+export const getAnimeReviews = async (animeId: string) => {
+    try {
+        const q = query(collection(db, 'anime', animeId, 'reviews'), orderBy('createdAt', 'desc'), limit(10));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (e) {
+        console.error("Error fetching reviews:", e);
+        return [];
+    }
 };
