@@ -14,11 +14,11 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
-// Fetch all anime (for Trending/Recommendations)
+// Fetch all anime (Trending = Highest Views)
 export const getTopAnime = async () => {
   try {
     const animeRef = collection(db, 'anime');
-    const q = query(animeRef, limit(20)); 
+    const q = query(animeRef, orderBy('views', 'desc'), limit(50)); 
     
     try {
         const snapshot = await getDocs(q);
@@ -96,6 +96,42 @@ export const getSimilarAnime = async (genres: string[], currentId: string) => {
   }
 };
 
+// ✅ NEW: Get Recommended Anime based on User Genres
+export const getRecommendedAnime = async (userGenres: string[]) => {
+  try {
+    // Fallback if no genres provided
+    if (!userGenres || userGenres.length === 0) {
+        return getTopAnime(); 
+    }
+
+    // Slice to top 5 genres to respect Firestore query limits (max 10 in array-contains-any)
+    const searchGenres = userGenres.slice(0, 5); 
+
+    const animeRef = collection(db, 'anime');
+    // Find anime that contain ANY of these genres, fetch 50
+    const q = query(
+        animeRef, 
+        where('genres', 'array-contains-any', searchGenres), 
+        limit(50)
+    );
+    
+    const snapshot = await getDocs(q);
+    
+    // Sort results by views client-side (since we can't double order easily with array-contains)
+    const results = snapshot.docs.map(doc => ({
+        mal_id: doc.id,
+        ...doc.data()
+    })) as any[];
+
+    // Return most popular among the matching genres
+    return results.sort((a, b) => (b.views || 0) - (a.views || 0));
+
+  } catch (error) {
+    console.error("Error fetching recommendations:", error);
+    return [];
+  }
+};
+
 // Increment View Count
 export const incrementAnimeView = async (id: string) => {
   try {
@@ -139,7 +175,7 @@ export const searchAnime = async (queryText: string) => {
   );
 };
 
-// ✅ UPDATED: Handle Re-Rating Logic
+// Add Rating (No Text)
 export const addAnimeReview = async (animeId: string, userId: string, userName: string, rating: number) => {
     try {
         const animeRef = doc(db, 'anime', animeId);
@@ -168,7 +204,6 @@ export const addAnimeReview = async (animeId: string, userId: string, userName: 
             const newScore = currentCount > 0 ? (totalPoints / currentCount) : 0;
 
             transaction.update(animeRef, {
-                // ✅ CHANGED: toFixed(1) saves as 3.3 instead of 3.33
                 score: parseFloat(newScore.toFixed(1)), 
                 scored_by: currentCount
             });

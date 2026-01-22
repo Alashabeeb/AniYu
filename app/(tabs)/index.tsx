@@ -19,8 +19,11 @@ import { useTheme } from '../../context/ThemeContext';
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
 import { auth, db } from '../../config/firebaseConfig';
-import { getTopAnime, searchAnime } from '../../services/animeService';
+// ✅ Import getRecommendedAnime
+import { getRecommendedAnime, getTopAnime, searchAnime } from '../../services/animeService';
 import { getFavorites, toggleFavorite } from '../../services/favoritesService';
+// ✅ Import getContinueWatching
+import { getContinueWatching } from '../../services/historyService';
 import { getUnreadLocalCount } from '../../services/notificationService';
 
 export default function HomeScreen() {
@@ -29,6 +32,7 @@ export default function HomeScreen() {
   const currentUser = auth.currentUser;
 
   const [trending, setTrending] = useState<any[]>([]);
+  const [recommended, setRecommended] = useState<any[]>([]); // ✅ Recommended State
   const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -38,7 +42,6 @@ export default function HomeScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   
-  // Notification Red Dot State
   const [hasUnread, setHasUnread] = useState(false);
 
   useEffect(() => { loadInitialData(); }, []);
@@ -50,7 +53,6 @@ export default function HomeScreen() {
     }, [])
   );
 
-  // LISTEN FOR NOTIFICATIONS (Real-time)
   useEffect(() => {
       if (!currentUser) return;
       const q = query(collection(db, 'users', currentUser.uid, 'notifications'), where('read', '==', false));
@@ -63,28 +65,57 @@ export default function HomeScreen() {
       if (socialCount !== undefined) {
            setHasUnread(socialCount > 0 || localCount > 0);
       } else {
-           // ✅ FIX: Explicitly set false if 0 (Fixed bug where dot wouldn't clear)
            setHasUnread(localCount > 0);
       }
   };
 
   const loadFavorites = async () => {
       const favs = await getFavorites();
-      
-      // ✅ UPDATE: Filter to show ONLY Anime (Exclude Manga/Manhwa)
       const animeFavs = favs.filter((item: any) => {
           const type = item.type?.toLowerCase();
           return type !== 'manga' && type !== 'manhwa' && type !== 'novel' && !item.isManga;
       });
-      
       setFavorites(animeFavs);
+  };
+
+  // ✅ LOGIC: EXTRACT TOP GENRES FROM HISTORY
+  const getTopGenres = async () => {
+      const history = await getContinueWatching();
+      if (history.length === 0) return [];
+
+      const genreCounts: Record<string, number> = {};
+      
+      history.forEach(item => {
+          if (item.genres) {
+              item.genres.forEach(g => {
+                  genreCounts[g] = (genreCounts[g] || 0) + 1;
+              });
+          }
+      });
+
+      // Sort genres by frequency
+      const sortedGenres = Object.entries(genreCounts)
+          .sort(([, a], [, b]) => b - a)
+          .map(([genre]) => genre);
+
+      return sortedGenres.slice(0, 3); // Return top 3 genres
   };
 
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const data = await getTopAnime();
-      setTrending(data);
+      
+      // 1. Fetch Trending
+      const trendingData = await getTopAnime();
+      setTrending(trendingData);
+
+      // 2. Fetch Personalized Recommendations
+      const userGenres = await getTopGenres();
+      const recommendedData = await getRecommendedAnime(userGenres);
+      
+      // Filter out duplicates from trending if needed, or just set it
+      setRecommended(recommendedData);
+
       await loadFavorites(); 
     } catch (error) {
       console.error(error);
@@ -150,7 +181,6 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-      {/* HEADER: AniYu (Left) + Notification (Right) */}
       <View style={styles.topHeader}>
           <Text style={[styles.brandText, { color: theme.text }]}>AniYu</Text>
           
@@ -163,7 +193,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
       </View>
 
-      {/* SEARCH BAR */}
       <View style={styles.headerContainer}>
         <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
           <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
@@ -208,8 +237,23 @@ export default function HomeScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         >
           <HeroCarousel data={trending.slice(0, 5)} />
-          <TrendingRail title="Trending Now" data={trending} favorites={favorites} onToggleFavorite={handleToggleFav} />
-          <TrendingRail title="Recommended for You" data={trending.slice(5)} favorites={favorites} onToggleFavorite={handleToggleFav} />
+          
+          <TrendingRail 
+              title="Trending Now" 
+              data={trending.slice(0, 5)} 
+              favorites={favorites} 
+              onToggleFavorite={handleToggleFav}
+              onMore={() => router.push('/anime-list?type=trending')} 
+          />
+          
+          {/* ✅ UPDATED: Recommended for You (Personalized) */}
+          <TrendingRail 
+              title="Recommended for You" 
+              data={recommended.slice(0, 5)} 
+              favorites={favorites} 
+              onToggleFavorite={handleToggleFav}
+              onMore={() => router.push('/anime-list?type=recommended')} 
+          />
           
           {favorites.length > 0 && (
               <TrendingRail title="My Favorites ❤️" data={favorites} favorites={favorites} onToggleFavorite={handleToggleFav} />
@@ -226,7 +270,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   
-  // HEADER STYLES
   topHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 5 },
   brandText: { fontSize: 24, fontWeight: '900', fontFamily: 'System', letterSpacing: 0.5 },
   notificationBtn: { padding: 5, position: 'relative' },
