@@ -1,18 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router'; // ✅ Import useFocusEffect
+import React, { useCallback, useState } from 'react'; // ✅ Import useCallback
 import {
-  ActivityIndicator,
-  FlatList,
-  Keyboard,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    FlatList,
+    Keyboard,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MangaGrid from '../../components/MangaGrid';
@@ -27,13 +27,11 @@ export default function ComicScreen() {
   
   const [activeTab, setActiveTab] = useState('Discover'); 
   
-  // ✅ FIXED: Added <any[]> to prevent red underlines
   const [topManga, setTopManga] = useState<any[]>([]);
   const [allManga, setAllManga] = useState<any[]>([]); 
   const [library, setLibrary] = useState<any[]>([]);
   
   const [searchQuery, setSearchQuery] = useState('');
-  // ✅ FIXED: Added <any[]> here too
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -41,15 +39,22 @@ export default function ComicScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // ✅ FIXED: Replaced useEffect with useFocusEffect to reload data when tab opens
+  useFocusEffect(
+    useCallback(() => {
+        loadData();
+    }, [])
+  );
 
   const loadData = async () => {
-    setLoading(true);
+    // Note: Removed setLoading(true) here to prevent full screen flash on every tab switch
+    // We only show loading on initial mount or refresh
+    if (topManga.length === 0) setLoading(true);
+    
     const top = await getTopManga();
     const all = await getAllManga();
     const favs = await getFavorites(); 
+    
     setTopManga(top);
     setAllManga(all);
     setLibrary(favs); 
@@ -78,7 +83,7 @@ export default function ComicScreen() {
       setSearchLoading(false);
   };
 
-  // ✅ HANDLER TO OPEN MANGA DETAILS
+  // HANDLER TO OPEN MANGA DETAILS
   const openMangaDetails = (item: any) => {
       router.push({ pathname: '/manga/[id]', params: { id: item.mal_id } });
   };
@@ -106,7 +111,7 @@ export default function ComicScreen() {
       </TouchableOpacity>
   );
 
-  if (loading) {
+  if (loading && topManga.length === 0) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.tint} />
@@ -139,108 +144,102 @@ export default function ComicScreen() {
 
       {/* Content Area */}
       <View style={styles.content}>
-        {loading ? (
-            <View style={styles.center}>
-                <ActivityIndicator size="large" color={theme.tint} />
+        {activeTab === 'Discover' ? (
+            <View style={{ flex: 1 }}>
+                {/* Search Bar is always visible in Discover */}
+                <View style={styles.headerContainer}>
+                    <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
+                        <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
+                        <TextInput 
+                            style={[styles.input, { color: theme.text }]}
+                            placeholder="Search Manga..."
+                            placeholderTextColor={theme.subText}
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                            onSubmitEditing={handleSearch}
+                            returnKeyType="search"
+                        />
+                        {searchQuery.length > 0 && (
+                            <TouchableOpacity onPress={() => { setSearchQuery(''); setIsSearching(false); setSearchResults([]); }}>
+                                <Ionicons name="close-circle" size={18} color={theme.subText} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+
+                {/* Show Search Results OR Main Content */}
+                {isSearching ? (
+                    <View style={{ flex: 1 }}>
+                        {searchLoading ? (
+                            <View style={styles.center}><ActivityIndicator size="small" color={theme.tint} /></View>
+                        ) : (
+                            <FlatList
+                                data={searchResults}
+                                keyExtractor={(item) => item.mal_id.toString()}
+                                numColumns={3}
+                                renderItem={renderGridItem}
+                                contentContainerStyle={{ padding: 10 }}
+                                ListEmptyComponent={<Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No results found.</Text>}
+                            />
+                        )}
+                    </View>
+                ) : (
+                    <ScrollView 
+                        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+                        contentContainerStyle={{ paddingBottom: 100 }}
+                    >
+                        {/* 1. TOP MANGA RAIL */}
+                        <TrendingRail 
+                            title="🏆 Top Manga" 
+                            data={topManga.slice(0, 5)} 
+                            favorites={library} 
+                            onToggleFavorite={handleToggleFav}
+                            onMore={() => router.push('/manga-list?type=top')}
+                            onItemPress={openMangaDetails}
+                        />
+
+                        {/* 2. ALL MANGA GRID */}
+                        <View style={styles.sectionContainer}>
+                            <Text style={[styles.sectionTitle, { color: theme.text }]}>All Manga</Text>
+                            {allManga.length > 0 ? (
+                                <View style={styles.gridContainer}>
+                                    {allManga.map((item: any) => (
+                                        <TouchableOpacity 
+                                            key={item.mal_id}
+                                            style={styles.gridItemWrapper}
+                                            onPress={() => openMangaDetails(item)}
+                                        >
+                                            <View style={styles.imageContainer}>
+                                                <Image 
+                                                    source={{ uri: item.images?.jpg?.image_url }} 
+                                                    style={styles.poster} 
+                                                    contentFit="cover"
+                                                />
+                                                {item.status && item.status !== 'Upcoming' && (
+                                                    <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                                                        <Text style={styles.statusText}>{item.status}</Text>
+                                                    </View>
+                                                )}
+                                            </View>
+                                            <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>{item.title}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            ) : (
+                                <Text style={{color: theme.subText, textAlign:'center', marginTop: 20}}>No manga found.</Text>
+                            )}
+                        </View>
+                    </ScrollView>
+                )}
             </View>
         ) : (
-            activeTab === 'Discover' ? (
-                <View style={{ flex: 1 }}>
-                    {/* Search Bar is always visible in Discover */}
-                    <View style={styles.headerContainer}>
-                        <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
-                            <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
-                            <TextInput 
-                                style={[styles.input, { color: theme.text }]}
-                                placeholder="Search Manga..."
-                                placeholderTextColor={theme.subText}
-                                value={searchQuery}
-                                onChangeText={setSearchQuery}
-                                onSubmitEditing={handleSearch}
-                                returnKeyType="search"
-                            />
-                            {searchQuery.length > 0 && (
-                                <TouchableOpacity onPress={() => { setSearchQuery(''); setIsSearching(false); setSearchResults([]); }}>
-                                    <Ionicons name="close-circle" size={18} color={theme.subText} />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </View>
-
-                    {/* Show Search Results OR Main Content */}
-                    {isSearching ? (
-                        <View style={{ flex: 1 }}>
-                            {searchLoading ? (
-                                <View style={styles.center}><ActivityIndicator size="small" color={theme.tint} /></View>
-                            ) : (
-                                <FlatList
-                                    data={searchResults}
-                                    keyExtractor={(item) => item.mal_id.toString()}
-                                    numColumns={3}
-                                    renderItem={renderGridItem}
-                                    contentContainerStyle={{ padding: 10 }}
-                                    ListEmptyComponent={<Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No results found.</Text>}
-                                />
-                            )}
-                        </View>
-                    ) : (
-                        <ScrollView 
-                            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
-                            contentContainerStyle={{ paddingBottom: 100 }}
-                        >
-                            {/* 1. TOP MANGA RAIL */}
-                            <TrendingRail 
-                                title="🏆 Top Manga" 
-                                data={topManga.slice(0, 5)} 
-                                favorites={library} 
-                                onToggleFavorite={handleToggleFav}
-                                onMore={() => router.push('/manga-list?type=top')}
-                                onItemPress={openMangaDetails}
-                            />
-
-                            {/* 2. ALL MANGA GRID */}
-                            <View style={styles.sectionContainer}>
-                                <Text style={[styles.sectionTitle, { color: theme.text }]}>All Manga</Text>
-                                {allManga.length > 0 ? (
-                                    <View style={styles.gridContainer}>
-                                        {allManga.map((item: any) => (
-                                            <TouchableOpacity 
-                                                key={item.mal_id}
-                                                style={styles.gridItemWrapper}
-                                                onPress={() => openMangaDetails(item)}
-                                            >
-                                                <View style={styles.imageContainer}>
-                                                    <Image 
-                                                        source={{ uri: item.images?.jpg?.image_url }} 
-                                                        style={styles.poster} 
-                                                        contentFit="cover"
-                                                    />
-                                                    {item.status && item.status !== 'Upcoming' && (
-                                                        <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
-                                                            <Text style={styles.statusText}>{item.status}</Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                                <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>{item.title}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                ) : (
-                                    <Text style={{color: theme.subText, textAlign:'center', marginTop: 20}}>No manga found.</Text>
-                                )}
-                            </View>
-                        </ScrollView>
-                    )}
-                </View>
-            ) : (
-                <MangaGrid 
-                    data={library} 
-                    theme={theme} 
-                    refreshing={refreshing} 
-                    onRefresh={onRefresh}
-                    emptyMsg="No manga in library yet."
-                />
-            )
+            <MangaGrid 
+                data={library} 
+                theme={theme} 
+                refreshing={refreshing} 
+                onRefresh={onRefresh}
+                emptyMsg="No manga in library yet."
+            />
         )}
       </View>
     </SafeAreaView>

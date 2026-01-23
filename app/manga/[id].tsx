@@ -9,11 +9,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-// Services
+// Manga Services
 import {
-    addAnimeReview
-} from '../../services/animeService';
-import {
+    addMangaReview, // ✅ Import this
     getMangaChapters,
     getMangaDetails,
     incrementMangaView
@@ -65,20 +63,22 @@ export default function MangaDetailScreen() {
   };
 
   const submitReview = async () => {
-      // Reusing the review logic (you might want to separate this in services later)
       if (userRating === 0) return Alert.alert("Rate First", "Please tap the stars to rate.");
       const user = auth.currentUser;
       if (!user) return Alert.alert("Login Required", "You must be logged in to rate.");
 
       setSubmittingReview(true);
-      const success = await addAnimeReview(id as string, user.uid, user.displayName || 'User', userRating);
+      // ✅ Call addMangaReview instead of addAnimeReview
+      const success = await addMangaReview(id as string, user.uid, user.displayName || 'User', userRating);
       setSubmittingReview(false);
 
       if (success) {
           Alert.alert("Thank you!", "Your rating has been saved.");
           setModalVisible(false);
           setUserRating(0);
-          loadData(); 
+          loadData(); // Refresh data to show new score
+      } else {
+          Alert.alert("Error", "Could not save rating.");
       }
   };
 
@@ -129,7 +129,6 @@ export default function MangaDetailScreen() {
                     </View>
                 </View>
 
-                {/* Genres */}
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 15 }}>
                     {manga.genres?.map((g: any) => (
                         <View key={g} style={{ backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginRight: 8, marginBottom: 8 }}>
@@ -145,7 +144,6 @@ export default function MangaDetailScreen() {
                 </Text>
             </View>
             
-            {/* CHAPTER LIST */}
             <View style={styles.chapterList}>
                 {chapters.map((ch) => (
                     <TouchableOpacity 
@@ -165,7 +163,6 @@ export default function MangaDetailScreen() {
             </View>
         </ScrollView>
 
-        {/* Rating Modal */}
         <Modal
             animationType="fade"
             transparent={true}
@@ -200,14 +197,12 @@ export default function MangaDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  
   headerContainer: { width: '100%', height: 300, position: 'relative' },
   heroPoster: { width: '100%', height: '100%' },
   headerOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
   headerContent: { position: 'absolute', bottom: 20, left: 20, right: 20, flexDirection: 'row', gap: 15 },
   smallPoster: { width: 100, height: 150, borderRadius: 8 },
   title: { fontSize: 22, fontWeight: 'bold' },
-
   contentScroll: { flex: 1 },
   detailsContainer: { padding: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
@@ -216,12 +211,10 @@ const styles = StyleSheet.create({
   statBox: { alignItems: 'center' },
   val: { fontWeight: 'bold', fontSize: 16 },
   sectionHeader: { marginTop: 10 },
-  
   chapterList: { padding: 20, paddingTop: 0 },
   chapterCard: { padding: 15, borderRadius: 10, marginBottom: 10 },
   chapterNum: { fontSize: 16, fontWeight: 'bold', marginBottom: 2 },
   chapterTitle: { fontSize: 14 },
-
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 40 },
   modalContent: { padding: 25, borderRadius: 16, alignItems: 'center' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
