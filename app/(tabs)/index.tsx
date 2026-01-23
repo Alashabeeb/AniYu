@@ -19,10 +19,8 @@ import { useTheme } from '../../context/ThemeContext';
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
 import { auth, db } from '../../config/firebaseConfig';
-// ✅ Import getRecommendedAnime
-import { getRecommendedAnime, getTopAnime, searchAnime } from '../../services/animeService';
+import { getRecommendedAnime, getTopAnime, getUpcomingAnime, searchAnime } from '../../services/animeService';
 import { getFavorites, toggleFavorite } from '../../services/favoritesService';
-// ✅ Import getContinueWatching
 import { getContinueWatching } from '../../services/historyService';
 import { getUnreadLocalCount } from '../../services/notificationService';
 
@@ -32,8 +30,11 @@ export default function HomeScreen() {
   const currentUser = auth.currentUser;
 
   const [trending, setTrending] = useState<any[]>([]);
-  const [recommended, setRecommended] = useState<any[]>([]); // ✅ Recommended State
+  const [upcoming, setUpcoming] = useState<any[]>([]); 
+  const [recommended, setRecommended] = useState<any[]>([]); 
   const [favorites, setFavorites] = useState<any[]>([]);
+  const [continueWatching, setContinueWatching] = useState<any[]>([]);
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -50,6 +51,7 @@ export default function HomeScreen() {
     useCallback(() => { 
         loadFavorites(); 
         checkUnreadStatus(); 
+        loadHistory(); 
     }, [])
   );
 
@@ -78,7 +80,11 @@ export default function HomeScreen() {
       setFavorites(animeFavs);
   };
 
-  // ✅ LOGIC: EXTRACT TOP GENRES FROM HISTORY
+  const loadHistory = async () => {
+      const history = await getContinueWatching();
+      setContinueWatching(history);
+  };
+
   const getTopGenres = async () => {
       const history = await getContinueWatching();
       if (history.length === 0) return [];
@@ -93,27 +99,27 @@ export default function HomeScreen() {
           }
       });
 
-      // Sort genres by frequency
       const sortedGenres = Object.entries(genreCounts)
           .sort(([, a], [, b]) => b - a)
           .map(([genre]) => genre);
 
-      return sortedGenres.slice(0, 3); // Return top 3 genres
+      return sortedGenres.slice(0, 3); 
   };
 
   const loadInitialData = async () => {
     try {
       setLoading(true);
       
-      // 1. Fetch Trending
+      await loadHistory();
+
       const trendingData = await getTopAnime();
       setTrending(trendingData);
 
-      // 2. Fetch Personalized Recommendations
+      const upcomingData = await getUpcomingAnime();
+      setUpcoming(upcomingData);
+
       const userGenres = await getTopGenres();
       const recommendedData = await getRecommendedAnime(userGenres);
-      
-      // Filter out duplicates from trending if needed, or just set it
       setRecommended(recommendedData);
 
       await loadFavorites(); 
@@ -133,6 +139,14 @@ export default function HomeScreen() {
   const handleToggleFav = async (anime: any) => {
       await toggleFavorite(anime);
       await loadFavorites();
+  };
+
+  const handleContinueWatching = (item: any) => {
+      if (item.episodeId) {
+          router.push({ pathname: '/anime/[id]', params: { id: item.mal_id, episodeId: item.episodeId } });
+      } else {
+          router.push(`/anime/${item.mal_id}`);
+      }
   };
 
   const handleSearch = async () => {
@@ -238,15 +252,33 @@ export default function HomeScreen() {
         >
           <HeroCarousel data={trending.slice(0, 5)} />
           
+          {continueWatching.length > 0 && (
+              <TrendingRail 
+                  title="Continue Watching" 
+                  data={continueWatching} 
+                  onItemPress={handleContinueWatching}
+              />
+          )}
+
+          {/* ✅ UPDATED: Added Fire Emoji */}
           <TrendingRail 
-              title="Trending Now" 
+              title="🔥 Trending Now" 
               data={trending.slice(0, 5)} 
               favorites={favorites} 
               onToggleFavorite={handleToggleFav}
               onMore={() => router.push('/anime-list?type=trending')} 
           />
           
-          {/* ✅ UPDATED: Recommended for You (Personalized) */}
+          {upcoming.length > 0 && (
+              <TrendingRail 
+                  title="Upcoming Anime" 
+                  data={upcoming.slice(0, 5)} 
+                  favorites={favorites} 
+                  onToggleFavorite={handleToggleFav}
+                  onMore={() => router.push('/anime-list?type=upcoming')}
+              />
+          )}
+
           <TrendingRail 
               title="Recommended for You" 
               data={recommended.slice(0, 5)} 
@@ -256,7 +288,13 @@ export default function HomeScreen() {
           />
           
           {favorites.length > 0 && (
-              <TrendingRail title="My Favorites ❤️" data={favorites} favorites={favorites} onToggleFavorite={handleToggleFav} />
+              <TrendingRail 
+                  title="My Favorites ❤️" 
+                  data={favorites.slice(0, 5)} 
+                  favorites={favorites} 
+                  onToggleFavorite={handleToggleFav} 
+                  onMore={() => router.push('/anime-list?type=favorites')}
+              />
           )}
 
           <View style={{ height: 100 }} />

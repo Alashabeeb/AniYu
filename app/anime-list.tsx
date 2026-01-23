@@ -15,13 +15,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-// ✅ Import getRecommendedAnime
-import { getAnimeDetails, getRecommendedAnime, getTopAnime } from '../services/animeService';
+// ✅ Import getUpcomingAnime
+import { getAnimeDetails, getRecommendedAnime, getTopAnime, getUpcomingAnime } from '../services/animeService';
 import { getFavorites } from '../services/favoritesService';
 import { getContinueWatching } from '../services/historyService';
 
 export default function AnimeListScreen() {
-  const { type } = useLocalSearchParams(); // 'watched', 'favorites', 'recommended', or undefined (Trending)
+  const { type } = useLocalSearchParams(); // 'watched', 'favorites', 'recommended', 'upcoming', 'trending'
   const router = useRouter();
   const { theme } = useTheme();
   
@@ -61,7 +61,6 @@ export default function AnimeListScreen() {
             const results = await Promise.all(promises);
             setList(results);
         } else if (type === 'recommended') {
-            // ✅ RECOMMENDED LOGIC
             const history = await getContinueWatching();
             const genreCounts: Record<string, number> = {};
             history.forEach(item => {
@@ -71,6 +70,10 @@ export default function AnimeListScreen() {
             
             const recs = await getRecommendedAnime(topGenres);
             setList(recs);
+        } else if (type === 'upcoming') {
+            // ✅ UPCOMING LOGIC
+            const upcoming = await getUpcomingAnime();
+            setList(upcoming);
         } else {
             // TRENDING LOGIC
             const trending = await getTopAnime();
@@ -90,7 +93,8 @@ export default function AnimeListScreen() {
   const getTitle = () => {
       if (type === 'watched') return 'Completed Anime';
       if (type === 'favorites') return 'Favorites';
-      if (type === 'recommended') return 'Recommended For You'; // ✅ New Title
+      if (type === 'recommended') return 'Recommended For You';
+      if (type === 'upcoming') return 'Upcoming Anime'; // ✅ New Title
       return 'Trending Now';
   };
 
@@ -111,8 +115,8 @@ export default function AnimeListScreen() {
         </Text>
       </View>
 
-      {/* ✅ Search Bar for Trending AND Recommended */}
-      {(!type || type === 'trending' || type === 'recommended') && (
+      {/* Search Bar for Discovery Lists */}
+      {(!type || type === 'trending' || type === 'recommended' || type === 'upcoming') && (
           <View style={styles.searchContainer}>
               <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
                   <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />

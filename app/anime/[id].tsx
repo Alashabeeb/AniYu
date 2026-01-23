@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
@@ -27,7 +27,7 @@ import {
     removeDownload,
     unregisterDownloadListener
 } from '../../services/downloadService';
-import { addToHistory } from '../../services/historyService';
+import { getContinueWatching, saveWatchProgress } from '../../services/historyService';
 
 const RANKS = [
     { name: 'GENIN', min: 0, max: 4 },       
@@ -57,13 +57,89 @@ export default function AnimeDetailScreen() {
   const [downloadedEpIds, setDownloadedEpIds] = useState<string[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({}); 
   
+  const [watchedEpisodeIds, setWatchedEpisodeIds] = useState<string[]>([]);
+
   const [currentEpId, setCurrentEpId] = useState<string | null>(null);
   const [currentVideoSource, setCurrentVideoSource] = useState<string | null>(null);
+
+  const resumeTimeRef = useRef<number | null>(null);
 
   const player = useVideoPlayer(currentVideoSource, player => { 
       player.loop = false; 
       if (currentVideoSource) player.play(); 
   });
+
+  // 1. CHECK HISTORY FOR RESUME TIME
+  useEffect(() => {
+      const checkHistory = async () => {
+          if (!anime || !currentEpId) return;
+          const history = await getContinueWatching();
+          const savedItem = history.find(h => String(h.mal_id) === String(anime.mal_id));
+          
+          if (savedItem && String(savedItem.episodeId) === String(currentEpId)) {
+              resumeTimeRef.current = savedItem.progress;
+          } else {
+              resumeTimeRef.current = null;
+          }
+      };
+      checkHistory();
+  }, [anime, currentEpId]);
+
+  // 2. FETCH WATCHED EPISODES LIST
+  useEffect(() => {
+      const fetchWatchedStatus = async () => {
+          const user = auth.currentUser;
+          if (!user || !anime) return;
+          try {
+              const progressRef = doc(db, 'users', user.uid, 'anime_progress', String(anime.mal_id));
+              const snap = await getDoc(progressRef);
+              if (snap.exists()) {
+                  const data = snap.data();
+                  if (data.watchedEpisodes) {
+                      setWatchedEpisodeIds(data.watchedEpisodes);
+                  }
+              }
+          } catch (e) {
+              console.log("Error fetching watched status:", e);
+          }
+      };
+      if (anime) fetchWatchedStatus();
+  }, [anime]);
+
+  // 3. APPLY RESUME TIME
+  useEffect(() => {
+      if (player && resumeTimeRef.current !== null) {
+          const timer = setTimeout(() => {
+              if(resumeTimeRef.current) {
+                  player.currentTime = resumeTimeRef.current;
+                  resumeTimeRef.current = null;
+              }
+          }, 500); 
+          return () => clearTimeout(timer);
+      }
+  }, [player, currentVideoSource]);
+
+  // 4. SAVE PROGRESS PERIODICALLY
+  useEffect(() => {
+      if (!currentEpId || !anime) return;
+
+      const interval = setInterval(() => {
+          if (player.playing && player.currentTime > 0) {
+              const activeEp = episodes.find(e => String(e.mal_id) === currentEpId);
+              if (activeEp) {
+                  saveWatchProgress(
+                      anime, 
+                      { ...activeEp, id: currentEpId },
+                      player.currentTime, 
+                      player.duration || 0
+                  );
+              }
+          }
+      }, 5000); 
+
+      return () => clearInterval(interval);
+  }, [player, currentEpId, anime, episodes]);
+
 
   useEffect(() => {
     if (currentVideoSource) {
@@ -83,10 +159,16 @@ export default function AnimeDetailScreen() {
 
       try {
           const progressRef = doc(db, 'users', user.uid, 'anime_progress', String(anime.mal_id));
+          
           await setDoc(progressRef, {
               watchedEpisodes: arrayUnion(currentEpId),
               totalEpisodes: anime.totalEpisodes || episodes.length 
           }, { merge: true });
+
+          setWatchedEpisodeIds(prev => {
+              if (!prev.includes(currentEpId)) return [...prev, currentEpId];
+              return prev;
+          });
 
           const progressSnap = await getDoc(progressRef);
           if (progressSnap.exists()) {
@@ -111,7 +193,10 @@ export default function AnimeDetailScreen() {
   };
 
   useEffect(() => {
-    if (episodeId) { setCurrentEpId(episodeId as string); setActiveTab('Overview'); }
+    if (episodeId) { 
+        setCurrentEpId(episodeId as string); 
+        setActiveTab('Overview'); 
+    }
   }, [episodeId]);
 
   useEffect(() => { 
@@ -130,7 +215,7 @@ export default function AnimeDetailScreen() {
               console.log("Playing Offline File");
               setCurrentVideoSource(localUri);
           } else {
-              const activeEpisode = episodes.find(e => e.mal_id === currentEpId);
+              const activeEpisode = episodes.find(e => String(e.mal_id) === currentEpId);
               if (activeEpisode?.url) setCurrentVideoSource(activeEpisode.url);
           }
       };
@@ -199,8 +284,7 @@ export default function AnimeDetailScreen() {
   };
 
   const handleEpisodePress = (ep: any) => {
-    setCurrentEpId(ep.mal_id);
-    if (anime) addToHistory(anime, ep.title || `Episode ${ep.number}`);
+    setCurrentEpId(String(ep.mal_id));
   };
 
   const handleDownload = async (ep: any) => {
@@ -289,7 +373,12 @@ export default function AnimeDetailScreen() {
         
         <View style={styles.videoContainer}>
             {currentVideoSource ? (
-                <VideoView style={styles.video} player={player} allowsPictureInPicture />
+                <VideoView 
+                    style={styles.video} 
+                    player={player} 
+                    allowsPictureInPicture 
+                    allowsFullscreen // ✅ Added Fullscreen/Landscape support
+                />
             ) : (
                 <View style={styles.posterContainer}>
                     <Image 
@@ -330,12 +419,10 @@ export default function AnimeDetailScreen() {
                         <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
                         
                         <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
-                            {/* ✅ UPDATED: Rating (Stars beside Score) */}
+                            {/* Rating */}
                             <TouchableOpacity style={styles.statBox} onPress={() => setModalVisible(true)}>
                                 <Text style={{ color: theme.subText }}>Rating</Text>
-                                
                                 <View style={{flexDirection:'row', alignItems:'center', gap: 5, marginTop: 4}}>
-                                    {/* Stars */}
                                     <View style={{flexDirection:'row', gap: 1}}>
                                         {[1, 2, 3, 4, 5].map(s => (
                                             <Ionicons 
@@ -346,12 +433,10 @@ export default function AnimeDetailScreen() {
                                             />
                                         ))}
                                     </View>
-                                    {/* Score Beside */}
                                     <Text style={[styles.val, { color: theme.text, fontSize: 13 }]}>
                                         {anime.score ? `${Number(anime.score).toFixed(1)}/5` : 'N/A'}
                                     </Text>
                                 </View>
-
                                 <Text style={{fontSize:10, color: theme.tint, marginTop:2}}>Tap to Rate</Text>
                             </TouchableOpacity>
                             
@@ -386,6 +471,7 @@ export default function AnimeDetailScreen() {
                             const epIdStr = String(ep.mal_id);
                             const isActive = currentEpId === epIdStr;
                             const isDownloaded = downloadedEpIds.includes(epIdStr);
+                            const isWatched = watchedEpisodeIds.includes(epIdStr); 
                             const progress = downloadProgress[epIdStr];
                             const isDownloading = progress !== undefined;
 
@@ -397,7 +483,15 @@ export default function AnimeDetailScreen() {
                                     >
                                         <Ionicons name={isActive ? "play" : "play-outline"} size={20} color={isActive ? theme.tint : theme.subText} style={{ marginRight: 10 }} />
                                         <View style={{ flex: 1 }}>
-                                            <Text numberOfLines={1} style={[styles.epTitle, { color: isActive ? theme.tint : theme.text }]}>{ep.title}</Text>
+                                            <View style={{flexDirection:'row', alignItems:'center', gap: 8, marginBottom: 2}}>
+                                                <Text numberOfLines={1} style={[styles.epTitle, { color: isActive ? theme.tint : theme.text, flex: 1 }]}>{ep.title}</Text>
+                                                {isWatched && (
+                                                    <View style={{backgroundColor: 'rgba(76, 175, 80, 0.1)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#4CAF50'}}>
+                                                        <Text style={{fontSize: 10, color: '#4CAF50', fontWeight:'bold'}}>Watched</Text>
+                                                    </View>
+                                                )}
+                                            </View>
+
                                             <View style={{flexDirection:'row', alignItems:'center', gap: 5}}>
                                                 <Text style={{ color: theme.subText, fontSize: 12 }}>
                                                     {ep.aired ? new Date(ep.aired).toLocaleDateString() : 'Ep ' + ep.number}
@@ -532,7 +626,7 @@ const styles = StyleSheet.create({
   episodeList: { padding: 16, paddingTop: 0 },
   epRowWrapper: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   epCard: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8 },
-  epTitle: { fontWeight: '600', fontSize: 15, marginBottom: 2 },
+  epTitle: { fontWeight: '600', fontSize: 15, marginBottom: 0 }, // Adjusted margin
   actionContainer: { marginLeft: 10, width: 50, alignItems: 'center', justifyContent: 'center' },
   downloadBtn: { width: 44, height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   progressWrapper: { width: '100%', alignItems: 'center' },

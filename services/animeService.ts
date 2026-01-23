@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
 
-// Fetch all anime (Trending = Highest Views)
+// Fetch Top 50 Anime (Trending)
 export const getTopAnime = async () => {
   try {
     const animeRef = collection(db, 'anime');
@@ -36,6 +36,23 @@ export const getTopAnime = async () => {
     }
   } catch (error) {
     console.error("Error fetching anime:", error);
+    return [];
+  }
+};
+
+// Fetch Upcoming Anime (Max 15)
+export const getUpcomingAnime = async () => {
+  try {
+    const animeRef = collection(db, 'anime');
+    const q = query(animeRef, where('status', '==', 'Upcoming'), limit(15));
+    
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({
+        mal_id: doc.id,
+        ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching upcoming:", error);
     return [];
   }
 };
@@ -96,19 +113,16 @@ export const getSimilarAnime = async (genres: string[], currentId: string) => {
   }
 };
 
-// ✅ NEW: Get Recommended Anime based on User Genres
+// Get Recommended Anime based on User Genres
 export const getRecommendedAnime = async (userGenres: string[]) => {
   try {
-    // Fallback if no genres provided
     if (!userGenres || userGenres.length === 0) {
         return getTopAnime(); 
     }
 
-    // Slice to top 5 genres to respect Firestore query limits (max 10 in array-contains-any)
     const searchGenres = userGenres.slice(0, 5); 
 
     const animeRef = collection(db, 'anime');
-    // Find anime that contain ANY of these genres, fetch 50
     const q = query(
         animeRef, 
         where('genres', 'array-contains-any', searchGenres), 
@@ -117,13 +131,11 @@ export const getRecommendedAnime = async (userGenres: string[]) => {
     
     const snapshot = await getDocs(q);
     
-    // Sort results by views client-side (since we can't double order easily with array-contains)
     const results = snapshot.docs.map(doc => ({
         mal_id: doc.id,
         ...doc.data()
     })) as any[];
 
-    // Return most popular among the matching genres
     return results.sort((a, b) => (b.views || 0) - (a.views || 0));
 
   } catch (error) {
@@ -167,15 +179,29 @@ export const getAnimeEpisodes = async (id: string) => {
   }
 };
 
-// Search Functionality
+// ✅ UPDATED: Search ALL Anime (No Limit)
 export const searchAnime = async (queryText: string) => {
-  const allAnime = await getTopAnime();
-  return allAnime.filter((a: any) => 
-    a.title.toLowerCase().includes(queryText.toLowerCase())
-  );
+  try {
+    // 1. Fetch entire collection (needed for client-side substring search)
+    const animeRef = collection(db, 'anime');
+    const snapshot = await getDocs(animeRef); 
+    
+    const allAnime = snapshot.docs.map(doc => ({
+      mal_id: doc.id,
+      ...doc.data()
+    }));
+
+    // 2. Filter locally
+    return allAnime.filter((a: any) => 
+      a.title && a.title.toLowerCase().includes(queryText.toLowerCase())
+    );
+  } catch (error) {
+    console.error("Search error:", error);
+    return [];
+  }
 };
 
-// Add Rating (No Text)
+// Add Rating
 export const addAnimeReview = async (animeId: string, userId: string, userName: string, rating: number) => {
     try {
         const animeRef = doc(db, 'anime', animeId);

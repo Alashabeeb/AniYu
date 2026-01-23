@@ -10,17 +10,17 @@ interface TrendingRailProps {
   data: any[];
   favorites?: any[];
   onToggleFavorite?: (anime: any) => void;
-  onMore?: () => void; // ✅ New Prop for "More" button
+  onMore?: () => void;
+  onItemPress?: (item: any) => void; // ✅ New prop for custom item click
 }
 
-export default function TrendingRail({ title, data, favorites = [], onToggleFavorite, onMore }: TrendingRailProps) {
+export default function TrendingRail({ title, data, favorites = [], onToggleFavorite, onMore, onItemPress }: TrendingRailProps) {
   const { theme } = useTheme(); 
   
   if (!data || data.length === 0) return null;
 
   return (
     <View style={styles.container}>
-      {/* ✅ UPDATED: Header Row with Title and More Button */}
       <View style={styles.headerRow}>
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           {onMore && (
@@ -40,21 +40,48 @@ export default function TrendingRail({ title, data, favorites = [], onToggleFavo
             const imageUrl = item.image || item.images?.jpg?.image_url;
             const isFav = favorites.some((fav) => fav.mal_id === item.mal_id);
             
+            // ✅ Render Card Logic
+            const CardContent = (
+                <TouchableOpacity 
+                    style={styles.card} 
+                    activeOpacity={0.7}
+                    onPress={() => onItemPress ? onItemPress(item) : null} // Custom handler if provided
+                >
+                  <Image 
+                    source={{ uri: imageUrl }} 
+                    style={styles.poster} 
+                    contentFit="cover" 
+                    transition={500}
+                  />
+                  <Text numberOfLines={1} style={[styles.animeTitle, { color: theme.text }]}>
+                    {item.title}
+                  </Text>
+                  
+                  {/* Show Progress Bar if available (Continue Watching) */}
+                  {item.progress > 0 && item.totalDuration > 0 && (
+                      <View style={styles.progressContainer}>
+                          <View style={[styles.progressBar, { width: `${Math.min((item.progress / item.totalDuration) * 100, 100)}%`, backgroundColor: theme.tint }]} />
+                      </View>
+                  )}
+                  {/* Show Saved Episode Title */}
+                  {item.episode && (
+                      <Text numberOfLines={1} style={{fontSize: 10, color: theme.subText, marginTop: 2}}>
+                          {item.episode}
+                      </Text>
+                  )}
+                </TouchableOpacity>
+            );
+
+            // If we have a custom handler, don't use Link wrapper. Otherwise use Link.
             return (
               <View style={styles.cardContainer}>
-                  <Link href={`/anime/${item.mal_id}`} asChild>
-                    <TouchableOpacity style={styles.card} activeOpacity={0.7}>
-                      <Image 
-                        source={{ uri: imageUrl }} 
-                        style={styles.poster} 
-                        contentFit="cover" 
-                        transition={500}
-                      />
-                      <Text numberOfLines={1} style={[styles.animeTitle, { color: theme.text }]}>
-                        {item.title}
-                      </Text>
-                    </TouchableOpacity>
-                  </Link>
+                  {onItemPress ? (
+                      CardContent
+                  ) : (
+                      <Link href={`/anime/${item.mal_id}`} asChild>
+                          {CardContent}
+                      </Link>
+                  )}
 
                   {onToggleFavorite && (
                       <TouchableOpacity 
@@ -78,7 +105,6 @@ export default function TrendingRail({ title, data, favorites = [], onToggleFavo
 
 const styles = StyleSheet.create({
   container: { marginBottom: 30 },
-  // ✅ New Header Styles
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 15 },
   title: { fontSize: 20, fontWeight: 'bold' },
   moreText: { fontSize: 14, fontWeight: '600' },
@@ -90,5 +116,11 @@ const styles = StyleSheet.create({
   heartButton: {
       position: 'absolute', top: 8, right: 8,
       backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, padding: 6, zIndex: 10,
+  },
+  progressContainer: {
+      height: 3, backgroundColor: '#333', borderRadius: 2, marginTop: 4, overflow: 'hidden'
+  },
+  progressBar: {
+      height: '100%'
   }
 });

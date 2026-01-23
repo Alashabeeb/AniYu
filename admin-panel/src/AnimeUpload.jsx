@@ -4,6 +4,8 @@ import {
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   ArrowLeft,
+  Calendar // ✅ Added Calendar Icon for Upcoming
+  ,
   Captions,
   Download,
   Eye,
@@ -60,6 +62,9 @@ export default function AnimeUpload() {
   const [synopsis, setSynopsis] = useState('');
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedAge, setSelectedAge] = useState('12+');
+  
+  // ✅ NEW: Upcoming Status State
+  const [isUpcoming, setIsUpcoming] = useState(false);
 
   // BODY STATE (Episode Form)
   const [episodes, setEpisodes] = useState([]);
@@ -73,7 +78,6 @@ export default function AnimeUpload() {
   const fetchAnimeList = async () => {
     setLoadingList(true);
     try {
-      // ✅ UPDATED: Sort by Views Descending (Highest Views = Rank 1)
       const q = query(collection(db, 'anime'), orderBy('views', 'desc'));
       const snapshot = await getDocs(q);
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -87,6 +91,7 @@ export default function AnimeUpload() {
     setCreatedAnimeId(null);
     setIsEditMode(false);
     setAnimeTitle(''); setTotalEpisodes(''); setReleaseYear(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
+    setIsUpcoming(false); // Reset Upcoming
     setEpisodes([{ id: Date.now(), number: 1, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
     setDeletedEpisodes([]);
     setView('form');
@@ -103,6 +108,10 @@ export default function AnimeUpload() {
     setSelectedAge(anime.ageRating || '12+');
     setExistingCoverUrl(anime.images?.jpg?.image_url || '');
     setAnimeCover(null);
+    
+    // ✅ Set Upcoming Status
+    setIsUpcoming(anime.status === 'Upcoming');
+
     setDeletedEpisodes([]);
     
     // Fetch Episodes
@@ -259,6 +268,8 @@ export default function AnimeUpload() {
         ageRating: selectedAge,
         images: { jpg: { image_url: finalCoverUrl } }, 
         type: 'TV', 
+        // ✅ Save Status based on Checkbox
+        status: isUpcoming ? 'Upcoming' : 'Released',
         updatedAt: serverTimestamp()
       };
 
@@ -344,8 +355,13 @@ export default function AnimeUpload() {
               <span>Anime Details</span>
             </div>
             <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <div style={{ width: '100%', aspectRatio: '2/3', borderRadius: 15, overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
+              <div style={{ width: '100%', aspectRatio: '2/3', borderRadius: 15, overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', position:'relative' }}>
                 <img src={selectedAnime.images?.jpg?.image_url} alt={selectedAnime.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                
+                {/* ✅ Status Badge in Details */}
+                {selectedAnime.status === 'Upcoming' && (
+                    <div style={{position:'absolute', top:10, right:10, background:'#eab308', color:'white', padding:'5px 10px', borderRadius:8, fontWeight:'bold', fontSize:'0.8rem'}}>Upcoming</div>
+                )}
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
@@ -420,15 +436,17 @@ export default function AnimeUpload() {
         </div>
 
         <div style={{ display: 'grid', gap: 20 }}>
-          {/* ✅ UPDATED: List items sorted by Rank (Views) */}
           {animeList.map((anime, index) => (
             <div key={anime.id} className="card" style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', padding: 20, gap: 20 }}>
-                <div style={{ width: 60, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}><img src={anime.images?.jpg?.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
+                <div style={{ width: 60, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0, position:'relative' }}>
+                    <img src={anime.images?.jpg?.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {/* ✅ Small Upcoming Tag in List */}
+                    {anime.status === 'Upcoming' && <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(234, 179, 8, 0.9)', color:'white', fontSize:'0.6rem', textAlign:'center', fontWeight:'bold'}}>UPCOMING</div>}
+                </div>
                 <div style={{ flex: 1 }}>
                   <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', fontWeight: 700 }}>{anime.title}</h3>
                   <div style={{ display: 'flex', gap: 8, alignItems:'center' }}>
-                      {/* ✅ ADDED: Rank Indicator */}
                       <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#4f46e5' }}>#{index + 1}</span>
                       <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>• <Eye size={12} style={{display:'inline', verticalAlign:'middle'}}/> {anime.views || 0}</span>
                   </div>
@@ -481,7 +499,23 @@ export default function AnimeUpload() {
       <form onSubmit={handlePublish}>
         {/* HEADER: ANIME DETAILS */}
         <div className="card">
-          <div className="card-header blue"><Film size={24} /> <span>Header: Anime Details</span></div>
+          <div className="card-header blue" style={{justifyContent:'space-between'}}>
+              <div style={{display:'flex', alignItems:'center', gap:10}}><Film size={24} /> <span>Header: Anime Details</span></div>
+              
+              {/* ✅ Mark as Upcoming Checkbox */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background:'white', padding:'8px 15px', borderRadius:20, border:'1px solid #bfdbfe' }}>
+                  <input 
+                    type="checkbox" 
+                    id="upcomingCheck" 
+                    checked={isUpcoming} 
+                    onChange={(e) => setIsUpcoming(e.target.checked)} 
+                    style={{width:18, height:18, cursor:'pointer'}}
+                  />
+                  <label htmlFor="upcomingCheck" style={{fontSize:'0.9rem', fontWeight:700, color:'#1e3a8a', cursor:'pointer', display:'flex', alignItems:'center', gap:5}}>
+                      <Calendar size={16} /> Mark as Upcoming
+                  </label>
+              </div>
+          </div>
           <div className="card-body">
             <div className="grid-12">
               <div>
