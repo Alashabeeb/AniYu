@@ -1,8 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
+  Keyboard,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -13,22 +16,27 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MangaGrid from '../../components/MangaGrid';
+import TrendingRail from '../../components/TrendingRail';
 import { useTheme } from '../../context/ThemeContext';
-import { getFavorites } from '../../services/favoritesService';
-import { getTopManga, getTrendingManhwa, searchManga } from '../../services/mangaService';
+import { getFavorites, toggleFavorite } from '../../services/favoritesService';
+import { getAllManga, getTopManga, searchManga } from '../../services/mangaService';
 
 export default function ComicScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   
   const [activeTab, setActiveTab] = useState('Discover'); 
-  const [topManga, setTopManga] = useState([]);
-  const [trendingManhwa, setTrendingManhwa] = useState([]);
-  const [library, setLibrary] = useState([]);
+  
+  // ✅ FIXED: Added <any[]> to prevent red underlines
+  const [topManga, setTopManga] = useState<any[]>([]);
+  const [allManga, setAllManga] = useState<any[]>([]); 
+  const [library, setLibrary] = useState<any[]>([]);
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+  // ✅ FIXED: Added <any[]> here too
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,16 +47,11 @@ export default function ComicScreen() {
 
   const loadData = async () => {
     setLoading(true);
-    // 1. Fetch API Data
     const top = await getTopManga();
-    const manhwa = await getTrendingManhwa();
-    
-    // 2. Fetch Favorites (Local/Firebase)
-    // Note: Ideally, filter these to only show items where type === 'Manga' or 'Manhwa'
+    const all = await getAllManga();
     const favs = await getFavorites(); 
-    
     setTopManga(top);
-    setTrendingManhwa(manhwa);
+    setAllManga(all);
     setLibrary(favs); 
     setLoading(false);
   };
@@ -59,57 +62,60 @@ export default function ComicScreen() {
     setRefreshing(false);
   };
 
+  const handleToggleFav = async (manga: any) => {
+      await toggleFavorite(manga);
+      const favs = await getFavorites();
+      setLibrary(favs);
+  };
+
   const handleSearch = async () => {
       if (!searchQuery.trim()) return;
+      Keyboard.dismiss();
+      setSearchLoading(true);
       setIsSearching(true);
       const results = await searchManga(searchQuery);
       setSearchResults(results);
-      setIsSearching(false);
+      setSearchLoading(false);
   };
 
-  const renderDiscover = () => (
-      <ScrollView 
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
-        contentContainerStyle={{ paddingBottom: 100 }}
+  // ✅ HANDLER TO OPEN MANGA DETAILS
+  const openMangaDetails = (item: any) => {
+      router.push({ pathname: '/manga/[id]', params: { id: item.mal_id } });
+  };
+
+  const renderGridItem = ({ item }: { item: any }) => (
+      <TouchableOpacity 
+          style={styles.gridItem}
+          onPress={() => openMangaDetails(item)}
       >
-          {/* SEARCH BAR */}
-          <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
-              <Ionicons name="search" size={20} color={theme.subText} />
-              <TextInput 
-                  style={[styles.input, { color: theme.text }]}
-                  placeholder="Search Manga, Manhwa..."
-                  placeholderTextColor={theme.subText}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  onSubmitEditing={handleSearch}
-                  returnKeyType="search"
+          <View style={styles.imageContainer}>
+              <Image 
+                  source={{ uri: item.images?.jpg?.image_url || 'https://via.placeholder.com/150' }} 
+                  style={styles.poster} 
+                  contentFit="cover"
               />
-              {searchQuery.length > 0 && (
-                  <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
-                      <Ionicons name="close-circle" size={18} color={theme.subText} />
-                  </TouchableOpacity>
+              {item.status && item.status !== 'Upcoming' && (
+                  <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                      <Text style={styles.statusText}>{item.status}</Text>
+                  </View>
               )}
           </View>
-
-          {searchResults.length > 0 ? (
-              <View>
-                  <Text style={[styles.sectionTitle, { color: theme.text, marginLeft: 15 }]}>Search Results</Text>
-                  <MangaGrid data={searchResults} theme={theme} />
-              </View>
-          ) : (
-              <>
-                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Top Manga 🏆</Text>
-                  <MangaGrid data={topManga} theme={theme} horizontal />
-
-                  <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 25 }]}>Trending Manhwa 🔥</Text>
-                  <MangaGrid data={trendingManhwa} theme={theme} horizontal />
-              </>
-          )}
-      </ScrollView>
+          <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>
+              {item.title}
+          </Text>
+      </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.tint} />
+      </View>
+    );
+  }
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       
       {/* Header */}
       <View style={styles.header}>
@@ -138,7 +144,95 @@ export default function ComicScreen() {
                 <ActivityIndicator size="large" color={theme.tint} />
             </View>
         ) : (
-            activeTab === 'Discover' ? renderDiscover() : (
+            activeTab === 'Discover' ? (
+                <View style={{ flex: 1 }}>
+                    {/* Search Bar is always visible in Discover */}
+                    <View style={styles.headerContainer}>
+                        <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
+                            <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
+                            <TextInput 
+                                style={[styles.input, { color: theme.text }]}
+                                placeholder="Search Manga..."
+                                placeholderTextColor={theme.subText}
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                onSubmitEditing={handleSearch}
+                                returnKeyType="search"
+                            />
+                            {searchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => { setSearchQuery(''); setIsSearching(false); setSearchResults([]); }}>
+                                    <Ionicons name="close-circle" size={18} color={theme.subText} />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+
+                    {/* Show Search Results OR Main Content */}
+                    {isSearching ? (
+                        <View style={{ flex: 1 }}>
+                            {searchLoading ? (
+                                <View style={styles.center}><ActivityIndicator size="small" color={theme.tint} /></View>
+                            ) : (
+                                <FlatList
+                                    data={searchResults}
+                                    keyExtractor={(item) => item.mal_id.toString()}
+                                    numColumns={3}
+                                    renderItem={renderGridItem}
+                                    contentContainerStyle={{ padding: 10 }}
+                                    ListEmptyComponent={<Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No results found.</Text>}
+                                />
+                            )}
+                        </View>
+                    ) : (
+                        <ScrollView 
+                            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+                            contentContainerStyle={{ paddingBottom: 100 }}
+                        >
+                            {/* 1. TOP MANGA RAIL */}
+                            <TrendingRail 
+                                title="🏆 Top Manga" 
+                                data={topManga.slice(0, 5)} 
+                                favorites={library} 
+                                onToggleFavorite={handleToggleFav}
+                                onMore={() => router.push('/manga-list?type=top')}
+                                onItemPress={openMangaDetails}
+                            />
+
+                            {/* 2. ALL MANGA GRID */}
+                            <View style={styles.sectionContainer}>
+                                <Text style={[styles.sectionTitle, { color: theme.text }]}>All Manga</Text>
+                                {allManga.length > 0 ? (
+                                    <View style={styles.gridContainer}>
+                                        {allManga.map((item: any) => (
+                                            <TouchableOpacity 
+                                                key={item.mal_id}
+                                                style={styles.gridItemWrapper}
+                                                onPress={() => openMangaDetails(item)}
+                                            >
+                                                <View style={styles.imageContainer}>
+                                                    <Image 
+                                                        source={{ uri: item.images?.jpg?.image_url }} 
+                                                        style={styles.poster} 
+                                                        contentFit="cover"
+                                                    />
+                                                    {item.status && item.status !== 'Upcoming' && (
+                                                        <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                                                            <Text style={styles.statusText}>{item.status}</Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+                                                <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>{item.title}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                ) : (
+                                    <Text style={{color: theme.subText, textAlign:'center', marginTop: 20}}>No manga found.</Text>
+                                )}
+                            </View>
+                        </ScrollView>
+                    )}
+                </View>
+            ) : (
                 <MangaGrid 
                     data={library} 
                     theme={theme} 
@@ -149,13 +243,13 @@ export default function ComicScreen() {
             )
         )}
       </View>
-
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { padding: 20, paddingBottom: 10 },
   headerTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 15 },
   switchContainer: { flexDirection: 'row', borderRadius: 10, padding: 4 },
@@ -163,7 +257,17 @@ const styles = StyleSheet.create({
   switchText: { fontWeight: '600' },
   content: { flex: 1, marginTop: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, marginLeft: 15 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, height: 45, borderRadius: 12, margin: 15, marginBottom: 10 },
-  input: { flex: 1, marginLeft: 10, fontSize: 16 }
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, marginLeft: 20 },
+  headerContainer: { paddingHorizontal: 15, paddingBottom: 10 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, height: 45, borderRadius: 12, marginBottom: 10 },
+  input: { flex: 1, marginLeft: 10, fontSize: 16 },
+  sectionContainer: { marginBottom: 20 },
+  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10 },
+  gridItemWrapper: { width: '33.33%', padding: 5, marginBottom: 10, alignItems: 'center' },
+  gridItem: { flex: 1/3, margin: 5, alignItems: 'center' }, 
+  imageContainer: { width: '100%', position: 'relative', marginBottom: 5 },
+  poster: { width: '100%', aspectRatio: 0.7, borderRadius: 8 },
+  mangaTitle: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  statusBadge: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
+  statusText: { color: 'white', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase' },
 });

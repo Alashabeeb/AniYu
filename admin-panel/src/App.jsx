@@ -5,6 +5,7 @@ import { Link, Route, BrowserRouter as Router, Routes, useLocation } from 'react
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import AnimeUpload from './AnimeUpload';
 import { db } from './firebase';
+import MangaUpload from './MangaUpload'; // ✅ IMPORTED MANGA UPLOAD
 import Users from './Users';
 
 // --- HELPER: FORMAT DATES ---
@@ -23,7 +24,6 @@ function Dashboard() {
   
   const [rawData, setRawData] = useState([]); 
   const [chartData, setChartData] = useState([]); 
-  // Updated state to include anime and manga
   const [stats, setStats] = useState({ users: 0, anime: 0, manga: 0, reports: 0 });
 
   useEffect(() => {
@@ -42,7 +42,7 @@ function Dashboard() {
         // 2. Fetch Counts for Cards
         const reportsSnap = await getCountFromServer(collection(db, "reports"));
         const animeSnap = await getCountFromServer(collection(db, "anime"));
-        const mangaSnap = await getCountFromServer(collection(db, "manga")); // Will be 0 if collection doesn't exist yet
+        const mangaSnap = await getCountFromServer(collection(db, "manga")); 
 
         setRawData(users);
         setStats({ 
@@ -241,9 +241,6 @@ function Reports() {
     );
 }
 
-// --- 3. PLACEHOLDER PAGES ---
-function MangaUpload() { return <div className="p-6"><h1 className="text-2xl font-bold">Manga Upload</h1><p className="text-gray-500">Form coming soon...</p></div>; }
-
 // --- 4. MAIN LAYOUT ---
 function Layout() {
   const location = useLocation();
@@ -266,6 +263,7 @@ function Layout() {
           <Link to="/upload-anime" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/upload-anime')}`}>
             <Video size={20} /> <span className="font-medium">Anime Upload</span>
           </Link>
+          {/* ✅ LINK TO NEW MANGA UPLOAD */}
           <Link to="/upload-manga" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/upload-manga')}`}>
             <BookOpen size={20} /> <span className="font-medium">Manga Upload</span>
           </Link>
@@ -284,9 +282,9 @@ function Layout() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/upload-anime" element={<AnimeUpload />} />
+          {/* ✅ ROUTE FOR MANGA UPLOAD */}
           <Route path="/upload-manga" element={<MangaUpload />} />
           <Route path="/reports" element={<Reports />} />
-          {/* Hidden Route for Users (Access via Dashboard Card) */}
           <Route path="/users" element={<Users />} />
         </Routes>
       </div>

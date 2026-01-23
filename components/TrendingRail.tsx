@@ -11,7 +11,7 @@ interface TrendingRailProps {
   favorites?: any[];
   onToggleFavorite?: (anime: any) => void;
   onMore?: () => void;
-  onItemPress?: (item: any) => void; // ✅ New prop for custom item click
+  onItemPress?: (item: any) => void;
 }
 
 export default function TrendingRail({ title, data, favorites = [], onToggleFavorite, onMore, onItemPress }: TrendingRailProps) {
@@ -40,30 +40,40 @@ export default function TrendingRail({ title, data, favorites = [], onToggleFavo
             const imageUrl = item.image || item.images?.jpg?.image_url;
             const isFav = favorites.some((fav) => fav.mal_id === item.mal_id);
             
-            // ✅ Render Card Logic
+            // ✅ Card Content with Status Label
             const CardContent = (
                 <TouchableOpacity 
                     style={styles.card} 
                     activeOpacity={0.7}
-                    onPress={() => onItemPress ? onItemPress(item) : null} // Custom handler if provided
+                    onPress={() => onItemPress ? onItemPress(item) : null}
                 >
-                  <Image 
-                    source={{ uri: imageUrl }} 
-                    style={styles.poster} 
-                    contentFit="cover" 
-                    transition={500}
-                  />
+                  <View>
+                    <Image 
+                        source={{ uri: imageUrl }} 
+                        style={styles.poster} 
+                        contentFit="cover" 
+                        transition={500}
+                    />
+                    {/* ✅ STATUS LABEL (Hidden if Upcoming) */}
+                    {item.status && item.status !== 'Upcoming' && (
+                        <View style={[
+                            styles.statusBadge, 
+                            { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }
+                        ]}>
+                            <Text style={styles.statusText}>{item.status}</Text>
+                        </View>
+                    )}
+                  </View>
+
                   <Text numberOfLines={1} style={[styles.animeTitle, { color: theme.text }]}>
                     {item.title}
                   </Text>
                   
-                  {/* Show Progress Bar if available (Continue Watching) */}
                   {item.progress > 0 && item.totalDuration > 0 && (
                       <View style={styles.progressContainer}>
                           <View style={[styles.progressBar, { width: `${Math.min((item.progress / item.totalDuration) * 100, 100)}%`, backgroundColor: theme.tint }]} />
                       </View>
                   )}
-                  {/* Show Saved Episode Title */}
                   {item.episode && (
                       <Text numberOfLines={1} style={{fontSize: 10, color: theme.subText, marginTop: 2}}>
                           {item.episode}
@@ -72,7 +82,6 @@ export default function TrendingRail({ title, data, favorites = [], onToggleFavo
                 </TouchableOpacity>
             );
 
-            // If we have a custom handler, don't use Link wrapper. Otherwise use Link.
             return (
               <View style={styles.cardContainer}>
                   {onItemPress ? (
@@ -122,5 +131,21 @@ const styles = StyleSheet.create({
   },
   progressBar: {
       height: '100%'
+  },
+  // ✅ New Status Badge Styles
+  statusBadge: {
+      position: 'absolute',
+      top: 8,
+      left: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+      borderRadius: 6,
+      zIndex: 5,
+  },
+  statusText: {
+      color: 'white',
+      fontSize: 8,
+      fontWeight: 'bold',
+      textTransform: 'uppercase'
   }
 });

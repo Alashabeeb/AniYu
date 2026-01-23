@@ -4,24 +4,23 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    FlatList,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-// ✅ Import getUpcomingAnime
 import { getAnimeDetails, getRecommendedAnime, getTopAnime, getUpcomingAnime } from '../services/animeService';
 import { getFavorites } from '../services/favoritesService';
 import { getContinueWatching } from '../services/historyService';
 
 export default function AnimeListScreen() {
-  const { type } = useLocalSearchParams(); // 'watched', 'favorites', 'recommended', 'upcoming', 'trending'
+  const { type } = useLocalSearchParams(); 
   const router = useRouter();
   const { theme } = useTheme();
   
@@ -71,11 +70,9 @@ export default function AnimeListScreen() {
             const recs = await getRecommendedAnime(topGenres);
             setList(recs);
         } else if (type === 'upcoming') {
-            // ✅ UPCOMING LOGIC
             const upcoming = await getUpcomingAnime();
             setList(upcoming);
         } else {
-            // TRENDING LOGIC
             const trending = await getTopAnime();
             const rankedTrending = trending.map((item, index) => ({
                 ...item,
@@ -94,7 +91,7 @@ export default function AnimeListScreen() {
       if (type === 'watched') return 'Completed Anime';
       if (type === 'favorites') return 'Favorites';
       if (type === 'recommended') return 'Recommended For You';
-      if (type === 'upcoming') return 'Upcoming Anime'; // ✅ New Title
+      if (type === 'upcoming') return 'Upcoming Anime';
       return 'Trending Now';
   };
 
@@ -115,7 +112,6 @@ export default function AnimeListScreen() {
         </Text>
       </View>
 
-      {/* Search Bar for Discovery Lists */}
       {(!type || type === 'trending' || type === 'recommended' || type === 'upcoming') && (
           <View style={styles.searchContainer}>
               <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
@@ -155,10 +151,17 @@ export default function AnimeListScreen() {
                             style={styles.poster} 
                             contentFit="cover"
                         />
-                        {/* Only show rank if it exists (Trending only) */}
+                        {/* Rank Badge */}
                         {item.rank && (
                             <View style={[styles.rankBadge, { backgroundColor: item.rank <= 3 ? theme.tint : 'rgba(0,0,0,0.7)' }]}>
                                 <Text style={styles.rankText}>#{item.rank}</Text>
+                            </View>
+                        )}
+
+                        {/* ✅ Status Badge (Hidden if Upcoming) */}
+                        {item.status && item.status !== 'Upcoming' && (
+                            <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                                <Text style={styles.statusText}>{item.status}</Text>
                             </View>
                         )}
                     </View>
@@ -201,5 +204,17 @@ const styles = StyleSheet.create({
   },
   rankText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
   
+  // ✅ Status Styles
+  statusBadge: {
+      position: 'absolute',
+      top: 5,
+      right: 5,
+      paddingHorizontal: 5,
+      paddingVertical: 2,
+      borderRadius: 4,
+      zIndex: 10
+  },
+  statusText: { color: 'white', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase' },
+
   animeTitle: { fontSize: 12, fontWeight: '600', textAlign: 'center' }
 });

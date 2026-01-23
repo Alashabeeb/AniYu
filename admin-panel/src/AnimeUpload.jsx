@@ -4,8 +4,6 @@ import {
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   ArrowLeft,
-  Calendar // ✅ Added Calendar Icon for Upcoming
-  ,
   Captions,
   Download,
   Eye,
@@ -16,7 +14,6 @@ import {
   PlayCircle,
   Plus,
   Search,
-  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -34,24 +31,25 @@ const GENRES_LIST = [
 
 const AGE_RATINGS = ["All", "12+", "16+", "18+"];
 const LANGUAGES = ["English", "Spanish", "Portuguese", "French", "German", "Indonesian", "Arabic", "Russian", "Japanese", "Chinese"];
+const STATUS_OPTIONS = ["Ongoing", "Completed", "Upcoming"];
 
 export default function AnimeUpload() {
   // --- GLOBAL STATE ---
   const [view, setView] = useState('list');
   const [animeList, setAnimeList] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
+  const [libraryTab, setLibraryTab] = useState('Ongoing'); // ✅ New Tab State
   
   // --- FORM STATE ---
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(''); // Loading status text
   const [createdAnimeId, setCreatedAnimeId] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
   // --- DETAILS VIEW STATE ---
   const [selectedAnime, setSelectedAnime] = useState(null);
   const [selectedAnimeEpisodes, setSelectedAnimeEpisodes] = useState([]);
-  const [selectedAnimeReviews, setSelectedAnimeReviews] = useState([]);
 
   // HEADER STATE (Anime Form)
   const [animeCover, setAnimeCover] = useState(null); 
@@ -63,8 +61,8 @@ export default function AnimeUpload() {
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedAge, setSelectedAge] = useState('12+');
   
-  // ✅ NEW: Upcoming Status State
-  const [isUpcoming, setIsUpcoming] = useState(false);
+  // ✅ NEW: Status State (Replaces isUpcoming)
+  const [animeStatus, setAnimeStatus] = useState('Ongoing'); 
 
   // BODY STATE (Episode Form)
   const [episodes, setEpisodes] = useState([]);
@@ -91,7 +89,7 @@ export default function AnimeUpload() {
     setCreatedAnimeId(null);
     setIsEditMode(false);
     setAnimeTitle(''); setTotalEpisodes(''); setReleaseYear(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
-    setIsUpcoming(false); // Reset Upcoming
+    setAnimeStatus('Ongoing'); // Reset Status
     setEpisodes([{ id: Date.now(), number: 1, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
     setDeletedEpisodes([]);
     setView('form');
@@ -109,8 +107,9 @@ export default function AnimeUpload() {
     setExistingCoverUrl(anime.images?.jpg?.image_url || '');
     setAnimeCover(null);
     
-    // ✅ Set Upcoming Status
-    setIsUpcoming(anime.status === 'Upcoming');
+    // ✅ Set Status (Map old 'Released' to 'Ongoing' if needed)
+    const currentStatus = anime.status === 'Released' ? 'Ongoing' : (anime.status || 'Ongoing');
+    setAnimeStatus(currentStatus);
 
     setDeletedEpisodes([]);
     
@@ -147,12 +146,6 @@ export default function AnimeUpload() {
       const epSnap = await getDocs(q);
       const fetchedEps = epSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSelectedAnimeEpisodes(fetchedEps);
-
-      const reviewsQ = query(collection(db, 'anime', anime.id, 'reviews'), orderBy('createdAt', 'desc'));
-      const reviewsSnap = await getDocs(reviewsQ);
-      const fetchedReviews = reviewsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSelectedAnimeReviews(fetchedReviews);
-
     } catch (e) { console.error(e); }
   };
 
@@ -268,8 +261,7 @@ export default function AnimeUpload() {
         ageRating: selectedAge,
         images: { jpg: { image_url: finalCoverUrl } }, 
         type: 'TV', 
-        // ✅ Save Status based on Checkbox
-        status: isUpcoming ? 'Upcoming' : 'Released',
+        status: animeStatus, // ✅ Save selected status
         updatedAt: serverTimestamp()
       };
 
@@ -359,9 +351,9 @@ export default function AnimeUpload() {
                 <img src={selectedAnime.images?.jpg?.image_url} alt={selectedAnime.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 
                 {/* ✅ Status Badge in Details */}
-                {selectedAnime.status === 'Upcoming' && (
-                    <div style={{position:'absolute', top:10, right:10, background:'#eab308', color:'white', padding:'5px 10px', borderRadius:8, fontWeight:'bold', fontSize:'0.8rem'}}>Upcoming</div>
-                )}
+                <div style={{position:'absolute', top:10, right:10, background: selectedAnime.status === 'Completed' ? '#10b981' : selectedAnime.status === 'Upcoming' ? '#eab308' : '#3b82f6', color:'white', padding:'5px 10px', borderRadius:8, fontWeight:'bold', fontSize:'0.8rem'}}>
+                    {selectedAnime.status || 'Ongoing'}
+                </div>
               </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
@@ -418,6 +410,12 @@ export default function AnimeUpload() {
 
   // --- RENDER: LIST VIEW ---
   if (view === 'list') {
+    // ✅ Filter logic based on tabs
+    const filteredAnimeList = animeList.filter(item => {
+        const itemStatus = item.status === 'Released' ? 'Ongoing' : (item.status || 'Ongoing');
+        return itemStatus === libraryTab;
+    });
+
     return (
       <div className="container">
         <div className="card" style={{ marginBottom: 30, background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)', border: 'none' }}>
@@ -430,19 +428,47 @@ export default function AnimeUpload() {
            </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Library ({animeList.length})</h2>
-          <div style={{ position: 'relative' }}><input type="text" placeholder="Search..." style={{ padding: '10px 15px 10px 40px', borderRadius: 10, border: '1px solid #e5e7eb' }} /><Search size={18} style={{ position: 'absolute', left: 12, top: 12, color: '#9ca3af' }} /></div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Library ({filteredAnimeList.length})</h2>
+            <div style={{ position: 'relative' }}><input type="text" placeholder="Search..." style={{ padding: '10px 15px 10px 40px', borderRadius: 10, border: '1px solid #e5e7eb' }} /><Search size={18} style={{ position: 'absolute', left: 12, top: 12, color: '#9ca3af' }} /></div>
+          </div>
+
+          {/* ✅ TABS: Completed | Ongoing | Upcoming */}
+          <div style={{ display: 'flex', gap: 10, borderBottom: '2px solid #e5e7eb', paddingBottom: 10 }}>
+              {STATUS_OPTIONS.map(status => (
+                  <button 
+                    key={status}
+                    onClick={() => setLibraryTab(status)}
+                    style={{
+                        padding: '8px 20px',
+                        borderRadius: 20,
+                        border: 'none',
+                        background: libraryTab === status ? '#4f46e5' : 'transparent',
+                        color: libraryTab === status ? 'white' : '#6b7280',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                  >
+                      {status}
+                  </button>
+              ))}
+          </div>
         </div>
 
         <div style={{ display: 'grid', gap: 20 }}>
-          {animeList.map((anime, index) => (
+          {filteredAnimeList.length === 0 && <div style={{textAlign:'center', color:'#9ca3af', padding:40}}>No anime found in {libraryTab}.</div>}
+          
+          {filteredAnimeList.map((anime, index) => (
             <div key={anime.id} className="card" style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', padding: 20, gap: 20 }}>
                 <div style={{ width: 60, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0, position:'relative' }}>
                     <img src={anime.images?.jpg?.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    {/* ✅ Small Upcoming Tag in List */}
-                    {anime.status === 'Upcoming' && <div style={{position:'absolute', bottom:0, width:'100%', background:'rgba(234, 179, 8, 0.9)', color:'white', fontSize:'0.6rem', textAlign:'center', fontWeight:'bold'}}>UPCOMING</div>}
+                    {/* Status Label on List Item */}
+                    <div style={{position:'absolute', bottom:0, width:'100%', background: anime.status === 'Completed' ? 'rgba(16, 185, 129, 0.9)' : anime.status === 'Upcoming' ? 'rgba(234, 179, 8, 0.9)' : 'rgba(59, 130, 246, 0.9)', color:'white', fontSize:'0.5rem', textAlign:'center', fontWeight:'bold', textTransform:'uppercase'}}>
+                        {anime.status || 'Ongoing'}
+                    </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', fontWeight: 700 }}>{anime.title}</h3>
@@ -464,22 +490,6 @@ export default function AnimeUpload() {
     );
   }
 
-  // --- RENDER: SUCCESS SCREEN ---
-  if (view === 'success') {
-    return (
-      <div className="container" style={{ textAlign: 'center', marginTop: 50 }}>
-        <div className="card" style={{ maxWidth: 600, margin: '0 auto' }}>
-          <div className="card-body" style={{ alignItems: 'center', display: 'flex', flexDirection: 'column' }}>
-            <Sparkles size={50} color="#16a34a" style={{ marginBottom: 20 }} />
-            <h1 style={{ fontSize: '2rem', fontWeight: 900 }}>Success!</h1>
-            <p style={{ color: '#6b7280', marginBottom: 30 }}>Changes saved for "{animeTitle}".</p>
-            <button onClick={() => setView('list')} className="btn-publish"><ArrowLeft size={20} /> Back to Library</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // --- RENDER: FORM VIEW (BULK UPLOAD/EDIT) ---
   return (
     <div className="container">
@@ -490,7 +500,6 @@ export default function AnimeUpload() {
       <div className="page-header">
         <div className="page-title"><h1>{isEditMode ? "Manage Series" : "New Series Upload"}</h1></div>
         
-        {/* Only show button if not loading (Loading bar replaces it) */}
         {!loading && (
            <button onClick={handlePublish} className="btn-publish" style={{ width: 'auto', padding: '12px 30px', fontSize: '1rem' }}>Save All Changes</button>
         )}
@@ -502,18 +511,16 @@ export default function AnimeUpload() {
           <div className="card-header blue" style={{justifyContent:'space-between'}}>
               <div style={{display:'flex', alignItems:'center', gap:10}}><Film size={24} /> <span>Header: Anime Details</span></div>
               
-              {/* ✅ Mark as Upcoming Checkbox */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background:'white', padding:'8px 15px', borderRadius:20, border:'1px solid #bfdbfe' }}>
-                  <input 
-                    type="checkbox" 
-                    id="upcomingCheck" 
-                    checked={isUpcoming} 
-                    onChange={(e) => setIsUpcoming(e.target.checked)} 
-                    style={{width:18, height:18, cursor:'pointer'}}
-                  />
-                  <label htmlFor="upcomingCheck" style={{fontSize:'0.9rem', fontWeight:700, color:'#1e3a8a', cursor:'pointer', display:'flex', alignItems:'center', gap:5}}>
-                      <Calendar size={16} /> Mark as Upcoming
-                  </label>
+              {/* ✅ STATUS SELECTOR (Replaces Checkbox) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background:'white', padding:'5px 15px', borderRadius:12, border:'1px solid #bfdbfe' }}>
+                  <span style={{fontSize:'0.85rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Status:</span>
+                  <select 
+                    value={animeStatus} 
+                    onChange={(e) => setAnimeStatus(e.target.value)}
+                    style={{border:'none', fontWeight:700, color: animeStatus === 'Completed' ? '#10b981' : animeStatus === 'Upcoming' ? '#eab308' : '#3b82f6', outline:'none', fontSize:'0.95rem'}}
+                  >
+                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
               </div>
           </div>
           <div className="card-body">

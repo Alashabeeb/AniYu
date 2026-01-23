@@ -5,40 +5,31 @@ import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Carousel from 'react-native-reanimated-carousel';
-import { auth } from '../config/firebaseConfig'; // ✅ Import Auth to get User ID
+import { auth } from '../config/firebaseConfig';
 
 const { width } = Dimensions.get('window');
 
 export default function HeroCarousel({ data }: { data: any[] }) {
   const router = useRouter();
 
-  // ✅ LOGIC: Pick 5 Random Anime unique to the User & Date
   const dailyHeroAnime = useMemo(() => {
       if (!data || data.length === 0) return [];
 
       const user = auth.currentUser;
       const today = new Date();
-      
-      // ✅ Combine Date + User ID (e.g., "2024-10-25-user123")
-      // This ensures every user gets a DIFFERENT list, but it stays the same for 24 hours.
       const seedString = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}-${user?.uid || 'guest'}`;
       
-      // Generate hash from the unique string
       let seed = 0;
       for (let i = 0; i < seedString.length; i++) {
           seed = (seed * 31 + seedString.charCodeAt(i)) % 1000000007;
       }
 
-      // Pseudo-Random Generator using the unique seed
       const seededRandom = () => {
           const x = Math.sin(seed++) * 10000;
           return x - Math.floor(x);
       };
 
-      // Shuffle using the seeded random
       const shuffled = [...data].sort(() => 0.5 - seededRandom());
-
-      // Return top 5
       return shuffled.slice(0, 5);
   }, [data]); 
 
@@ -88,6 +79,13 @@ export default function HeroCarousel({ data }: { data: any[] }) {
                                 <Text style={styles.tagText}>{item.type || 'TV'}</Text>
                             </View>
                             
+                            {/* ✅ STATUS TAG (Hidden if Upcoming) */}
+                            {item.status && item.status !== 'Upcoming' && (
+                                <View style={[styles.tag, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                                    <Text style={styles.tagText}>{item.status}</Text>
+                                </View>
+                            )}
+                            
                             <View style={[styles.tag, { backgroundColor: '#FF6B6B' }]}>
                                 <Ionicons name="star" size={10} color="white" />
                                 <Text style={styles.tagText}> {item.score ? `${Number(item.score).toFixed(1)}/5` : 'N/A'}</Text>
@@ -111,8 +109,8 @@ const styles = StyleSheet.create({
   gradient: { position: 'absolute', bottom: 0, width: '100%', height: 250, justifyContent: 'flex-end', paddingBottom: 20 },
   content: { paddingHorizontal: 20 },
   title: { color: 'white', fontSize: 28, fontWeight: 'bold', marginBottom: 10, textShadowColor: 'rgba(0,0,0,0.7)', textShadowRadius: 10 },
-  tags: { flexDirection: 'row', marginBottom: 10 },
-  tag: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginRight: 8, flexDirection: 'row', alignItems: 'center' },
+  tags: { flexDirection: 'row', marginBottom: 10, flexWrap: 'wrap' },
+  tag: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginRight: 8, flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
   tagText: { color: 'white', fontSize: 12, fontWeight: 'bold' },
   synopsis: { color: '#ccc', fontSize: 14, lineHeight: 20 },
 });
