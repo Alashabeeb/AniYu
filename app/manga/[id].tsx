@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
@@ -9,9 +9,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-// Manga Services
+// Services
 import {
-    addMangaReview, // ✅ Import this
+    addMangaReview,
     getMangaChapters,
     getMangaDetails,
     incrementMangaView
@@ -20,6 +20,7 @@ import {
 export default function MangaDetailScreen() {
   const { id } = useLocalSearchParams();
   const { theme } = useTheme();
+  const router = useRouter(); 
   
   const [manga, setManga] = useState<any>(null);
   const [chapters, setChapters] = useState<any[]>([]);
@@ -68,7 +69,6 @@ export default function MangaDetailScreen() {
       if (!user) return Alert.alert("Login Required", "You must be logged in to rate.");
 
       setSubmittingReview(true);
-      // ✅ Call addMangaReview instead of addAnimeReview
       const success = await addMangaReview(id as string, user.uid, user.displayName || 'User', userRating);
       setSubmittingReview(false);
 
@@ -76,10 +76,27 @@ export default function MangaDetailScreen() {
           Alert.alert("Thank you!", "Your rating has been saved.");
           setModalVisible(false);
           setUserRating(0);
-          loadData(); // Refresh data to show new score
+          loadData(); 
       } else {
           Alert.alert("Error", "Could not save rating.");
       }
+  };
+
+  // ✅ UPDATED: Points to /chapter-read to avoid conflict
+  const handleReadChapter = (chapter: any) => {
+      if (!chapter.fileUrl) {
+          Alert.alert("Error", "Chapter file not available.");
+          return;
+      }
+      
+      router.push({
+          pathname: '/chapter-read', // ✅ Changed from '/manga/read'
+          params: {
+              url: chapter.fileUrl,
+              title: `${manga.title} - ${chapter.title || 'Chapter ' + chapter.number}`,
+              chapterNum: chapter.number
+          }
+      });
   };
 
   if (loading) return <View style={[styles.loading, { backgroundColor: theme.background }]}><ActivityIndicator size="large" color={theme.tint} /></View>;
@@ -91,7 +108,6 @@ export default function MangaDetailScreen() {
 
       <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={{ flex: 1 }}>
         
-        {/* MANGA COVER HEADER */}
         <View style={styles.headerContainer}>
             <Image source={{ uri: manga.images?.jpg?.image_url }} style={styles.heroPoster} resizeMode="cover" />
             <View style={styles.headerOverlay} />
@@ -144,12 +160,13 @@ export default function MangaDetailScreen() {
                 </Text>
             </View>
             
+            {/* CHAPTER LIST */}
             <View style={styles.chapterList}>
                 {chapters.map((ch) => (
                     <TouchableOpacity 
                         key={ch.id} 
                         style={[styles.chapterCard, { backgroundColor: theme.card }]}
-                        onPress={() => Alert.alert("Coming Soon", "PDF Reader not implemented yet.")}
+                        onPress={() => handleReadChapter(ch)}
                     >
                         <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
                             <View>
