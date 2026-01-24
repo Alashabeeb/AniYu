@@ -1,15 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
-
-// Services
+import { downloadChapterToFile, getMangaDownloads } from '../../services/downloadService';
+import { getMangaHistory } from '../../services/historyService';
 import {
     addMangaReview,
     getMangaChapters,
@@ -25,17 +25,40 @@ export default function MangaDetailScreen() {
   const [manga, setManga] = useState<any>(null);
   const [chapters, setChapters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   
+  const [downloadedChapters, setDownloadedChapters] = useState<string[]>([]);
+  const [readChapters, setReadChapters] = useState<string[]>([]);
+
   const [modalVisible, setModalVisible] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  useEffect(() => { 
-      if (id) {
-          loadData();
-          checkAndIncrementView();
-      } 
-  }, [id]);
+  // Reload status when returning to screen
+  useFocusEffect(
+    useCallback(() => {
+        if (id) {
+            loadStatus();
+        }
+    }, [id])
+  );
+
+  // Initial Load
+  useFocusEffect(
+    useCallback(() => {
+        if(id) loadData();
+    }, [id])
+  );
+
+  const loadStatus = async () => {
+      const dls = await getMangaDownloads();
+      const myDls = dls.filter(d => String(d.mal_id) === String(id));
+      setDownloadedChapters(myDls.map(d => String(d.episodeId)));
+
+      const hist = await getMangaHistory();
+      const myHist = hist.filter(h => String(h.mal_id) === String(id));
+      setReadChapters(myHist.map(h => String(h.chapterId)));
+  };
 
   const checkAndIncrementView = async () => {
       const user = auth.currentUser;
@@ -52,13 +75,15 @@ export default function MangaDetailScreen() {
 
   const loadData = async () => {
     try {
-      setLoading(true);
+      if(!manga) setLoading(true); 
       const [details, chaps] = await Promise.all([
           getMangaDetails(id as string),
           getMangaChapters(id as string)
       ]);
       setManga(details);
       setChapters(chaps);
+      checkAndIncrementView();
+      await loadStatus(); 
     } catch (error) { console.error(error); } 
     finally { setLoading(false); }
   };
@@ -82,7 +107,33 @@ export default function MangaDetailScreen() {
       }
   };
 
-  // ✅ UPDATED: Points to /chapter-read to avoid conflict
+  const handleDownload = async (chapter: any) => {
+      if (!chapter.fileUrl) return Alert.alert("Error", "No file to download.");
+      
+      const chId = String(chapter.id || chapter.number);
+      if (downloadedChapters.includes(chId)) return; 
+
+      setDownloadingIds(prev => [...prev, chId]);
+
+      try {
+          const episodeObj = {
+              id: chId, 
+              number: chapter.number,
+              title: chapter.title || `Chapter ${chapter.number}`,
+              url: chapter.fileUrl
+          };
+          
+          await downloadChapterToFile(manga, episodeObj);
+          
+          setDownloadedChapters(prev => [...prev, chId]);
+          
+      } catch (e) {
+          Alert.alert("Error", "Download failed.");
+      } finally {
+          setDownloadingIds(prev => prev.filter(id => id !== chId));
+      }
+  };
+
   const handleReadChapter = (chapter: any) => {
       if (!chapter.fileUrl) {
           Alert.alert("Error", "Chapter file not available.");
@@ -90,16 +141,18 @@ export default function MangaDetailScreen() {
       }
       
       router.push({
-          pathname: '/chapter-read', // ✅ Changed from '/manga/read'
+          pathname: '/chapter-read', 
           params: {
               url: chapter.fileUrl,
               title: `${manga.title} - ${chapter.title || 'Chapter ' + chapter.number}`,
+              mangaId: manga.mal_id, 
+              chapterId: chapter.id || chapter.number,
               chapterNum: chapter.number
           }
       });
   };
 
-  if (loading) return <View style={[styles.loading, { backgroundColor: theme.background }]}><ActivityIndicator size="large" color={theme.tint} /></View>;
+  if (loading && !manga) return <View style={[styles.loading, { backgroundColor: theme.background }]}><ActivityIndicator size="large" color={theme.tint} /></View>;
   if (!manga) return null;
 
   return (
@@ -144,14 +197,6 @@ export default function MangaDetailScreen() {
                         <Text style={[styles.val, { color: theme.text, marginTop: 4 }]}>{manga.totalChapters || chapters.length}</Text>
                     </View>
                 </View>
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 15 }}>
-                    {manga.genres?.map((g: any) => (
-                        <View key={g} style={{ backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginRight: 8, marginBottom: 8 }}>
-                            <Text style={{ color: theme.text, fontSize: 12 }}>{g}</Text>
-                        </View>
-                    ))}
-                </View>
             </View>
 
             <View style={styles.sectionHeader}>
@@ -160,23 +205,51 @@ export default function MangaDetailScreen() {
                 </Text>
             </View>
             
-            {/* CHAPTER LIST */}
             <View style={styles.chapterList}>
-                {chapters.map((ch) => (
-                    <TouchableOpacity 
-                        key={ch.id} 
-                        style={[styles.chapterCard, { backgroundColor: theme.card }]}
-                        onPress={() => handleReadChapter(ch)}
-                    >
-                        <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
-                            <View>
-                                <Text style={[styles.chapterNum, { color: theme.tint }]}>Chapter {ch.number}</Text>
-                                <Text numberOfLines={1} style={[styles.chapterTitle, { color: theme.subText }]}>{ch.title}</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={20} color={theme.subText} />
+                {chapters.map((ch) => {
+                    const chId = String(ch.id || ch.number);
+                    const isRead = readChapters.includes(chId);
+                    const isDownloaded = downloadedChapters.includes(chId);
+
+                    return (
+                        <View key={chId} style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}>
+                            <TouchableOpacity 
+                                style={[styles.chapterCard, { backgroundColor: theme.card, flex: 1 }]}
+                                onPress={() => handleReadChapter(ch)}
+                            >
+                                <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
+                                    <View>
+                                        <Text style={[styles.chapterNum, { color: isRead ? theme.subText : theme.tint }]}>
+                                            Chapter {ch.number} 
+                                            {/* ✅ GREEN BOLD READ LABEL */}
+                                            {isRead && (
+                                                <Text style={{ color: '#10b981', fontSize: 12, fontWeight: 'bold' }}>
+                                                    {'  '}✓ READ
+                                                </Text>
+                                            )}
+                                        </Text>
+                                        <Text numberOfLines={1} style={[styles.chapterTitle, { color: theme.subText }]}>{ch.title}</Text>
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={20} color={theme.subText} />
+                                </View>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity 
+                                onPress={() => handleDownload(ch)}
+                                style={{padding: 10, marginLeft: 5}}
+                                disabled={isDownloaded || downloadingIds.includes(chId)}
+                            >
+                                {downloadingIds.includes(chId) ? (
+                                    <ActivityIndicator size="small" color={theme.tint} />
+                                ) : isDownloaded ? (
+                                    <Ionicons name="checkmark-circle" size={24} color="#10b981" />
+                                ) : (
+                                    <Ionicons name="download-outline" size={24} color={theme.subText} />
+                                )}
+                            </TouchableOpacity>
                         </View>
-                    </TouchableOpacity>
-                ))}
+                    );
+                })}
             </View>
         </ScrollView>
 
@@ -229,7 +302,7 @@ const styles = StyleSheet.create({
   val: { fontWeight: 'bold', fontSize: 16 },
   sectionHeader: { marginTop: 10 },
   chapterList: { padding: 20, paddingTop: 0 },
-  chapterCard: { padding: 15, borderRadius: 10, marginBottom: 10 },
+  chapterCard: { padding: 15, borderRadius: 10 },
   chapterNum: { fontSize: 16, fontWeight: 'bold', marginBottom: 2 },
   chapterTitle: { fontSize: 14 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 40 },

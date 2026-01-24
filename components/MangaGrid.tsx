@@ -4,80 +4,107 @@ import { useRouter } from 'expo-router';
 import React from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-export default function MangaGrid({ data, theme, refreshing, onRefresh, horizontal, emptyMsg }: any) {
-  const router = useRouter();
-  const colors = theme || { card: '#1E1E1E', text: 'white', subText: 'gray', tint: '#007AFF' };
+interface MangaGridProps {
+  data: any[];
+  theme: any;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  emptyMsg?: string;
+}
 
-  const renderItem = ({ item }: any) => {
-    // Handle Jikan API data structure vs Local Favorites structure
-    const imageUrl = item.images?.jpg?.image_url || item.image || 'https://via.placeholder.com/150';
-    const score = item.score || item.rating || 'N/A';
-    const type = item.type || 'Manga';
+export default function MangaGrid({ data, theme, refreshing, onRefresh, emptyMsg }: MangaGridProps) {
+  const router = useRouter();
+
+  const openMangaDetails = (item: any) => {
+    router.push({ pathname: '/manga/[id]', params: { id: item.mal_id } });
+  };
+
+  const renderItem = ({ item }: { item: any }) => {
+    // Format Score (e.g. 8.5)
+    const score = item.score ? Number(item.score).toFixed(1) : null;
 
     return (
       <TouchableOpacity 
-          style={[
-              styles.card, 
-              { backgroundColor: colors.card },
-              horizontal ? { width: 140, marginRight: 15 } : { width: '48%', marginBottom: 15 }
-          ]}
-          // ⚠️ Navigation: Currently re-using the anime details page.
-          // We will update this later to a specific /manga/[id] page.
-          onPress={() => router.push({ pathname: '/anime/[id]', params: { id: item.mal_id } })} 
+          style={styles.gridItem}
+          onPress={() => openMangaDetails(item)}
       >
-        <Image 
-          source={{ uri: imageUrl }} 
-          style={styles.poster} 
-          contentFit="cover" 
-        />
-        <View style={styles.info}>
-          <Text numberOfLines={1} style={[styles.title, { color: colors.text }]}>{item.title}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="star" size={12} color="#FFD700" />
-                  <Text style={{ color: colors.subText, fontSize: 11, marginLeft: 4 }}>{score}</Text>
-              </View>
-              <Text style={{ color: colors.tint, fontSize: 10, fontWeight: 'bold' }}>{type}</Text>
+          <View style={styles.imageContainer}>
+              <Image 
+                  source={{ uri: item.images?.jpg?.image_url || item.image || 'https://via.placeholder.com/150' }} 
+                  style={styles.poster} 
+                  contentFit="cover"
+              />
+              
+              {/* ✅ STATUS BADGE (Top Right) */}
+              {item.status && item.status !== 'Upcoming' && (
+                  <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                      <Text style={styles.statusText}>{item.status}</Text>
+                  </View>
+              )}
+
+              {/* ✅ RATING BADGE (Top Left) - Only show if score exists */}
+              {score && (
+                  <View style={styles.ratingBadge}>
+                      <Ionicons name="star" size={10} color="#FFD700" />
+                      <Text style={styles.ratingText}>{score}</Text>
+                  </View>
+              )}
           </View>
-        </View>
+          
+          <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>
+              {item.title || item.animeTitle}
+          </Text>
       </TouchableOpacity>
     );
   };
 
-  if (horizontal) {
-      return (
-          <FlatList
-              data={data}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 15 }}
-              renderItem={renderItem}
-              keyExtractor={item => String(item.mal_id)}
-          />
-      );
-  }
-
   return (
     <FlatList
       data={data}
-      numColumns={2}
-      contentContainerStyle={{ padding: 15, paddingBottom: 100 }}
-      columnWrapperStyle={{ justifyContent: 'space-between' }}
-      keyExtractor={item => String(item.mal_id)}
-      refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.tint} /> : undefined}
-      ListEmptyComponent={
-          <View style={{ marginTop: 50, alignItems: 'center' }}>
-              <Text style={{ color: colors.subText }}>{emptyMsg || "No manga found."}</Text>
-          </View>
-      }
+      keyExtractor={(item, index) => item.mal_id ? item.mal_id.toString() : index.toString()}
+      numColumns={3}
       renderItem={renderItem}
+      contentContainerStyle={{ padding: 10, paddingBottom: 100 }}
+      refreshControl={
+        onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={theme.tint} /> : undefined
+      }
+      ListEmptyComponent={
+        <View style={{ marginTop: 50, alignItems: 'center' }}>
+          <Text style={{ color: theme.subText }}>{emptyMsg || "No manga found."}</Text>
+        </View>
+      }
     />
   );
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 12, overflow: 'hidden' },
-  poster: { width: '100%', height: 200, backgroundColor: '#333' },
-  info: { padding: 8 },
-  title: { fontWeight: 'bold', fontSize: 13, marginBottom: 4 },
+  gridItem: { flex: 1/3, margin: 5, alignItems: 'center' }, 
+  imageContainer: { width: '100%', position: 'relative', marginBottom: 5 },
+  poster: { width: '100%', aspectRatio: 0.7, borderRadius: 8, backgroundColor: '#333' },
+  mangaTitle: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  
+  statusBadge: { 
+    position: 'absolute', 
+    top: 5, 
+    right: 5, 
+    paddingHorizontal: 5, 
+    paddingVertical: 2, 
+    borderRadius: 4, 
+    zIndex: 10 
+  },
+  statusText: { color: 'white', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase' },
+
+  ratingBadge: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    gap: 2
+  },
+  ratingText: { color: 'white', fontSize: 10, fontWeight: 'bold' }
 });

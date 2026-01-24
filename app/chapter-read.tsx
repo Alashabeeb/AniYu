@@ -1,35 +1,158 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../context/ThemeContext';
+// ✅ Import History functions
+import { getMangaHistory, saveReadProgress } from '../services/historyService';
+import { getMangaChapters } from '../services/mangaService';
 
 export default function MangaReaderScreen() {
-  const { url, title } = useLocalSearchParams();
+  const { url, title, mangaId, chapterId, chapterNum } = useLocalSearchParams();
   const router = useRouter();
   const { theme } = useTheme();
+  
   const [loading, setLoading] = useState(true);
+  const [chapters, setChapters] = useState<any[]>([]);
+  const [currentChapIndex, setCurrentChapIndex] = useState(-1);
+  const [localPdfData, setLocalPdfData] = useState<string | null>(null);
 
-  if (!url) return null;
+  // ✅ New State for Resume
+  const [initialPage, setInitialPage] = useState(1);
+  const [isHistoryReady, setIsHistoryReady] = useState(false);
 
-  // ✅ URL FIXER: Re-encode the Firebase path if it was decoded by the router
-  // This prevents the "400 Bad Request" error
-  let fixedUrl = url as string;
-  if (fixedUrl.includes('firebasestorage.googleapis.com') && fixedUrl.includes('/o/')) {
-      const parts = fixedUrl.split('?');
-      const baseUrl = parts[0];
-      const queryParams = parts.slice(1).join('?');
-      const oIndex = baseUrl.indexOf('/o/');
-      if (oIndex !== -1) {
-          const prefix = baseUrl.substring(0, oIndex + 3);
-          const path = baseUrl.substring(oIndex + 3);
-          fixedUrl = `${prefix}${encodeURIComponent(decodeURIComponent(path))}?${queryParams}`;
+  const chapterNumber = Number(chapterNum);
+
+  // 1. Fetch History to Resume
+  useEffect(() => {
+      const loadHistory = async () => {
+          try {
+            if (mangaId && chapterId) {
+                const history = await getMangaHistory();
+                // Find progress for THIS chapter
+                const item = history.find(h => String(h.mal_id) === String(mangaId) && String(h.chapterId) === String(chapterId));
+                if (item && item.page > 1) {
+                    setInitialPage(item.page);
+                }
+            }
+          } catch (e) {
+              console.log("Error loading history:", e);
+          } finally {
+              setIsHistoryReady(true);
+          }
+      };
+      loadHistory();
+  }, [mangaId, chapterId]);
+
+  // 2. Fetch Chapters for Navigation
+  useEffect(() => {
+      if (mangaId) {
+          getMangaChapters(mangaId as string).then(data => {
+              setChapters(data);
+              const idx = data.findIndex((c: any) => c.number === chapterNumber);
+              setCurrentChapIndex(idx);
+          });
       }
+  }, [mangaId, chapterNumber]);
+
+  // 3. Prepare File
+  useEffect(() => {
+      if (!url) return;
+      const fileUrl = url as string;
+
+      const prepareFile = async () => {
+          if (fileUrl.startsWith('file://')) {
+              try {
+                  const base64 = await FileSystem.readAsStringAsync(fileUrl, {
+                      encoding: 'base64', 
+                  });
+                  setLocalPdfData(base64);
+              } catch (e) {
+                  console.error("Failed to load local file", e);
+              }
+          } else {
+              setLocalPdfData(null); 
+          }
+      };
+      prepareFile();
+  }, [url]);
+
+  const handleNavigate = (direction: 'next' | 'prev') => {
+      if (currentChapIndex === -1) return;
+      
+      // ✅ Mark current as "Read" (Page 1) before leaving
+      if (mangaId && direction === 'next') {
+        saveReadProgress(
+            { mal_id: mangaId, title: title?.toString().split(' - ')[0] }, 
+            { id: chapterId, number: chapterNum, title: title?.toString().split(' - ')[1] }, 
+            1 
+        );
+      }
+
+      const newIndex = direction === 'next' ? currentChapIndex + 1 : currentChapIndex - 1;
+      if (newIndex >= 0 && newIndex < chapters.length) {
+          const nextChap = chapters[newIndex];
+          router.replace({
+            pathname: '/chapter-read',
+            params: {
+                url: nextChap.fileUrl || nextChap.localUri, 
+                title: `${title?.toString().split(' - ')[0]} - ${nextChap.title || 'Chapter ' + nextChap.number}`,
+                mangaId,
+                chapterId: nextChap.id || nextChap.number,
+                chapterNum: nextChap.number
+            }
+          });
+      }
+  };
+
+  const handleMessage = (event: any) => {
+      const data = event.nativeEvent.data;
+      if (data === "Loaded") {
+          setLoading(false);
+      } else if (data.startsWith("Page:")) {
+          const page = parseInt(data.split(":")[1]);
+          // ✅ Save Progress as you scroll
+          if (mangaId) {
+            saveReadProgress(
+                { mal_id: mangaId, title: title?.toString().split(' - ')[0] }, 
+                { id: chapterId, number: chapterNum, title: title?.toString().split(' - ')[1] }, 
+                page
+            );
+          }
+      }
+  };
+
+  // Wait for history check before rendering so we don't jump
+  if (!url || !isHistoryReady) {
+      return (
+        <View style={[styles.container, { backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }]}>
+            <ActivityIndicator size="large" color={theme.tint} />
+        </View>
+      );
   }
 
-  // ✅ Efficient PDF.js Viewer (Requires CORS to be enabled)
+  let pdfJsSource = '';
+  if (localPdfData) {
+      pdfJsSource = `data: atob('${localPdfData}')`; 
+  } else {
+      let fixedUrl = url as string;
+      if (fixedUrl.includes('firebasestorage.googleapis.com') && fixedUrl.includes('/o/')) {
+          const parts = fixedUrl.split('?');
+          const baseUrl = parts[0];
+          const queryParams = parts.slice(1).join('?');
+          const oIndex = baseUrl.indexOf('/o/');
+          if (oIndex !== -1) {
+              const prefix = baseUrl.substring(0, oIndex + 3);
+              const path = baseUrl.substring(oIndex + 3);
+              fixedUrl = `${prefix}${encodeURIComponent(decodeURIComponent(path))}?${queryParams}`;
+          }
+      }
+      pdfJsSource = `'${fixedUrl}'`;
+  }
+
   const pdfViewerHtml = `
     <!DOCTYPE html>
     <html lang="en">
@@ -46,36 +169,70 @@ export default function MangaReaderScreen() {
     </head>
     <body>
       <div id="container">
-        <div class="loading">Loading Chapter...</div>
+        <div class="loading">Rendering Chapter...</div>
       </div>
       <script>
-        const url = '${fixedUrl}';
         const container = document.getElementById('container');
+        let currentPage = 1;
+        // ✅ Inject Saved Page
+        const startPage = ${initialPage};
 
-        pdfjsLib.getDocument(url).promise.then(async pdf => {
-          container.innerHTML = ''; 
-          
-          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            await pdf.getPage(pageNum).then(page => {
-              const viewport = page.getViewport({ scale: 2.0 });
-              const canvas = document.createElement('canvas');
-              const context = canvas.getContext('2d');
-              canvas.height = viewport.height;
-              canvas.width = viewport.width;
-              canvas.style.width = '100%';
-              container.appendChild(canvas);
-              
-              const renderContext = {
-                canvasContext: context,
-                viewport: viewport
-              };
-              return page.render(renderContext).promise;
-            });
-          }
-          window.ReactNativeWebView.postMessage("Loaded");
-        }).catch(err => {
-          container.innerHTML = '<div style="color:red; margin-top:20px; text-align:center;">Error: ' + err.message + '<br><br>CORS not enabled on bucket.</div>';
-        });
+        window.onscroll = function() {
+            const canvases = document.getElementsByTagName('canvas');
+            for (let i = 0; i < canvases.length; i++) {
+                const rect = canvases[i].getBoundingClientRect();
+                if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
+                    if (currentPage !== i + 1) {
+                        currentPage = i + 1;
+                        window.ReactNativeWebView.postMessage("Page:" + currentPage);
+                    }
+                    break;
+                }
+            }
+        };
+
+        const loadPdf = async () => {
+            try {
+                const source = ${localPdfData ? `{ data: new Uint8Array([${localPdfData ? '...atob("' + localPdfData + '").split("").map(c => c.charCodeAt(0))' : ''}]) }` : pdfJsSource};
+                
+                const loadingTask = pdfjsLib.getDocument(source);
+                const pdf = await loadingTask.promise;
+                container.innerHTML = ''; 
+                
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    await pdf.getPage(pageNum).then(page => {
+                        const viewport = page.getViewport({ scale: 2.0 });
+                        const canvas = document.createElement('canvas');
+                        // ✅ Set ID to find it later
+                        canvas.id = 'page-' + pageNum; 
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        canvas.style.width = '100%';
+                        container.appendChild(canvas);
+                        
+                        const renderContext = { canvasContext: context, viewport: viewport };
+                        return page.render(renderContext).promise;
+                    });
+                }
+                
+                // ✅ Resume Logic: Scroll to saved page
+                if (startPage > 1) {
+                    setTimeout(() => {
+                        const target = document.getElementById('page-' + startPage);
+                        if (target) {
+                             target.scrollIntoView({ behavior: 'auto', block: 'start' });
+                        }
+                    }, 300); // Small delay to ensure layout is ready
+                }
+
+                window.ReactNativeWebView.postMessage("Loaded");
+            } catch (err) {
+                container.innerHTML = '<div style="color:red; margin-top:20px; text-align:center;">Error: ' + err.message + '</div>';
+            }
+        };
+
+        loadPdf();
       </script>
     </body>
     </html>
@@ -95,17 +252,30 @@ export default function MangaReaderScreen() {
           {loading && (
               <View style={styles.loader}>
                   <ActivityIndicator size="large" color={theme.tint} />
+                  <Text style={{color:'white', marginTop:10}}>Resuming...</Text>
               </View>
           )}
           <WebView
             originWhitelist={['*']}
             source={{ html: pdfViewerHtml }}
             style={{ flex: 1, backgroundColor: '#121212' }}
-            onMessage={(event) => { if (event.nativeEvent.data === "Loaded") setLoading(false); }}
+            onMessage={handleMessage}
             javaScriptEnabled={true}
             domStorageEnabled={true}
           />
       </View>
+      {!loading && (
+          <View style={styles.footer}>
+              <TouchableOpacity onPress={() => handleNavigate('prev')} disabled={currentChapIndex <= 0} style={[styles.navBtn, currentChapIndex <= 0 && { opacity: 0.3 }]}>
+                  <Ionicons name="chevron-back" size={24} color="white" />
+                  <Text style={{color:'white', marginLeft: 5}}>Prev</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleNavigate('next')} disabled={currentChapIndex === -1 || currentChapIndex >= chapters.length - 1} style={[styles.navBtn, (currentChapIndex === -1 || currentChapIndex >= chapters.length - 1) && { opacity: 0.3 }]}>
+                  <Text style={{color:'white', marginRight: 5}}>Next</Text>
+                  <Ionicons name="chevron-forward" size={24} color="white" />
+              </TouchableOpacity>
+          </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -115,5 +285,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, height: 60, backgroundColor: 'rgba(0,0,0,0.8)' },
   backBtn: { padding: 5 },
   headerTitle: { color: 'white', fontSize: 16, fontWeight: 'bold', flex: 1, textAlign: 'center' },
-  loader: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'black', zIndex: 5 }
+  loader: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'black', zIndex: 5 },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, backgroundColor: 'rgba(0,0,0,0.8)' },
+  navBtn: { flexDirection: 'row', alignItems: 'center' }
 });

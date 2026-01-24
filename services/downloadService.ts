@@ -1,4 +1,3 @@
-// ✅ FIX: Import EVERYTHING from the legacy module
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createDownloadResumable,
@@ -9,14 +8,16 @@ import {
   writeAsStringAsync
 } from 'expo-file-system/legacy';
 
-const DOWNLOAD_STORAGE_KEY = 'my_downloaded_episodes_v1';
+const DOWNLOAD_STORAGE_KEY = 'my_downloaded_episodes_v1'; // Anime Key
+const MANGA_DOWNLOAD_KEY = 'my_downloaded_chapters_v1';   // ✅ New Manga Key
+
 const rootDir = documentDirectory || 'file:///data/user/0/host.exp.exponent/files/';
 const DOWNLOAD_FOLDER = rootDir + 'anime_downloads/';
 
 export interface DownloadItem {
   mal_id: string | number;
   episodeId: string | number;
-  number: number; // ✅ Added Episode Number
+  number: number;
   title: string;
   animeTitle: string;
   image?: string;
@@ -55,6 +56,10 @@ const ensureDirExists = async () => {
   }
 };
 
+// ==========================================
+// 📺 ANIME DOWNLOADS (Original Logic)
+// ==========================================
+
 export const getDownloads = async (): Promise<DownloadItem[]> => {
   try {
     const jsonValue = await AsyncStorage.getItem(DOWNLOAD_STORAGE_KEY);
@@ -72,9 +77,7 @@ const saveDownloadRecord = async (newItem: DownloadItem) => {
   await AsyncStorage.setItem(DOWNLOAD_STORAGE_KEY, JSON.stringify(updated));
 };
 
-// ✅ CANCEL FUNCTION (Placeholder for now, logic exists in prev steps if needed)
 export const cancelDownload = async (episodeId: string | number) => {
-    // Basic cleanup logic for state
     const epId = String(episodeId);
     delete activeDownloads[epId];
     delete activeProgress[epId];
@@ -92,11 +95,10 @@ export const downloadEpisodeToFile = async (
 
     const fileUri = DOWNLOAD_FOLDER + `${anime.mal_id}_${episode.mal_id}.mp4`;
 
-    // 1. Mark as Active
     activeDownloads[epId] = {
         mal_id: anime.mal_id,
         episodeId: episode.mal_id,
-        number: episode.number, // ✅ Store Number
+        number: episode.number,
         title: episode.title,
         animeTitle: anime.title,
         image: anime.images?.jpg?.image_url || anime.image,
@@ -118,7 +120,6 @@ export const downloadEpisodeToFile = async (
 
     const result = await downloadResumable.downloadAsync();
 
-    // Cleanup active state
     delete activeDownloads[epId];
     delete activeProgress[epId];
     delete progressListeners[epId];
@@ -127,7 +128,7 @@ export const downloadEpisodeToFile = async (
       const record: DownloadItem = {
         mal_id: anime.mal_id,
         episodeId: episode.mal_id,
-        number: episode.number, // ✅ Save Number
+        number: episode.number,
         title: episode.title,
         animeTitle: anime.title,
         image: anime.images?.jpg?.image_url || anime.image, 
@@ -167,5 +168,85 @@ export const removeDownload = async (episodeId: string | number) => {
         await deleteAsync(toRemove.localUri, { idempotent: true });
         const updated = downloads.filter(d => String(d.episodeId) !== String(episodeId));
         await AsyncStorage.setItem(DOWNLOAD_STORAGE_KEY, JSON.stringify(updated));
+    }
+};
+
+// ==========================================
+// 📖 MANGA DOWNLOADS (New Logic)
+// ==========================================
+
+export const getMangaDownloads = async (): Promise<DownloadItem[]> => {
+  try {
+    const jsonValue = await AsyncStorage.getItem(MANGA_DOWNLOAD_KEY);
+    return jsonValue != null ? JSON.parse(jsonValue) : [];
+  } catch (e) {
+    console.error("Error fetching manga downloads", e);
+    return [];
+  }
+};
+
+const saveMangaDownloadRecord = async (newItem: DownloadItem) => {
+  const current = await getMangaDownloads();
+  // Filter out duplicates based on ID
+  const filtered = current.filter(d => String(d.episodeId) !== String(newItem.episodeId));
+  const updated = [...filtered, newItem];
+  await AsyncStorage.setItem(MANGA_DOWNLOAD_KEY, JSON.stringify(updated));
+};
+
+export const downloadChapterToFile = async (
+  manga: any,
+  chapter: any
+): Promise<string | null> => {
+  try {
+    await ensureDirExists();
+    
+    // Unique ID for the chapter (fallback to number if id is missing)
+    const chapId = String(chapter.id || `ch_${chapter.number}`);
+    
+    // Unique filename for PDF
+    const fileUri = DOWNLOAD_FOLDER + `manga_${manga.mal_id}_${chapId}.pdf`;
+
+    const downloadResumable = createDownloadResumable(
+      chapter.url,
+      fileUri,
+      {},
+      (downloadProgress) => {
+         // You can add progress logic here if needed later
+      }
+    );
+
+    const result = await downloadResumable.downloadAsync();
+
+    if (result && result.uri) {
+      const record: DownloadItem = {
+        mal_id: manga.mal_id,
+        episodeId: chapId, // We reuse 'episodeId' field for chapter ID
+        number: chapter.number,
+        title: chapter.title || `Chapter ${chapter.number}`,
+        animeTitle: manga.title, 
+        image: manga.images?.jpg?.image_url || manga.image, 
+        localUri: result.uri,
+        originalUrl: chapter.url,
+      };
+      
+      await saveMangaDownloadRecord(record);
+      return result.uri;
+    }
+    return null;
+
+  } catch (error) {
+    console.error("Manga Download failed:", error);
+    throw error;
+  }
+};
+
+export const removeMangaDownload = async (chapterId: string | number) => {
+    const downloads = await getMangaDownloads();
+    const toRemove = downloads.find(d => String(d.episodeId) === String(chapterId));
+    
+    if (toRemove) {
+        await deleteAsync(toRemove.localUri, { idempotent: true });
+        const updated = downloads.filter(d => String(d.episodeId) !== String(chapterId));
+        await AsyncStorage.setItem(MANGA_DOWNLOAD_KEY, JSON.stringify(updated));
     }
 };

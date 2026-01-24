@@ -1,35 +1,57 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useFocusEffect, useRouter } from 'expo-router'; // ✅ Import useFocusEffect
-import React, { useCallback, useState } from 'react'; // ✅ Import useCallback
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     FlatList,
     Keyboard,
+    LayoutAnimation,
+    Platform,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
+    UIManager,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MangaGrid from '../../components/MangaGrid';
 import TrendingRail from '../../components/TrendingRail';
 import { useTheme } from '../../context/ThemeContext';
-import { getFavorites, toggleFavorite } from '../../services/favoritesService';
+// Services
+import { DownloadItem, getMangaDownloads, removeMangaDownload } from '../../services/downloadService';
+import { getMangaFavorites, toggleMangaFavorite } from '../../services/favoritesService';
 import { getAllManga, getTopManga, searchManga } from '../../services/mangaService';
+
+// Enable LayoutAnimation for Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+interface GroupedManga {
+  mal_id: string | number;
+  title: string;
+  image: string;
+  chapters: DownloadItem[];
+}
 
 export default function ComicScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   
   const [activeTab, setActiveTab] = useState('Discover'); 
+  const [libraryType, setLibraryType] = useState('Favorites');
   
   const [topManga, setTopManga] = useState<any[]>([]);
   const [allManga, setAllManga] = useState<any[]>([]); 
   const [library, setLibrary] = useState<any[]>([]);
+  
+  const [groupedDownloads, setGroupedDownloads] = useState<GroupedManga[]>([]);
+  const [expandedId, setExpandedId] = useState<string | number | null>(null);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -39,7 +61,6 @@ export default function ComicScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // ✅ FIXED: Replaced useEffect with useFocusEffect to reload data when tab opens
   useFocusEffect(
     useCallback(() => {
         loadData();
@@ -47,17 +68,38 @@ export default function ComicScreen() {
   );
 
   const loadData = async () => {
-    // Note: Removed setLoading(true) here to prevent full screen flash on every tab switch
-    // We only show loading on initial mount or refresh
     if (topManga.length === 0) setLoading(true);
     
     const top = await getTopManga();
     const all = await getAllManga();
-    const favs = await getFavorites(); 
+    const favs = await getMangaFavorites();
+    const down = await getMangaDownloads(); 
+
+    // ✅ GROUPING LOGIC FOR DOWNLOADS
+    const groups: Record<string, GroupedManga> = {};
+    down.forEach((item) => {
+        const id = item.mal_id;
+        if (!groups[id]) {
+            groups[id] = {
+                mal_id: id,
+                title: item.animeTitle || item.title,
+                image: item.image || '',
+                chapters: []
+            };
+        }
+        groups[id].chapters.push(item);
+    });
+    
+    // Sort chapters by number
+    Object.values(groups).forEach(g => {
+        g.chapters.sort((a, b) => a.number - b.number);
+    });
+
+    setGroupedDownloads(Object.values(groups));
     
     setTopManga(top);
     setAllManga(all);
-    setLibrary(favs); 
+    setLibrary(favs);
     setLoading(false);
   };
 
@@ -68,9 +110,28 @@ export default function ComicScreen() {
   };
 
   const handleToggleFav = async (manga: any) => {
-      await toggleFavorite(manga);
-      const favs = await getFavorites();
+      await toggleMangaFavorite(manga);
+      const favs = await getMangaFavorites();
       setLibrary(favs);
+  };
+
+  // ✅ DELETE HANDLER
+  const handleDelete = (chapter: DownloadItem) => {
+      Alert.alert(
+          "Delete Chapter",
+          `Are you sure you want to delete ${chapter.title}?`,
+          [
+              { text: "Cancel", style: "cancel" },
+              { 
+                  text: "Delete", 
+                  style: "destructive", 
+                  onPress: async () => {
+                      await removeMangaDownload(chapter.episodeId);
+                      await loadData(); // Refresh list
+                  }
+              }
+          ]
+      );
   };
 
   const handleSearch = async () => {
@@ -83,32 +144,221 @@ export default function ComicScreen() {
       setSearchLoading(false);
   };
 
-  // HANDLER TO OPEN MANGA DETAILS
   const openMangaDetails = (item: any) => {
       router.push({ pathname: '/manga/[id]', params: { id: item.mal_id } });
   };
 
-  const renderGridItem = ({ item }: { item: any }) => (
-      <TouchableOpacity 
-          style={styles.gridItem}
-          onPress={() => openMangaDetails(item)}
+  const toggleExpand = (id: string | number) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setExpandedId(expandedId === id ? null : id);
+  };
+
+  // Helper to check if item is favorite
+  const isFavorite = (id: any) => library.some((fav: any) => String(fav.mal_id) === String(id));
+
+  // ✅ RENDER GRID ITEM (With Heart Icon)
+  const renderGridItem = ({ item }: { item: any }) => {
+      const isFav = isFavorite(item.mal_id);
+      return (
+        <TouchableOpacity 
+            style={styles.gridItem}
+            onPress={() => openMangaDetails(item)}
+        >
+            <View style={styles.imageContainer}>
+                <Image 
+                    source={{ uri: item.images?.jpg?.image_url || item.image || 'https://via.placeholder.com/150' }} 
+                    style={styles.poster} 
+                    contentFit="cover"
+                />
+                {item.status && item.status !== 'Upcoming' && (
+                    <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                        <Text style={styles.statusText}>{item.status}</Text>
+                    </View>
+                )}
+                {/* ✅ Favorite Button Overlay */}
+                <TouchableOpacity 
+                    style={styles.favBtn} 
+                    onPress={() => handleToggleFav(item)}
+                >
+                    <Ionicons name={isFav ? "heart" : "heart-outline"} size={16} color={isFav ? "#FF6B6B" : "white"} />
+                </TouchableOpacity>
+            </View>
+            <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>
+                {item.title || item.animeTitle}
+            </Text>
+        </TouchableOpacity>
+      );
+  };
+
+  // ✅ RENDER LIBRARY (Favorites + Downloads)
+  const renderLibrary = () => (
+      <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', margin: 15, marginBottom: 5 }}>
+              <TouchableOpacity onPress={() => setLibraryType('Favorites')} style={{ marginRight: 20 }}>
+                  <Text style={{ 
+                      color: libraryType === 'Favorites' ? theme.tint : theme.subText, 
+                      fontWeight: 'bold', 
+                      fontSize: 18 
+                  }}>Favorites</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setLibraryType('Downloads')}>
+                  <Text style={{ 
+                      color: libraryType === 'Downloads' ? theme.tint : theme.subText, 
+                      fontWeight: 'bold', 
+                      fontSize: 18 
+                  }}>Downloads</Text>
+              </TouchableOpacity>
+          </View>
+
+          {libraryType === 'Favorites' ? (
+             <MangaGrid 
+                data={library} 
+                theme={theme} 
+                refreshing={refreshing} 
+                onRefresh={onRefresh}
+                emptyMsg="No favorites yet."
+             />
+          ) : (
+             <FlatList
+                data={groupedDownloads}
+                keyExtractor={(item) => item.mal_id.toString()}
+                renderItem={({ item }) => {
+                    const isExpanded = expandedId === item.mal_id;
+                    return (
+                        <View style={[styles.groupContainer, { backgroundColor: theme.card }]}>
+                            {/* Manga Header */}
+                            <TouchableOpacity 
+                                style={styles.groupHeader} 
+                                onPress={() => toggleExpand(item.mal_id)}
+                            >
+                                <Image source={{ uri: item.image }} style={styles.groupPoster} />
+                                <View style={{ flex: 1, marginLeft: 10 }}>
+                                    <Text style={[styles.groupTitle, { color: theme.text }]}>{item.title}</Text>
+                                    <Text style={{ color: theme.subText }}>{item.chapters.length} Chapters Downloaded</Text>
+                                </View>
+                                <Ionicons 
+                                    name={isExpanded ? "chevron-up" : "chevron-down"} 
+                                    size={24} 
+                                    color={theme.subText} 
+                                />
+                            </TouchableOpacity>
+
+                            {/* Chapters List (Visible only if expanded) */}
+                            {isExpanded && (
+                                <View style={{ borderTopWidth: 1, borderTopColor: theme.border }}>
+                                    {item.chapters.map((chapter) => (
+                                        <View key={chapter.episodeId} style={styles.chapterRow}>
+                                            <TouchableOpacity 
+                                                style={{flex: 1, flexDirection: 'row', alignItems: 'center'}}
+                                                onPress={() => {
+                                                    router.push({
+                                                        pathname: '/chapter-read',
+                                                        params: {
+                                                            url: chapter.localUri, 
+                                                            title: `${item.title} - ${chapter.title}`,
+                                                            mangaId: item.mal_id,  // Pass ID for resume
+                                                            chapterId: chapter.episodeId,
+                                                            chapterNum: chapter.number
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                <Ionicons name="book-outline" size={20} color={theme.tint} />
+                                                <Text style={[styles.chapterText, { color: theme.text }]} numberOfLines={1}>
+                                                    {chapter.title}
+                                                </Text>
+                                            </TouchableOpacity>
+
+                                            {/* ✅ DELETE BUTTON */}
+                                            <TouchableOpacity 
+                                                onPress={() => handleDelete(chapter)}
+                                                style={{ padding: 8 }}
+                                            >
+                                                <Ionicons name="trash-outline" size={22} color="#FF6B6B" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
+                        </View>
+                    );
+                }}
+                contentContainerStyle={{ padding: 15 }}
+                ListEmptyComponent={<Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No downloads yet.</Text>}
+             />
+          )}
+      </View>
+  );
+
+  // ✅ RENDER DISCOVER (Top + All Manga)
+  const renderDiscover = () => (
+      <ScrollView 
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
+        contentContainerStyle={{ paddingBottom: 100 }}
       >
-          <View style={styles.imageContainer}>
-              <Image 
-                  source={{ uri: item.images?.jpg?.image_url || 'https://via.placeholder.com/150' }} 
-                  style={styles.poster} 
-                  contentFit="cover"
+          {/* Search Bar */}
+          <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
+              <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
+              <TextInput 
+                  style={[styles.input, { color: theme.text }]}
+                  placeholder="Search Manga..."
+                  placeholderTextColor={theme.subText}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  onSubmitEditing={handleSearch}
+                  returnKeyType="search"
               />
-              {item.status && item.status !== 'Upcoming' && (
-                  <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
-                      <Text style={styles.statusText}>{item.status}</Text>
-                  </View>
+              {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => { setSearchQuery(''); setIsSearching(false); setSearchResults([]); }}>
+                      <Ionicons name="close-circle" size={18} color={theme.subText} />
+                  </TouchableOpacity>
               )}
           </View>
-          <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>
-              {item.title}
-          </Text>
-      </TouchableOpacity>
+
+          {isSearching ? (
+              <View style={{ flex: 1 }}>
+                  {searchLoading ? (
+                      <View style={styles.center}><ActivityIndicator size="small" color={theme.tint} /></View>
+                  ) : (
+                      <FlatList
+                          data={searchResults}
+                          keyExtractor={(item) => item.mal_id.toString()}
+                          numColumns={3}
+                          renderItem={renderGridItem}
+                          contentContainerStyle={{ padding: 10 }}
+                          ListEmptyComponent={<Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No results found.</Text>}
+                      />
+                  )}
+              </View>
+          ) : (
+              <>
+                  <TrendingRail 
+                      title="🏆 Top Manga" 
+                      data={topManga.slice(0, 5)} 
+                      favorites={library} 
+                      onToggleFavorite={handleToggleFav}
+                      onMore={() => router.push('/manga-list?type=top')}
+                      onItemPress={openMangaDetails}
+                  />
+
+                  <View style={styles.sectionContainer}>
+                      <Text style={[styles.sectionTitle, { color: theme.text }]}>All Manga</Text>
+                      {allManga.length > 0 ? (
+                          <View style={styles.gridContainer}>
+                              {/* Using map to ensure styling consistency */}
+                              {allManga.map((item: any) => (
+                                  <View key={item.mal_id} style={styles.gridItemWrapper}>
+                                      {renderGridItem({ item })}
+                                  </View>
+                              ))}
+                          </View>
+                      ) : (
+                          <Text style={{color: theme.subText, textAlign:'center', marginTop: 20}}>No manga found.</Text>
+                      )}
+                  </View>
+              </>
+          )}
+      </ScrollView>
   );
 
   if (loading && topManga.length === 0) {
@@ -121,8 +371,6 @@ export default function ComicScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      
-      {/* Header */}
       <View style={styles.header}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Manga</Text>
         <View style={[styles.switchContainer, { backgroundColor: theme.border }]}>
@@ -142,105 +390,8 @@ export default function ComicScreen() {
         </View>
       </View>
 
-      {/* Content Area */}
       <View style={styles.content}>
-        {activeTab === 'Discover' ? (
-            <View style={{ flex: 1 }}>
-                {/* Search Bar is always visible in Discover */}
-                <View style={styles.headerContainer}>
-                    <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
-                        <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
-                        <TextInput 
-                            style={[styles.input, { color: theme.text }]}
-                            placeholder="Search Manga..."
-                            placeholderTextColor={theme.subText}
-                            value={searchQuery}
-                            onChangeText={setSearchQuery}
-                            onSubmitEditing={handleSearch}
-                            returnKeyType="search"
-                        />
-                        {searchQuery.length > 0 && (
-                            <TouchableOpacity onPress={() => { setSearchQuery(''); setIsSearching(false); setSearchResults([]); }}>
-                                <Ionicons name="close-circle" size={18} color={theme.subText} />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                </View>
-
-                {/* Show Search Results OR Main Content */}
-                {isSearching ? (
-                    <View style={{ flex: 1 }}>
-                        {searchLoading ? (
-                            <View style={styles.center}><ActivityIndicator size="small" color={theme.tint} /></View>
-                        ) : (
-                            <FlatList
-                                data={searchResults}
-                                keyExtractor={(item) => item.mal_id.toString()}
-                                numColumns={3}
-                                renderItem={renderGridItem}
-                                contentContainerStyle={{ padding: 10 }}
-                                ListEmptyComponent={<Text style={{ color: theme.subText, textAlign: 'center', marginTop: 50 }}>No results found.</Text>}
-                            />
-                        )}
-                    </View>
-                ) : (
-                    <ScrollView 
-                        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
-                        contentContainerStyle={{ paddingBottom: 100 }}
-                    >
-                        {/* 1. TOP MANGA RAIL */}
-                        <TrendingRail 
-                            title="🏆 Top Manga" 
-                            data={topManga.slice(0, 5)} 
-                            favorites={library} 
-                            onToggleFavorite={handleToggleFav}
-                            onMore={() => router.push('/manga-list?type=top')}
-                            onItemPress={openMangaDetails}
-                        />
-
-                        {/* 2. ALL MANGA GRID */}
-                        <View style={styles.sectionContainer}>
-                            <Text style={[styles.sectionTitle, { color: theme.text }]}>All Manga</Text>
-                            {allManga.length > 0 ? (
-                                <View style={styles.gridContainer}>
-                                    {allManga.map((item: any) => (
-                                        <TouchableOpacity 
-                                            key={item.mal_id}
-                                            style={styles.gridItemWrapper}
-                                            onPress={() => openMangaDetails(item)}
-                                        >
-                                            <View style={styles.imageContainer}>
-                                                <Image 
-                                                    source={{ uri: item.images?.jpg?.image_url }} 
-                                                    style={styles.poster} 
-                                                    contentFit="cover"
-                                                />
-                                                {item.status && item.status !== 'Upcoming' && (
-                                                    <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
-                                                        <Text style={styles.statusText}>{item.status}</Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                            <Text numberOfLines={1} style={[styles.mangaTitle, { color: theme.text }]}>{item.title}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            ) : (
-                                <Text style={{color: theme.subText, textAlign:'center', marginTop: 20}}>No manga found.</Text>
-                            )}
-                        </View>
-                    </ScrollView>
-                )}
-            </View>
-        ) : (
-            <MangaGrid 
-                data={library} 
-                theme={theme} 
-                refreshing={refreshing} 
-                onRefresh={onRefresh}
-                emptyMsg="No manga in library yet."
-            />
-        )}
+        {activeTab === 'Discover' ? renderDiscover() : renderLibrary()}
       </View>
     </SafeAreaView>
   );
@@ -262,11 +413,20 @@ const styles = StyleSheet.create({
   input: { flex: 1, marginLeft: 10, fontSize: 16 },
   sectionContainer: { marginBottom: 20 },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10 },
-  gridItemWrapper: { width: '33.33%', padding: 5, marginBottom: 10, alignItems: 'center' },
-  gridItem: { flex: 1/3, margin: 5, alignItems: 'center' }, 
+  gridItemWrapper: { width: '33.33%', padding: 5, marginBottom: 10 },
+  gridItem: { flex: 1, alignItems: 'center' }, 
   imageContainer: { width: '100%', position: 'relative', marginBottom: 5 },
   poster: { width: '100%', aspectRatio: 0.7, borderRadius: 8 },
   mangaTitle: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
   statusBadge: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
   statusText: { color: 'white', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase' },
+  
+  // ✅ New Styles for Fav Icon and Groups
+  favBtn: { position: 'absolute', top: 5, left: 5, backgroundColor: 'rgba(0,0,0,0.6)', padding: 4, borderRadius: 20, zIndex: 10 },
+  groupContainer: { borderRadius: 12, marginBottom: 15, overflow: 'hidden' },
+  groupHeader: { flexDirection: 'row', alignItems: 'center', padding: 10 },
+  groupPoster: { width: 50, height: 70, borderRadius: 5, backgroundColor: '#333' },
+  groupTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
+  chapterRow: { flexDirection: 'row', alignItems: 'center', padding: 15, gap: 10, borderBottomWidth: 0.5, borderBottomColor: '#333' },
+  chapterText: { flex: 1, fontSize: 14, marginLeft: 5 }
 });
