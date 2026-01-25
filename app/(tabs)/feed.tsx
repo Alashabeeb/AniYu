@@ -28,6 +28,7 @@ import {
     ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AdBanner from '../../components/AdBanner'; // ✅ Import AdBanner
 import PostCard from '../../components/PostCard';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
@@ -233,6 +234,12 @@ export default function FeedScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
+        // ✅ ADD BANNER AD ABOVE FIRST POST
+        ListHeaderComponent={() => (
+            <View>
+                <AdBanner />
+            </View>
+        )}
         ListEmptyComponent={
             <View style={{ padding: 40, alignItems: 'center', width: SCREEN_WIDTH }}>
                 <Text style={{ color: theme.subText }}>{emptyMessage}</Text>

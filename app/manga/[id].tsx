@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
+import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AdConfig } from '../../config/adConfig'; // ✅ Import Config
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 import { downloadChapterToFile, getMangaDownloads } from '../../services/downloadService';
@@ -16,6 +18,11 @@ import {
     getMangaDetails,
     incrementMangaView
 } from '../../services/mangaService';
+
+// ✅ Use Central Config
+const interstitial = InterstitialAd.createForAdRequest(AdConfig.interstitial, {
+  requestNonPersonalizedAdsOnly: true,
+});
 
 export default function MangaDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -33,6 +40,40 @@ export default function MangaDetailScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [submittingReview, setSubmittingReview] = useState(false);
+
+  // ✅ Ad State
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [pendingDownloadChapter, setPendingDownloadChapter] = useState<any>(null);
+
+  // ✅ AD LOGIC: Load & Listeners
+  useEffect(() => {
+    const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
+      setAdLoaded(true);
+    });
+
+    const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
+      setAdLoaded(false);
+      interstitial.load(); // Reload for next time
+      
+      // If there was a pending download, start it now
+      if (pendingDownloadChapter) {
+          performDownload(pendingDownloadChapter);
+          setPendingDownloadChapter(null);
+      }
+    });
+
+    const unsubscribeError = interstitial.addAdEventListener(AdEventType.ERROR, (error) => {
+        setAdLoaded(false);
+    });
+
+    interstitial.load();
+
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeClosed();
+      unsubscribeError();
+    };
+  }, [pendingDownloadChapter]);
 
   // Reload status when returning to screen
   useFocusEffect(
@@ -107,12 +148,11 @@ export default function MangaDetailScreen() {
       }
   };
 
-  const handleDownload = async (chapter: any) => {
+  // ✅ HELPER: Perform Download (Separated Logic)
+  const performDownload = async (chapter: any) => {
       if (!chapter.fileUrl) return Alert.alert("Error", "No file to download.");
       
       const chId = String(chapter.id || chapter.number);
-      if (downloadedChapters.includes(chId)) return; 
-
       setDownloadingIds(prev => [...prev, chId]);
 
       try {
@@ -124,13 +164,26 @@ export default function MangaDetailScreen() {
           };
           
           await downloadChapterToFile(manga, episodeObj);
-          
           setDownloadedChapters(prev => [...prev, chId]);
           
       } catch (e) {
           Alert.alert("Error", "Download failed.");
       } finally {
           setDownloadingIds(prev => prev.filter(id => id !== chId));
+      }
+  };
+
+  // ✅ UPDATED: Handle Download Click with Ad Check
+  const handleDownload = (chapter: any) => {
+      const chId = String(chapter.id || chapter.number);
+      
+      if (downloadedChapters.includes(chId)) return; // Already downloaded
+
+      if (adLoaded) {
+          setPendingDownloadChapter(chapter); // Save state
+          interstitial.show();                // Show Ad
+      } else {
+          performDownload(chapter);           // No ad? Download immediately
       }
   };
 

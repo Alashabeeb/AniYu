@@ -6,12 +6,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
+import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AdConfig } from '../../config/adConfig'; // ✅ Import Config
+
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
 import {
-    addAnimeComment, // ✅ Keep this so users can submit
+    addAnimeComment,
     addAnimeReview,
     getAnimeDetails,
     getAnimeEpisodes,
@@ -39,6 +42,11 @@ const RANKS = [
     { name: 'ANBU', min: 50, max: 99 },       
     { name: 'KAGE', min: 100, max: Infinity },
 ];
+
+// ✅ Use Central Config
+const interstitial = InterstitialAd.createForAdRequest(AdConfig.interstitial, {
+  requestNonPersonalizedAdsOnly: true,
+});
 
 export default function AnimeDetailScreen() {
   const { id, episodeId } = useLocalSearchParams();
@@ -69,12 +77,46 @@ export default function AnimeDetailScreen() {
   const [currentEpId, setCurrentEpId] = useState<string | null>(null);
   const [currentVideoSource, setCurrentVideoSource] = useState<string | null>(null);
 
+  // ✅ Ad State
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [pendingDownloadEp, setPendingDownloadEp] = useState<any>(null);
+
   const resumeTimeRef = useRef<number | null>(null);
 
   const player = useVideoPlayer(currentVideoSource, player => { 
       player.loop = false; 
       if (currentVideoSource) player.play(); 
   });
+
+  // ✅ AD LOGIC: Load & Listeners
+  useEffect(() => {
+    const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
+      setAdLoaded(true);
+    });
+
+    const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
+      setAdLoaded(false);
+      interstitial.load(); // Reload for next time
+      
+      // If there was a pending download, start it now
+      if (pendingDownloadEp) {
+          performDownload(pendingDownloadEp);
+          setPendingDownloadEp(null);
+      }
+    });
+
+    const unsubscribeError = interstitial.addAdEventListener(AdEventType.ERROR, (error) => {
+        setAdLoaded(false);
+    });
+
+    interstitial.load();
+
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeClosed();
+      unsubscribeError();
+    };
+  }, [pendingDownloadEp]); // Dependency on pending download
 
   // 1. CHECK HISTORY
   useEffect(() => {
@@ -313,21 +355,10 @@ export default function AnimeDetailScreen() {
     setCurrentEpId(String(ep.mal_id));
   };
 
-  const handleDownload = async (ep: any) => {
-    const epId = String(ep.mal_id);
-
-    if (downloadedEpIds.includes(epId)) {
-        Alert.alert("Delete Download?", "Remove this episode from offline storage?", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Delete", style: "destructive", onPress: async () => {
-                await removeDownload(epId);
-                setDownloadedEpIds(prev => prev.filter(id => id !== epId));
-            }}
-        ]);
-        return;
-    }
-
-    try {
+  // ✅ HELPER: Perform Download (Separated Logic)
+  const performDownload = async (ep: any) => {
+      const epId = String(ep.mal_id);
+      try {
         setDownloadProgress(prev => ({ ...prev, [epId]: 0.01 }));
         registerDownloadListener(epId, (progress) => {
              setDownloadProgress(prev => ({ ...prev, [epId]: progress }));
@@ -359,6 +390,32 @@ export default function AnimeDetailScreen() {
         Alert.alert("Error", "Download failed.");
         setDownloadProgress(prev => { const n = { ...prev }; delete n[epId]; return n; });
         unregisterDownloadListener(epId);
+    }
+  };
+
+  // ✅ UPDATED: Handle Download Click with Ad Check
+  const handleDownload = async (ep: any) => {
+    const epId = String(ep.mal_id);
+
+    // Case 1: Already Downloaded -> Delete
+    if (downloadedEpIds.includes(epId)) {
+        Alert.alert("Delete Download?", "Remove this episode from offline storage?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Delete", style: "destructive", onPress: async () => {
+                await removeDownload(epId);
+                setDownloadedEpIds(prev => prev.filter(id => id !== epId));
+            }}
+        ]);
+        return;
+    }
+
+    // Case 2: New Download -> Show Ad First
+    if (adLoaded) {
+        setPendingDownloadEp(ep); // Save state
+        interstitial.show();      // Show Ad
+    } else {
+        // Fallback: If ad isn't loaded, download immediately
+        performDownload(ep);
     }
   };
 
@@ -691,6 +748,7 @@ const styles = StyleSheet.create({
 
   infoContainer: { padding: 16, paddingBottom: 0, borderBottomWidth: 1 },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 5 },
+  meta: { fontSize: 13, marginBottom: 15 },
   tabRow: { flexDirection: 'row', marginTop: 5 },
   tabBtn: { marginRight: 20, paddingBottom: 10 },
   contentScroll: { flex: 1 },

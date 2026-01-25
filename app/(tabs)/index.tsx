@@ -18,6 +18,9 @@ import { useTheme } from '../../context/ThemeContext';
 
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
+// ✅ IMPORT AD COMPONENT
+import AdBanner from '../../components/AdBanner';
+
 import { auth, db } from '../../config/firebaseConfig';
 import { getRecommendedAnime, getTopAnime, getUpcomingAnime, searchAnime } from '../../services/animeService';
 import { getFavorites, toggleFavorite } from '../../services/favoritesService';
@@ -260,7 +263,6 @@ export default function HomeScreen() {
               />
           )}
 
-          {/* ✅ UPDATED: Added Fire Emoji */}
           <TrendingRail 
               title="🔥 Trending Now" 
               data={trending.slice(0, 5)} 
@@ -268,16 +270,20 @@ export default function HomeScreen() {
               onToggleFavorite={handleToggleFav}
               onMore={() => router.push('/anime-list?type=trending')} 
           />
+
+          {/* ✅ AD 1: Between Trending and Upcoming */}
+          <AdBanner />
           
-          {upcoming.length > 0 && (
-              <TrendingRail 
-                  title="Upcoming Anime" 
-                  data={upcoming.slice(0, 5)} 
-                  favorites={favorites} 
-                  onToggleFavorite={handleToggleFav}
-                  onMore={() => router.push('/anime-list?type=upcoming')}
+          <TrendingRail 
+              title="Upcoming Anime" 
+              data={upcoming.slice(0, 5)} 
+              favorites={favorites} 
+              onToggleFavorite={handleToggleFav}
+              onMore={() => router.push('/anime-list?type=upcoming')}
               />
-          )}
+
+          {/* ✅ AD 2: Between Upcoming and Recommended */}
+          <AdBanner />
 
           <TrendingRail 
               title="Recommended for You" 
@@ -286,6 +292,9 @@ export default function HomeScreen() {
               onToggleFavorite={handleToggleFav}
               onMore={() => router.push('/anime-list?type=recommended')} 
           />
+
+          {/* ✅ AD 3: Between Recommended and Favorite */}
+          <AdBanner />
           
           {favorites.length > 0 && (
               <TrendingRail 

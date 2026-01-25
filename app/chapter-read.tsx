@@ -3,12 +3,19 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import { AdConfig } from '../config/adConfig'; // ✅ Import Config
+
 import { useTheme } from '../context/ThemeContext';
-// ✅ Import History functions
 import { getMangaHistory, saveReadProgress } from '../services/historyService';
 import { getMangaChapters } from '../services/mangaService';
+
+// ✅ Use Central Config
+const interstitial = InterstitialAd.createForAdRequest(AdConfig.interstitial, {
+  requestNonPersonalizedAdsOnly: true,
+});
 
 export default function MangaReaderScreen() {
   const { url, title, mangaId, chapterId, chapterNum } = useLocalSearchParams();
@@ -20,11 +27,45 @@ export default function MangaReaderScreen() {
   const [currentChapIndex, setCurrentChapIndex] = useState(-1);
   const [localPdfData, setLocalPdfData] = useState<string | null>(null);
 
-  // ✅ New State for Resume
+  // Resume State
   const [initialPage, setInitialPage] = useState(1);
   const [isHistoryReady, setIsHistoryReady] = useState(false);
 
+  // ✅ Ad State
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [nextChapterParams, setNextChapterParams] = useState<any>(null); // To store where we are going
+
   const chapterNumber = Number(chapterNum);
+
+  // ✅ AD LOGIC: Load & Listeners
+  useEffect(() => {
+    const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
+      setAdLoaded(true);
+    });
+
+    const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
+      setAdLoaded(false);
+      interstitial.load(); // Reload for next time
+      
+      // ✅ AD CLOSED -> NAVIGATE TO NEXT CHAPTER
+      if (nextChapterParams) {
+          router.replace(nextChapterParams);
+          setNextChapterParams(null);
+      }
+    });
+
+    const unsubscribeError = interstitial.addAdEventListener(AdEventType.ERROR, (error) => {
+        setAdLoaded(false);
+    });
+
+    interstitial.load();
+
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeClosed();
+      unsubscribeError();
+    };
+  }, [nextChapterParams]);
 
   // 1. Fetch History to Resume
   useEffect(() => {
@@ -32,7 +73,6 @@ export default function MangaReaderScreen() {
           try {
             if (mangaId && chapterId) {
                 const history = await getMangaHistory();
-                // Find progress for THIS chapter
                 const item = history.find(h => String(h.mal_id) === String(mangaId) && String(h.chapterId) === String(chapterId));
                 if (item && item.page > 1) {
                     setInitialPage(item.page);
@@ -80,10 +120,11 @@ export default function MangaReaderScreen() {
       prepareFile();
   }, [url]);
 
+  // ✅ UPDATED: Navigation with Ad Check
   const handleNavigate = (direction: 'next' | 'prev') => {
       if (currentChapIndex === -1) return;
       
-      // ✅ Mark current as "Read" (Page 1) before leaving
+      // Mark current as read
       if (mangaId && direction === 'next') {
         saveReadProgress(
             { mal_id: mangaId, title: title?.toString().split(' - ')[0] }, 
@@ -93,10 +134,11 @@ export default function MangaReaderScreen() {
       }
 
       const newIndex = direction === 'next' ? currentChapIndex + 1 : currentChapIndex - 1;
+      
       if (newIndex >= 0 && newIndex < chapters.length) {
           const nextChap = chapters[newIndex];
-          router.replace({
-            pathname: '/chapter-read',
+          const newParams = {
+            pathname: '/chapter-read' as const,
             params: {
                 url: nextChap.fileUrl || nextChap.localUri, 
                 title: `${title?.toString().split(' - ')[0]} - ${nextChap.title || 'Chapter ' + nextChap.number}`,
@@ -104,7 +146,15 @@ export default function MangaReaderScreen() {
                 chapterId: nextChap.id || nextChap.number,
                 chapterNum: nextChap.number
             }
-          });
+          };
+
+          // Show Ad only on NEXT chapter, not PREV
+          if (direction === 'next' && adLoaded) {
+              setNextChapterParams(newParams); // Save destination
+              interstitial.show();             // Show Ad
+          } else {
+              router.replace(newParams);       // Go immediately
+          }
       }
   };
 
@@ -114,7 +164,6 @@ export default function MangaReaderScreen() {
           setLoading(false);
       } else if (data.startsWith("Page:")) {
           const page = parseInt(data.split(":")[1]);
-          // ✅ Save Progress as you scroll
           if (mangaId) {
             saveReadProgress(
                 { mal_id: mangaId, title: title?.toString().split(' - ')[0] }, 
@@ -125,7 +174,6 @@ export default function MangaReaderScreen() {
       }
   };
 
-  // Wait for history check before rendering so we don't jump
   if (!url || !isHistoryReady) {
       return (
         <View style={[styles.container, { backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' }]}>
@@ -174,7 +222,6 @@ export default function MangaReaderScreen() {
       <script>
         const container = document.getElementById('container');
         let currentPage = 1;
-        // ✅ Inject Saved Page
         const startPage = ${initialPage};
 
         window.onscroll = function() {
@@ -203,7 +250,6 @@ export default function MangaReaderScreen() {
                     await pdf.getPage(pageNum).then(page => {
                         const viewport = page.getViewport({ scale: 2.0 });
                         const canvas = document.createElement('canvas');
-                        // ✅ Set ID to find it later
                         canvas.id = 'page-' + pageNum; 
                         const context = canvas.getContext('2d');
                         canvas.height = viewport.height;
@@ -216,14 +262,13 @@ export default function MangaReaderScreen() {
                     });
                 }
                 
-                // ✅ Resume Logic: Scroll to saved page
                 if (startPage > 1) {
                     setTimeout(() => {
                         const target = document.getElementById('page-' + startPage);
                         if (target) {
                              target.scrollIntoView({ behavior: 'auto', block: 'start' });
                         }
-                    }, 300); // Small delay to ensure layout is ready
+                    }, 300);
                 }
 
                 window.ReactNativeWebView.postMessage("Loaded");

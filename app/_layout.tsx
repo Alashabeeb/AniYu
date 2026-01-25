@@ -1,28 +1,65 @@
 import { Stack, useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { AuthProvider, useAuth } from '../context/AuthContext'; // ✅ Import Auth
+import { AdEventType, AppOpenAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
+import { AdConfig } from '../config/adConfig'; // ✅ Import Config
+
+import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
 
-// This component handles the redirection logic
+// ✅ Use Central Config
+const appOpenAd = AppOpenAd.createForAdRequest(AdConfig.appOpen, {
+  requestNonPersonalizedAdsOnly: true,
+});
+
 function RootLayoutNav() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  
+  // ✅ Ad Loaded State
+  const [isAdClosed, setIsAdClosed] = useState(false);
 
+  // ✅ 1. Load & Show App Open Ad
   useEffect(() => {
-    if (loading) return;
+    // Show ad when loaded
+    const unsubscribeLoaded = appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
+      appOpenAd.show();
+    });
 
-    // 🔒 THE GATEKEEPER LOGIC
+    // When ad is closed, allow app to proceed
+    const unsubscribeClosed = appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
+      setIsAdClosed(true);
+    });
+
+    // If ad fails to load, just proceed
+    const unsubscribeError = appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
+      console.log("App Open Ad Failed:", error);
+      setIsAdClosed(true);
+    });
+
+    appOpenAd.load();
+
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeClosed();
+      unsubscribeError();
+    };
+  }, []);
+
+  // 🔒 THE GATEKEEPER LOGIC
+  useEffect(() => {
+    // Wait for BOTH: Auth Check + Ad to Close (or fail)
+    if (loading || !isAdClosed) return;
+
     if (!user) {
-      // If user is NOT logged in, send them to Login screen
       router.replace('/(auth)/login');
     } else {
-      // If user IS logged in, send them to Home
       router.replace('/(tabs)');
     }
-  }, [user, loading]);
+  }, [user, loading, isAdClosed]); // Dependency on isAdClosed
 
-  if (loading) {
+  // Show loading screen while Auth is checking OR Ad is showing
+  if (loading || !isAdClosed) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' }}>
         <ActivityIndicator size="large" color="#FF6B6B" />
@@ -36,6 +73,8 @@ function RootLayoutNav() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="anime/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="manga/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="chapter-read" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
       </Stack>
     </ThemeProvider>
