@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore'; // ✅ Import setDoc
+import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Alert, KeyboardAvoidingView,
-  Platform, StyleSheet, Text, TextInput, TouchableOpacity, View
+    ActivityIndicator, Alert, KeyboardAvoidingView,
+    Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
@@ -17,38 +17,56 @@ export default function SignUpScreen() {
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState(''); // ✅ Added Username Field
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSignUp = async () => {
+    // 1. Basic Validation
     if (!email || !password || !username) {
-        Alert.alert("Error", "Please fill in all fields.");
+        Alert.alert("Missing Fields", "Please fill in all fields.");
         return;
     }
+    if (password.length < 6) {
+        Alert.alert("Weak Password", "Password must be at least 6 characters.");
+        return;
+    }
+
     setLoading(true);
 
     try {
-        // 1. Create User in Auth
+        // 2. Check Username Availability
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("username", "==", username.toLowerCase()));
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            Alert.alert("Username Taken", "This username is already in use. Please choose another.");
+            setLoading(false);
+            return;
+        }
+
+        // 3. Create User in Auth
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        // 2. Set Display Name in Auth (Optional but good)
+        // 4. Set Display Name
         await updateProfile(user, { displayName: username });
 
-        // 3. ✅ CREATE DATABASE PROFILE IMMEDIATELY
+        // 5. Create Database Profile
         await setDoc(doc(db, "users", user.uid), {
             username: username.toLowerCase(),
             displayName: username,
             email: email,
-            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + username, // Random Avatar
+            avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + username,
             bio: "I'm new here!",
             followers: [],
             following: [],
-            createdAt: new Date()
+            createdAt: new Date(),
+            isVerified: false 
         });
 
-        Alert.alert("Success", "Account created!", [
-            { text: "OK", onPress: () => router.replace('/(tabs)/feed') }
+        Alert.alert("Welcome!", "Your account has been created successfully.", [
+            { text: "Let's Go!", onPress: () => router.replace('/(tabs)/feed') }
         ]);
 
     } catch (error: any) {
@@ -66,66 +84,69 @@ export default function SignUpScreen() {
             <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
 
-        <Text style={[styles.title, { color: theme.text }]}>Create Account</Text>
-        <Text style={[styles.subtitle, { color: theme.subText }]}>Join the AniYu community!</Text>
+        <ScrollView contentContainerStyle={{flexGrow: 1, justifyContent: 'center'}}>
+            
+            <Text style={[styles.title, { color: theme.text }]}>Create Account</Text>
+            <Text style={[styles.subtitle, { color: theme.subText }]}>Join the AniYu community!</Text>
 
-        <View style={styles.form}>
-            {/* Username Input */}
-            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Ionicons name="person-outline" size={20} color={theme.subText} style={styles.icon} />
-                <TextInput 
-                    placeholder="Username" 
-                    placeholderTextColor={theme.subText} 
-                    style={[styles.input, { color: theme.text }]} 
-                    value={username}
-                    onChangeText={setUsername}
-                    autoCapitalize="none"
-                />
+            <View style={styles.form}>
+                {/* Username Input */}
+                <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Ionicons name="person-outline" size={20} color={theme.subText} style={styles.icon} />
+                    <TextInput 
+                        placeholder="Username" 
+                        placeholderTextColor={theme.subText} 
+                        style={[styles.input, { color: theme.text }]} 
+                        value={username}
+                        onChangeText={setUsername}
+                        autoCapitalize="none"
+                    />
+                </View>
+
+                {/* Email Input */}
+                <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Ionicons name="mail-outline" size={20} color={theme.subText} style={styles.icon} />
+                    <TextInput 
+                        placeholder="Email" 
+                        placeholderTextColor={theme.subText} 
+                        style={[styles.input, { color: theme.text }]} 
+                        value={email}
+                        onChangeText={setEmail}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                    />
+                </View>
+
+                {/* Password Input */}
+                <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Ionicons name="lock-closed-outline" size={20} color={theme.subText} style={styles.icon} />
+                    <TextInput 
+                        placeholder="Password" 
+                        placeholderTextColor={theme.subText} 
+                        style={[styles.input, { color: theme.text }]} 
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry
+                    />
+                </View>
+
+                <TouchableOpacity 
+                    style={[styles.button, { backgroundColor: theme.tint }]} 
+                    onPress={handleSignUp}
+                    disabled={loading}
+                >
+                    {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Sign Up</Text>}
+                </TouchableOpacity>
             </View>
 
-            {/* Email Input */}
-            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Ionicons name="mail-outline" size={20} color={theme.subText} style={styles.icon} />
-                <TextInput 
-                    placeholder="Email" 
-                    placeholderTextColor={theme.subText} 
-                    style={[styles.input, { color: theme.text }]} 
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                />
+            <View style={styles.footer}>
+                <Text style={{ color: theme.subText }}>Already have an account? </Text>
+                <TouchableOpacity onPress={() => router.push('/login')}>
+                    <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Log In</Text>
+                </TouchableOpacity>
             </View>
 
-            {/* Password Input */}
-            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Ionicons name="lock-closed-outline" size={20} color={theme.subText} style={styles.icon} />
-                <TextInput 
-                    placeholder="Password" 
-                    placeholderTextColor={theme.subText} 
-                    style={[styles.input, { color: theme.text }]} 
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry
-                />
-            </View>
-
-            <TouchableOpacity 
-                style={[styles.button, { backgroundColor: theme.tint }]} 
-                onPress={handleSignUp}
-                disabled={loading}
-            >
-                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Sign Up</Text>}
-            </TouchableOpacity>
-        </View>
-
-        <View style={styles.footer}>
-            <Text style={{ color: theme.subText }}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => router.push('/login')}>
-                <Text style={{ color: theme.tint, fontWeight: 'bold' }}>Log In</Text>
-            </TouchableOpacity>
-        </View>
-
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -133,9 +154,9 @@ export default function SignUpScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1, padding: 25, justifyContent: 'center' },
+  content: { flex: 1, padding: 25 },
   backBtn: { position: 'absolute', top: 20, left: 20, zIndex: 10 },
-  title: { fontSize: 32, fontWeight: 'bold', marginBottom: 10 },
+  title: { fontSize: 32, fontWeight: 'bold', marginBottom: 10, marginTop: 60 },
   subtitle: { fontSize: 16, marginBottom: 40 },
   form: { width: '100%' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, marginBottom: 15, paddingHorizontal: 15, height: 55 },

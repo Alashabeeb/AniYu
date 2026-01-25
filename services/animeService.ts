@@ -1,4 +1,5 @@
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -13,6 +14,13 @@ import {
   where
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
+import { getContentRating, isContentAllowed } from './settingsService';
+
+// ✅ Helper to filter anime based on user settings
+const filterContent = async (data: any[]) => {
+    const userRating = await getContentRating();
+    return data.filter(item => isContentAllowed(item.rating, item.genres, userRating));
+};
 
 // Fetch Top 50 Anime (Trending)
 export const getTopAnime = async () => {
@@ -20,20 +28,16 @@ export const getTopAnime = async () => {
     const animeRef = collection(db, 'anime');
     const q = query(animeRef, orderBy('views', 'desc'), limit(50)); 
     
+    let results = [];
     try {
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({
-          mal_id: doc.id,
-          ...doc.data()
-        }));
+        results = snapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
     } catch (networkError) {
         console.warn("Network failed, switching to Offline Cache...");
         const cachedSnapshot = await getDocsFromCache(q);
-        return cachedSnapshot.docs.map(doc => ({
-          mal_id: doc.id,
-          ...doc.data()
-        }));
+        results = cachedSnapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
     }
+    return await filterContent(results);
   } catch (error) {
     console.error("Error fetching anime:", error);
     return [];
@@ -47,10 +51,9 @@ export const getUpcomingAnime = async () => {
     const q = query(animeRef, where('status', '==', 'Upcoming'), limit(15));
     
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
-        mal_id: doc.id,
-        ...doc.data()
-    }));
+    const results = snapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
+    
+    return await filterContent(results);
   } catch (error) {
     console.error("Error fetching upcoming:", error);
     return [];
@@ -103,9 +106,11 @@ export const getSimilarAnime = async (genres: string[], currentId: string) => {
     
     const snapshot = await getDocs(q);
     
-    return snapshot.docs
+    const results = snapshot.docs
         .map(doc => ({ mal_id: doc.id, ...doc.data() }))
         .filter((a: any) => String(a.mal_id) !== String(currentId));
+
+    return await filterContent(results);
 
   } catch (error) {
     console.error("Error fetching similar anime:", error);
@@ -136,7 +141,9 @@ export const getRecommendedAnime = async (userGenres: string[]) => {
         ...doc.data()
     })) as any[];
 
-    return results.sort((a, b) => (b.views || 0) - (a.views || 0));
+    const sorted = results.sort((a, b) => (b.views || 0) - (a.views || 0));
+    
+    return await filterContent(sorted);
 
   } catch (error) {
     console.error("Error fetching recommendations:", error);
@@ -179,10 +186,9 @@ export const getAnimeEpisodes = async (id: string) => {
   }
 };
 
-// ✅ UPDATED: Search ALL Anime (No Limit)
+// Search ALL Anime (No Limit)
 export const searchAnime = async (queryText: string) => {
   try {
-    // 1. Fetch entire collection (needed for client-side substring search)
     const animeRef = collection(db, 'anime');
     const snapshot = await getDocs(animeRef); 
     
@@ -191,10 +197,11 @@ export const searchAnime = async (queryText: string) => {
       ...doc.data()
     }));
 
-    // 2. Filter locally
-    return allAnime.filter((a: any) => 
+    const matches = allAnime.filter((a: any) => 
       a.title && a.title.toLowerCase().includes(queryText.toLowerCase())
     );
+
+    return await filterContent(matches);
   } catch (error) {
     console.error("Search error:", error);
     return [];
@@ -258,5 +265,79 @@ export const getAnimeReviews = async (animeId: string) => {
     } catch (e) {
         console.error("Error fetching reviews:", e);
         return [];
+    }
+};
+
+// Toggle Like/Dislike
+export const toggleAnimeReaction = async (animeId: string, userId: string, reaction: 'like' | 'dislike') => {
+    try {
+        const animeRef = doc(db, 'anime', animeId);
+        const userInteractRef = doc(db, 'anime', animeId, 'interactions', userId);
+
+        await runTransaction(db, async (transaction) => {
+            const animeDoc = await transaction.get(animeRef);
+            const interactDoc = await transaction.get(userInteractRef);
+
+            if (!animeDoc.exists()) throw "Anime not found";
+
+            const currentData = interactDoc.exists() ? interactDoc.data() : {};
+            const oldReaction = currentData.reaction;
+
+            let likesInc = 0;
+            let dislikesInc = 0;
+
+            if (oldReaction === reaction) {
+                transaction.delete(userInteractRef);
+                if (reaction === 'like') likesInc = -1;
+                if (reaction === 'dislike') dislikesInc = -1;
+            } else {
+                transaction.set(userInteractRef, { reaction, userId });
+                if (reaction === 'like') {
+                    likesInc = 1;
+                    if (oldReaction === 'dislike') dislikesInc = -1;
+                } else {
+                    dislikesInc = 1;
+                    if (oldReaction === 'like') likesInc = -1;
+                }
+            }
+
+            transaction.update(animeRef, {
+                likes: increment(likesInc),
+                dislikes: increment(dislikesInc)
+            });
+        });
+        return true;
+    } catch (error) {
+        console.error("Error toggling reaction:", error);
+        return false;
+    }
+};
+
+// Get User's Reaction Status
+export const getUserReaction = async (animeId: string, userId: string) => {
+    try {
+        const docRef = doc(db, 'anime', animeId, 'interactions', userId);
+        const snapshot = await getDoc(docRef);
+        return snapshot.exists() ? snapshot.data().reaction : null;
+    } catch (error) {
+        return null;
+    }
+};
+
+// ✅ Submit Comment (Backend Only - Users can't see)
+export const addAnimeComment = async (animeId: string, userId: string, userName: string, text: string) => {
+    try {
+        const commentsRef = collection(db, 'anime', animeId, 'comments');
+        await addDoc(commentsRef, {
+            userId,
+            userName,
+            text,
+            createdAt: new Date().toISOString(),
+            isPrivate: true // Optional flag for admin filtering
+        });
+        return true;
+    } catch (error) {
+        console.error("Error adding comment:", error);
+        return false;
     }
 };

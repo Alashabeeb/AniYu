@@ -4,19 +4,22 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View
+    ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
 import {
+    addAnimeComment, // ✅ Keep this so users can submit
     addAnimeReview,
     getAnimeDetails,
     getAnimeEpisodes,
     getAnimeRank,
     getSimilarAnime,
-    incrementAnimeView
+    getUserReaction,
+    incrementAnimeView,
+    toggleAnimeReaction
 } from '../../services/animeService';
 
 import {
@@ -54,11 +57,15 @@ export default function AnimeDetailScreen() {
   const [userRating, setUserRating] = useState(0);
   const [submittingReview, setSubmittingReview] = useState(false);
 
+  // Interaction State
+  const [commentText, setCommentText] = useState('');
+  const [userReaction, setUserReaction] = useState<'like' | 'dislike' | null>(null);
+  const [likesCount, setLikesCount] = useState(0);
+  const [dislikesCount, setDislikesCount] = useState(0);
+
   const [downloadedEpIds, setDownloadedEpIds] = useState<string[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({}); 
-  
   const [watchedEpisodeIds, setWatchedEpisodeIds] = useState<string[]>([]);
-
   const [currentEpId, setCurrentEpId] = useState<string | null>(null);
   const [currentVideoSource, setCurrentVideoSource] = useState<string | null>(null);
 
@@ -69,13 +76,12 @@ export default function AnimeDetailScreen() {
       if (currentVideoSource) player.play(); 
   });
 
-  // 1. CHECK HISTORY FOR RESUME TIME
+  // 1. CHECK HISTORY
   useEffect(() => {
       const checkHistory = async () => {
           if (!anime || !currentEpId) return;
           const history = await getContinueWatching();
           const savedItem = history.find(h => String(h.mal_id) === String(anime.mal_id));
-          
           if (savedItem && String(savedItem.episodeId) === String(currentEpId)) {
               resumeTimeRef.current = savedItem.progress;
           } else {
@@ -85,7 +91,7 @@ export default function AnimeDetailScreen() {
       checkHistory();
   }, [anime, currentEpId]);
 
-  // 2. FETCH WATCHED EPISODES LIST
+  // 2. FETCH WATCHED STATUS
   useEffect(() => {
       const fetchWatchedStatus = async () => {
           const user = auth.currentUser;
@@ -95,18 +101,14 @@ export default function AnimeDetailScreen() {
               const snap = await getDoc(progressRef);
               if (snap.exists()) {
                   const data = snap.data();
-                  if (data.watchedEpisodes) {
-                      setWatchedEpisodeIds(data.watchedEpisodes);
-                  }
+                  if (data.watchedEpisodes) setWatchedEpisodeIds(data.watchedEpisodes);
               }
-          } catch (e) {
-              console.log("Error fetching watched status:", e);
-          }
+          } catch (e) { console.log(e); }
       };
       if (anime) fetchWatchedStatus();
   }, [anime]);
 
-  // 3. APPLY RESUME TIME
+  // 3. RESUME PLAYBACK
   useEffect(() => {
       if (player && resumeTimeRef.current !== null) {
           const timer = setTimeout(() => {
@@ -119,28 +121,21 @@ export default function AnimeDetailScreen() {
       }
   }, [player, currentVideoSource]);
 
-  // 4. SAVE PROGRESS PERIODICALLY
+  // 4. SAVE PROGRESS
   useEffect(() => {
       if (!currentEpId || !anime) return;
-
       const interval = setInterval(() => {
           if (player.playing && player.currentTime > 0) {
               const activeEp = episodes.find(e => String(e.mal_id) === currentEpId);
               if (activeEp) {
-                  saveWatchProgress(
-                      anime, 
-                      { ...activeEp, id: currentEpId },
-                      player.currentTime, 
-                      player.duration || 0
-                  );
+                  saveWatchProgress(anime, { ...activeEp, id: currentEpId }, player.currentTime, player.duration || 0);
               }
           }
       }, 5000); 
-
       return () => clearInterval(interval);
   }, [player, currentEpId, anime, episodes]);
 
-
+  // 5. VIDEO SOURCE
   useEffect(() => {
     if (currentVideoSource) {
       player.replace(currentVideoSource);
@@ -148,6 +143,7 @@ export default function AnimeDetailScreen() {
     }
   }, [currentVideoSource]);
 
+  // 6. FINISHED HANDLING
   useEffect(() => {
       const subscription = player.addListener('playToEnd', () => handleVideoFinished());
       return () => subscription.remove();
@@ -156,20 +152,14 @@ export default function AnimeDetailScreen() {
   const handleVideoFinished = async () => {
       const user = auth.currentUser;
       if (!user || !anime || !currentEpId) return;
-
       try {
           const progressRef = doc(db, 'users', user.uid, 'anime_progress', String(anime.mal_id));
-          
           await setDoc(progressRef, {
               watchedEpisodes: arrayUnion(currentEpId),
               totalEpisodes: anime.totalEpisodes || episodes.length 
           }, { merge: true });
-
-          setWatchedEpisodeIds(prev => {
-              if (!prev.includes(currentEpId)) return [...prev, currentEpId];
-              return prev;
-          });
-
+          setWatchedEpisodeIds(prev => !prev.includes(currentEpId) ? [...prev, currentEpId] : prev);
+          
           const progressSnap = await getDoc(progressRef);
           if (progressSnap.exists()) {
               const data = progressSnap.data();
@@ -177,7 +167,6 @@ export default function AnimeDetailScreen() {
                   await updateDoc(progressRef, { isCompleted: true });
                   const userRef = doc(db, 'users', user.uid);
                   await updateDoc(userRef, { completedAnimeCount: increment(1) });
-                  
                   const userSnap = await getDoc(userRef);
                   if (userSnap.exists()) {
                       const score = userSnap.data().completedAnimeCount || 0;
@@ -189,7 +178,7 @@ export default function AnimeDetailScreen() {
                   }
               }
           }
-      } catch (error) { console.log("Error updating progress:", error); }
+      } catch (error) { console.log(error); }
   };
 
   useEffect(() => {
@@ -204,17 +193,14 @@ export default function AnimeDetailScreen() {
           loadAllData();
           checkAndIncrementView();
       } 
-      return () => {};
   }, [id]);
 
   useEffect(() => {
       const determineSource = async () => {
           if (!currentEpId) return;
           const localUri = await getLocalEpisodeUri(currentEpId);
-          if (localUri) {
-              console.log("Playing Offline File");
-              setCurrentVideoSource(localUri);
-          } else {
+          if (localUri) setCurrentVideoSource(localUri);
+          else {
               const activeEpisode = episodes.find(e => String(e.mal_id) === currentEpId);
               if (activeEpisode?.url) setCurrentVideoSource(activeEpisode.url);
           }
@@ -246,6 +232,17 @@ export default function AnimeDetailScreen() {
       setEpisodes(episodesData);
       
       const animeData = detailsData as any; 
+      
+      if(animeData) {
+          setLikesCount(animeData.likes || 0);
+          setDislikesCount(animeData.dislikes || 0);
+      }
+
+      const user = auth.currentUser;
+      if(user && id) {
+          const reaction = await getUserReaction(id as string, user.uid);
+          setUserReaction(reaction);
+      }
       
       if (animeData?.genres) {
           const similar = await getSimilarAnime(animeData.genres, id as string);
@@ -281,6 +278,35 @@ export default function AnimeDetailScreen() {
 
     } catch (error) { console.error(error); } 
     finally { setLoading(false); }
+  };
+
+  const handleReaction = async (type: 'like' | 'dislike') => {
+      const user = auth.currentUser;
+      if (!user) return Alert.alert("Login Required", "Please login to interact.");
+      
+      const oldReaction = userReaction;
+      let newLikes = likesCount;
+      let newDislikes = dislikesCount;
+
+      if (oldReaction === type) {
+          setUserReaction(null);
+          if(type === 'like') newLikes--;
+          else newDislikes--;
+      } else {
+          setUserReaction(type);
+          if(type === 'like') {
+              newLikes++;
+              if(oldReaction === 'dislike') newDislikes--;
+          } else {
+              newDislikes++;
+              if(oldReaction === 'like') newLikes--;
+          }
+      }
+      
+      setLikesCount(newLikes);
+      setDislikesCount(newDislikes);
+
+      await toggleAnimeReaction(id as string, user.uid, type);
   };
 
   const handleEpisodePress = (ep: any) => {
@@ -337,23 +363,32 @@ export default function AnimeDetailScreen() {
   };
 
   const submitReview = async () => {
-      if (userRating === 0) return Alert.alert("Rate First", "Please tap the stars to rate.");
-      
       const user = auth.currentUser;
       if (!user) return Alert.alert("Login Required", "You must be logged in to rate.");
 
-      setSubmittingReview(true);
-      const success = await addAnimeReview(id as string, user.uid, user.displayName || 'User', userRating);
-      setSubmittingReview(false);
-
-      if (success) {
-          Alert.alert("Thank you!", "Your rating has been saved.");
-          setModalVisible(false);
-          setUserRating(0);
-          loadAllData(); 
-      } else {
-          Alert.alert("Error", "Could not submit rating.");
+      if (userRating === 0 && commentText.trim() === '') {
+          return Alert.alert("Empty", "Please rate or write a comment.");
       }
+
+      setSubmittingReview(true);
+      
+      // Submit Rating
+      if (userRating > 0) {
+          await addAnimeReview(id as string, user.uid, user.displayName || 'User', userRating);
+      }
+
+      // Submit Comment (Private to Admin)
+      if (commentText.trim() !== '') {
+          await addAnimeComment(id as string, user.uid, user.displayName || 'User', commentText);
+      }
+
+      setSubmittingReview(false);
+      setModalVisible(false);
+      setCommentText('');
+      setUserRating(0);
+      Alert.alert("Sent", "Feedback submitted successfully.");
+      // No reload needed for comments since we don't show them
+      loadAllData(); 
   };
 
   const formatSize = (bytes: number) => {
@@ -367,7 +402,7 @@ export default function AnimeDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <Stack.Screen options={{ headerTitle: '', headerTransparent: true, headerTintColor: 'white' }} />
+      <Stack.Screen options={{ headerShown: false }} />
 
       <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={{ flex: 1 }}>
         
@@ -377,21 +412,21 @@ export default function AnimeDetailScreen() {
                     style={styles.video} 
                     player={player} 
                     allowsPictureInPicture 
-                    allowsFullscreen // ✅ Added Fullscreen/Landscape support
+                    allowsFullscreen 
                 />
             ) : (
                 <View style={styles.posterContainer}>
-                    <Image 
-                        source={{ uri: anime.images?.jpg?.image_url }} 
-                        style={styles.heroPoster} 
-                        resizeMode="cover"
-                    />
+                    <Image source={{ uri: anime.images?.jpg?.image_url }} style={styles.heroPoster} resizeMode="cover" />
                     <View style={styles.posterOverlay}>
                         <Ionicons name="play-circle-outline" size={50} color="white" style={{opacity: 0.8}} />
                         <Text style={{color:'white', fontWeight:'bold', marginTop:5}}>Select an Episode</Text>
                     </View>
                 </View>
             )}
+
+            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                <Ionicons name="arrow-back" size={28} color="white" />
+            </TouchableOpacity>
         </View>
 
         <View style={[styles.infoContainer, { borderBottomColor: theme.border }]}>
@@ -419,7 +454,6 @@ export default function AnimeDetailScreen() {
                         <Text style={[styles.synopsis, { color: theme.subText }]}>{anime.synopsis}</Text>
                         
                         <View style={[styles.statsGrid, { backgroundColor: theme.card }]}>
-                            {/* Rating */}
                             <TouchableOpacity style={styles.statBox} onPress={() => setModalVisible(true)}>
                                 <Text style={{ color: theme.subText }}>Rating</Text>
                                 <View style={{flexDirection:'row', alignItems:'center', gap: 5, marginTop: 4}}>
@@ -440,17 +474,33 @@ export default function AnimeDetailScreen() {
                                 <Text style={{fontSize:10, color: theme.tint, marginTop:2}}>Tap to Rate</Text>
                             </TouchableOpacity>
                             
-                            {/* Episodes */}
                             <View style={styles.statBox}>
                                 <Text style={{ color: theme.subText }}>Episodes</Text>
                                 <Text style={[styles.val, { color: theme.text, marginTop: 4 }]}>{anime.totalEpisodes || episodes.length}</Text>
                             </View>
                             
-                            {/* Rank */}
                             <View style={styles.statBox}>
                                 <Text style={{ color: theme.subText }}>Rank</Text>
                                 <Text style={[styles.val, { color: theme.text, marginTop: 4 }]}>#{rank}</Text>
                             </View>
+                        </View>
+
+                        {/* Interaction Row */}
+                        <View style={styles.interactionRow}>
+                            <TouchableOpacity style={[styles.interactBtn, { backgroundColor: theme.card }]} onPress={() => handleReaction('like')}>
+                                <Ionicons name={userReaction === 'like' ? "thumbs-up" : "thumbs-up-outline"} size={20} color={userReaction === 'like' ? theme.tint : theme.text} />
+                                <Text style={{color: theme.text, marginLeft: 6}}>{likesCount}</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={[styles.interactBtn, { backgroundColor: theme.card }]} onPress={() => handleReaction('dislike')}>
+                                <Ionicons name={userReaction === 'dislike' ? "thumbs-down" : "thumbs-down-outline"} size={20} color={userReaction === 'dislike' ? "#FF6B6B" : theme.text} />
+                                <Text style={{color: theme.text, marginLeft: 6}}>{dislikesCount}</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity style={[styles.interactBtn, { backgroundColor: theme.card }]} onPress={() => setModalVisible(true)}>
+                                <Ionicons name="chatbubble-outline" size={20} color={theme.text} />
+                                <Text style={{color: theme.text, marginLeft: 6}}>Comment</Text>
+                            </TouchableOpacity>
                         </View>
 
                         <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 20 }]}>Genres</Text>
@@ -562,7 +612,7 @@ export default function AnimeDetailScreen() {
         >
             <View style={styles.modalOverlay}>
                 <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                    <Text style={[styles.modalTitle, { color: theme.text }]}>Rate this Anime</Text>
+                    <Text style={[styles.modalTitle, { color: theme.text }]}>Rate & Comment</Text>
                     
                     <View style={styles.starRow}>
                         {[1, 2, 3, 4, 5].map((star) => (
@@ -576,6 +626,16 @@ export default function AnimeDetailScreen() {
                             </TouchableOpacity>
                         ))}
                     </View>
+
+                    <TextInput 
+                        style={[styles.commentInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+                        placeholder="Write a comment (Admin only view)..."
+                        placeholderTextColor={theme.subText}
+                        value={commentText}
+                        onChangeText={setCommentText}
+                        multiline
+                        numberOfLines={3}
+                    />
 
                     <View style={styles.modalButtons}>
                         <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.cancelBtn}>
@@ -605,7 +665,7 @@ function TabButton({ title, active, onPress, theme }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  videoContainer: { width: '100%', height: 250, backgroundColor: 'black' },
+  videoContainer: { width: '100%', height: 250, backgroundColor: 'black', position: 'relative' },
   video: { width: '100%', height: '100%' },
   posterContainer: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center', position: 'relative' },
   heroPoster: { width: '100%', height: '100%' },
@@ -616,9 +676,21 @@ const styles = StyleSheet.create({
       justifyContent: 'center', alignItems: 'center' 
   },
   
+  backButton: {
+      position: 'absolute',
+      top: 50, 
+      left: 20,
+      zIndex: 10,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      borderRadius: 20,
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center'
+  },
+
   infoContainer: { padding: 16, paddingBottom: 0, borderBottomWidth: 1 },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 5 },
-  meta: { fontSize: 13, marginBottom: 15 },
   tabRow: { flexDirection: 'row', marginTop: 5 },
   tabBtn: { marginRight: 20, paddingBottom: 10 },
   contentScroll: { flex: 1 },
@@ -626,7 +698,7 @@ const styles = StyleSheet.create({
   episodeList: { padding: 16, paddingTop: 0 },
   epRowWrapper: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   epCard: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8 },
-  epTitle: { fontWeight: '600', fontSize: 15, marginBottom: 0 }, // Adjusted margin
+  epTitle: { fontWeight: '600', fontSize: 15, marginBottom: 0 }, 
   actionContainer: { marginLeft: 10, width: 50, alignItems: 'center', justifyContent: 'center' },
   downloadBtn: { width: 44, height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   progressWrapper: { width: '100%', alignItems: 'center' },
@@ -641,6 +713,9 @@ const styles = StyleSheet.create({
   val: { fontWeight: 'bold', fontSize: 16 },
   sectionHeader: { marginTop: 10 },
 
+  interactionRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  interactBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
+
   similarContainer: { padding: 16 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   similarCard: { width: '48%', marginBottom: 16, borderRadius: 8, padding: 8 },
@@ -648,9 +723,10 @@ const styles = StyleSheet.create({
   similarTitle: { fontSize: 13, fontWeight: 'bold', marginBottom: 4 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 40 },
-  modalContent: { padding: 25, borderRadius: 16, alignItems: 'center' },
+  modalContent: { padding: 25, borderRadius: 16, alignItems: 'center', width:'100%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
-  starRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 25 },
+  starRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 15 },
+  commentInput: { width: '100%', borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: 20, textAlignVertical: 'top' },
   modalButtons: { flexDirection: 'row', width: '100%', justifyContent: 'space-between', gap: 15 },
   cancelBtn: { padding: 12, flex: 1, alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: 8 },
   submitBtn: { padding: 12, flex: 1, alignItems: 'center', borderRadius: 8 }

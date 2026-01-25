@@ -12,6 +12,14 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebaseConfig';
+// ✅ Import Filter Logic
+import { getContentRating, isContentAllowed } from './settingsService';
+
+// ✅ Helper to filter manga based on user settings
+const filterContent = async (data: any[]) => {
+    const userRating = await getContentRating();
+    return data.filter(item => isContentAllowed(item.rating, item.genres, userRating));
+};
 
 // 1. Get Top Manga
 export const getTopManga = async () => {
@@ -19,46 +27,40 @@ export const getTopManga = async () => {
     const mangaRef = collection(db, 'manga');
     const q = query(mangaRef, orderBy('views', 'desc'), limit(50));
     
+    let results = [];
     try {
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({
-          mal_id: doc.id,
-          ...doc.data()
-        }));
+        results = snapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
     } catch (networkError) {
         console.warn("Network failed, switching to Offline Cache...");
         const cachedSnapshot = await getDocsFromCache(q);
-        return cachedSnapshot.docs.map(doc => ({
-          mal_id: doc.id,
-          ...doc.data()
-        }));
+        results = cachedSnapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
     }
+    // ✅ Apply Filter
+    return await filterContent(results);
   } catch (error) {
     console.error("Error fetching top manga:", error);
     return [];
   }
 };
 
-// 2. ✅ UPDATED: Get All Manga (Added Cache Fallback)
+// 2. Get All Manga
 export const getAllManga = async () => {
   try {
     const mangaRef = collection(db, 'manga');
     const q = query(mangaRef, orderBy('updatedAt', 'desc'), limit(100));
     
+    let results = [];
     try {
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({
-          mal_id: doc.id,
-          ...doc.data()
-        }));
+        results = snapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
     } catch (networkError) {
         console.warn("Network failed, switching to Offline Cache...");
         const cachedSnapshot = await getDocsFromCache(q);
-        return cachedSnapshot.docs.map(doc => ({
-          mal_id: doc.id,
-          ...doc.data()
-        }));
+        results = cachedSnapshot.docs.map(doc => ({ mal_id: doc.id, ...doc.data() }));
     }
+    // ✅ Apply Filter
+    return await filterContent(results);
   } catch (error) {
     console.error("Error fetching all manga:", error);
     return [];
@@ -74,9 +76,11 @@ export const searchManga = async (queryText: string) => {
       mal_id: doc.id,
       ...doc.data()
     }));
-    return allManga.filter((m: any) => 
+    const matches = allManga.filter((m: any) => 
       m.title && m.title.toLowerCase().includes(queryText.toLowerCase())
     );
+    // ✅ Apply Filter
+    return await filterContent(matches);
   } catch (error) {
     console.error("Error searching manga:", error);
     return [];
