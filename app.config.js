@@ -42,11 +42,12 @@ export default {
       ],
       "expo-video",
       "expo-font",
+      // ✅ FIXED: Keys changed from 'android_app_id' to 'androidAppId'
       [
         "react-native-google-mobile-ads",
         {
-          "android_app_id": "ca-app-pub-3940256099942544~3347511713",
-          "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
         }
       ]
     ],
@@ -59,8 +60,8 @@ export default {
         origin: false
       },
       eas: {
-        // ✅ NEW PROJECT ID ADDED HERE
-        projectId: "e48e337d-9e82-4180-be7d-355de6ba82de"
+        // ✅ ADDED: Required for "eas build" to work
+        projectId: "6b64dac3-7900-41fd-9178-5903526532a4"
       }
     }
   }

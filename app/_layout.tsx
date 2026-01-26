@@ -1,13 +1,12 @@
 import { Stack, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { AdEventType, AppOpenAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
-import { AdConfig } from '../config/adConfig'; // ✅ Import Config
-
+// ✅ Import mobileAds
+import mobileAds, { AdEventType, AppOpenAd } from 'react-native-google-mobile-ads';
+import { AdConfig } from '../config/adConfig';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
 
-// ✅ Use Central Config
 const appOpenAd = AppOpenAd.createForAdRequest(AdConfig.appOpen, {
   requestNonPersonalizedAdsOnly: true,
 });
@@ -15,29 +14,31 @@ const appOpenAd = AppOpenAd.createForAdRequest(AdConfig.appOpen, {
 function RootLayoutNav() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  
-  // ✅ Ad Loaded State
   const [isAdClosed, setIsAdClosed] = useState(false);
 
-  // ✅ 1. Load & Show App Open Ad
   useEffect(() => {
-    // Show ad when loaded
+    // ✅ 1. Initialize AdMob SDK First!
+    mobileAds()
+      .initialize()
+      .then(adapterStatuses => {
+        console.log('AdMob Initialized:', adapterStatuses);
+        
+        // ✅ 2. Only THEN load the App Open Ad
+        appOpenAd.load();
+      });
+
     const unsubscribeLoaded = appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
       appOpenAd.show();
     });
 
-    // When ad is closed, allow app to proceed
     const unsubscribeClosed = appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
       setIsAdClosed(true);
     });
 
-    // If ad fails to load, just proceed
     const unsubscribeError = appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
       console.log("App Open Ad Failed:", error);
-      setIsAdClosed(true);
+      setIsAdClosed(true); // Proceed even if ad fails
     });
-
-    appOpenAd.load();
 
     return () => {
       unsubscribeLoaded();
@@ -46,19 +47,19 @@ function RootLayoutNav() {
     };
   }, []);
 
+  // ... (Rest of the file remains exactly the same)
+  // The Gatekeeper logic, the loading check, and the Stack return...
+  
   // 🔒 THE GATEKEEPER LOGIC
   useEffect(() => {
-    // Wait for BOTH: Auth Check + Ad to Close (or fail)
     if (loading || !isAdClosed) return;
-
     if (!user) {
       router.replace('/(auth)/login');
     } else {
       router.replace('/(tabs)');
     }
-  }, [user, loading, isAdClosed]); // Dependency on isAdClosed
+  }, [user, loading, isAdClosed]);
 
-  // Show loading screen while Auth is checking OR Ad is showing
   if (loading || !isAdClosed) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' }}>

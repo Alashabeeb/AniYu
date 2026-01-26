@@ -7,11 +7,11 @@ const IS_TEST_MODE = true;
 
 export const AdConfig = {
   // App Open Ad (Launch)
-  appOpen: IS_TEST_MODE ? TestIds.APP_OPEN : 'ca-app-pub-3940256099942544~3347511713', // Replace string with REAL ID
+  appOpen: IS_TEST_MODE ? TestIds.APP_OPEN : 'ca-app-pub-9826157970378029/1984471716', // Replace string with REAL ID
 
   // Banner Ad (Home, Feed)
-  banner: IS_TEST_MODE ? TestIds.BANNER : 'ca-app-pub-3940256099942544~6300978111', // Replace string with REAL ID
+  banner: IS_TEST_MODE ? TestIds.BANNER : 'ca-app-pub-9826157970378029/5596413660', // Replace string with REAL ID
 
   // Interstitial Ad (Downloads, Next Chapter)
-  interstitial: IS_TEST_MODE ? TestIds.INTERSTITIAL : 'ca-app-pub-3940256099942544~1033173712', // Replace string with REAL ID
+  interstitial: IS_TEST_MODE ? TestIds.INTERSTITIAL : 'ca-app-pub-9826157970378029/4601567208', // Replace string with REAL ID
 };
