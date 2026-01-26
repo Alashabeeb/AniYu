@@ -42,12 +42,11 @@ export default {
       ],
       "expo-video",
       "expo-font",
-      // ✅ AD CONFIGURATION IS FORCED HERE
       [
         "react-native-google-mobile-ads",
         {
-          android_app_id: "ca-app-pub-3940256099942544~3347511713",
-          ios_app_id: "ca-app-pub-3940256099942544~1458002511"
+          "android_app_id": "ca-app-pub-3940256099942544~3347511713",
+          "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
         }
       ]
     ],
