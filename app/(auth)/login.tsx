@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth'; // ✅ Import signOut
-import { doc, getDoc } from 'firebase/firestore'; // ✅ Import Firestore functions
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
   ActivityIndicator, Alert,
@@ -8,7 +8,7 @@ import {
   StyleSheet, Text, TextInput,
   TouchableOpacity, View
 } from 'react-native';
-import { auth, db } from '../../config/firebaseConfig'; // ✅ Import db
+import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
 export default function LoginScreen() {
@@ -28,25 +28,34 @@ export default function LoginScreen() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // 2. ✅ Check if this user is an ADMIN
+      // 2. ✅ Check Role in Firestore
       const userDoc = await getDoc(doc(db, "users", user.uid));
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
+        const userRole = userData.role || 'user'; // Default to user if missing
         
-        if (userData.role === 'admin') {
-          // ⛔ ADMINS NOT ALLOWED HERE
+        // ⛔ SECURITY: BLOCK EVERYONE EXCEPT 'user'
+        if (userRole !== 'user') {
           await signOut(auth); // Kick them out immediately
-          Alert.alert("Access Denied", "Admin accounts cannot login to the mobile app. Please use the Admin Panel.");
+          Alert.alert(
+            "Access Denied", 
+            "This app is for Viewers only.\n\nAdmins and Producers must use the Web Dashboard."
+          );
           setLoading(false);
           return; // Stop execution
         }
       }
 
-      // 3. If not admin, proceed (RootLayout handles the redirect)
+      // 3. If role is 'user', proceed (RootLayout/Router handles the redirect)
 
     } catch (error: any) {
-      Alert.alert("Login Failed", error.message);
+      // Handle specific Firebase errors for better UX
+      if (error.code === 'auth/invalid-credential') {
+        Alert.alert("Login Failed", "Incorrect email or password.");
+      } else {
+        Alert.alert("Login Failed", error.message);
+      }
     } finally {
       setLoading(false);
     }

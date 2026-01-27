@@ -52,11 +52,13 @@ export default function SignUpScreen() {
         // 4. Set Display Name
         await updateProfile(user, { displayName: username });
 
-        // 5. Create Database Profile
+        // 5. Create Database Profile (✅ FORCING 'user' ROLE)
         await setDoc(doc(db, "users", user.uid), {
             username: username.toLowerCase(),
             displayName: username,
             email: email,
+            role: 'user', // 🔒 SECURITY: Always 'user'
+            rank: 'GENIN', // 🔰 DEFAULT RANK
             avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + username,
             bio: "I'm new here!",
             followers: [],

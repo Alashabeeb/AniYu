@@ -1,5 +1,5 @@
-import { initializeApp } from 'firebase/app'; // ✅ For secondary app instance
-import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth'; // ✅ Auth functions
+import { initializeApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
 import { addDoc, arrayRemove, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import {
   ArrowLeft,
@@ -10,37 +10,56 @@ import {
   ExternalLink,
   Loader2,
   Mail,
-  Plus, // ✅ Added Plus Icon
+  Plus,
   Save,
   Search,
   Shield,
+  ShieldAlert,
   Trash2,
   User,
   Users as UsersIcon,
-  X // ✅ Added X Icon
+  X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { db, firebaseConfig } from './firebase'; // ✅ Imported Config
+import { auth, db, firebaseConfig } from './firebase';
 
-// Helper to format timestamps
+// --- HELPER: SMART TIME FORMATTING ---
+const formatLastActive = (timestamp) => {
+    if (!timestamp) return <span className="text-gray-400 italic">Never</span>;
+    
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now - date) / 1000);
+
+    // ✅ If active in last 5 minutes -> SHOW "ACTIVE NOW"
+    if (diffInSeconds < 300) {
+        return (
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-green-600"></span> Active Now
+            </span>
+        );
+    }
+
+    // Otherwise show relative time
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+
 const formatDate = (timestamp) => {
     if (!timestamp) return 'N/A';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric',
-        hour: '2-digit', 
-        minute: '2-digit' 
-    });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 export default function Users() {
   // --- STATE ---
-  const [view, setView] = useState('list'); // 'list' | 'details'
+  const [view, setView] = useState('list'); 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [myRole, setMyRole] = useState(null);
 
   // Create User State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -59,18 +78,34 @@ export default function Users() {
   const [loadingSocials, setLoadingSocials] = useState(false);
   const [socialTab, setSocialTab] = useState('followers'); 
 
-  // --- FETCH USERS ---
+  // --- FETCH USERS & MY ROLE ---
   useEffect(() => {
     fetchUsers();
+    
+    const fetchMyRole = async () => {
+        if (auth.currentUser) {
+            try {
+                const snap = await getDoc(doc(db, "users", auth.currentUser.uid));
+                if (snap.exists()) setMyRole(snap.data().role);
+            } catch (e) { console.error("Error fetching my role", e); }
+        }
+    };
+    fetchMyRole();
   }, []);
 
   const fetchUsers = async () => {
     try {
       const querySnapshot = await getDocs(collection(db, "users"));
-      setUsers(querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })));
+      // Sort by Last Active (most recent first)
+      const usersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      usersData.sort((a, b) => {
+          const timeA = a.lastActiveAt?.toDate ? a.lastActiveAt.toDate() : new Date(0);
+          const timeB = b.lastActiveAt?.toDate ? b.lastActiveAt.toDate() : new Date(0);
+          return timeB - timeA; // Descending order
+      });
+
+      setUsers(usersData);
     } catch (error) {
       console.error("Error fetching users:", error);
     } finally {
@@ -78,47 +113,47 @@ export default function Users() {
     }
   };
 
-  // --- ✅ CREATE USER LOGIC (SECONDARY APP TRICK) ---
+  // --- CREATE USER LOGIC ---
   const handleCreateUser = async (e) => {
       e.preventDefault();
       if(!newUser.email || !newUser.password || !newUser.username) return alert("Please fill all fields");
       
+      if ((newUser.role === 'admin' || newUser.role === 'super_admin') && myRole !== 'super_admin') {
+          return alert("⛔ ACCESS DENIED: Only the Super Admin (Owner) can create other Staff/Admins.");
+      }
+
       setCreating(true);
-      let secondaryApp = null; // Will hold temporary app instance
+      let secondaryApp = null; 
 
       try {
-          // 1. Initialize a secondary Firebase App to avoid logging out the Admin
           secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
           const secondaryAuth = getAuth(secondaryApp);
 
-          // 2. Create the user in Auth (using secondary connection)
           const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newUser.email, newUser.password);
           const uid = userCredential.user.uid;
 
-          // 3. Create the User Profile in Firestore (Main App DB)
           await setDoc(doc(db, "users", uid), {
               username: newUser.username,
               email: newUser.email,
-              role: newUser.role, // 'anime_producer', 'manga_producer', 'admin', 'user'
+              role: newUser.role, 
               rank: 'GENIN',
               createdAt: serverTimestamp(),
+              lastActiveAt: serverTimestamp(), // Default to now so it's not null
               isBanned: false,
               searchKeywords: [newUser.username.toLowerCase(), newUser.email.toLowerCase()]
           });
 
-          // 4. Cleanup: Sign out secondary user
           await signOut(secondaryAuth);
           
           alert(`Success! Created ${newUser.role} account for "${newUser.username}".`);
           setShowCreateModal(false);
           setNewUser({ email: '', password: '', username: '', role: 'user' });
-          fetchUsers(); // Refresh list
+          fetchUsers(); 
 
       } catch (error) {
           alert("Error creating user: " + error.message);
       } finally {
           setCreating(false);
-          // Note: secondaryApp is automatically garbage collected, explicit deletion isn't strictly required in modern SDKs for this simple use case
       }
   };
 
@@ -134,7 +169,6 @@ export default function Users() {
       });
       setView('details');
       
-      // FETCH SOCIAL DATA
       setLoadingSocials(true);
       setFollowersList([]);
       setFollowingList([]);
@@ -166,6 +200,11 @@ export default function Users() {
   const handleSaveChanges = async (e) => {
       e.preventDefault();
       if(!selectedUser) return;
+
+      if (selectedUser.role === 'super_admin' && myRole !== 'super_admin') {
+          return alert("⛔ ACCESS DENIED: You cannot edit the Super Admin account.");
+      }
+
       setSaving(true);
 
       try {
@@ -178,18 +217,14 @@ export default function Users() {
               isBanned: editForm.isBanned
           };
 
-          // --- ⛔ PROGRESSIVE BAN SYSTEM LOGIC ---
           if (editForm.isBanned && !selectedUser.isBanned) {
+              if (selectedUser.role === 'super_admin') throw new Error("You cannot ban the Owner.");
+
               const currentCount = selectedUser.banCount || 0;
               const newCount = currentCount + 1;
               
-              let durationHours = 24; 
-              let durationText = "24 Hours";
-
-              if (newCount >= 4) {
-                  durationHours = 24 * 7; 
-                  durationText = "7 Days";
-              }
+              let durationHours = newCount >= 4 ? 168 : 24;
+              let durationText = newCount >= 4 ? "7 Days" : "24 Hours";
 
               const banExpiresAt = new Date();
               banExpiresAt.setHours(banExpiresAt.getHours() + durationHours);
@@ -197,10 +232,9 @@ export default function Users() {
               updates.banCount = newCount;
               updates.banExpiresAt = banExpiresAt;
 
-              // ✅ SEND NOTIFICATION TO USER
               await addDoc(collection(db, "users", selectedUser.id, "notifications"), {
                   title: "Account Suspended ⛔",
-                  body: `Your account has been suspended for ${durationText} due to a violation of our community guidelines. Access will be restored on ${banExpiresAt.toLocaleString()}.`,
+                  body: `Your account has been suspended for ${durationText}. Access will be restored on ${banExpiresAt.toLocaleString()}.`,
                   read: false,
                   createdAt: serverTimestamp(),
                   type: 'system'
@@ -218,11 +252,9 @@ export default function Users() {
                   type: 'system'
               });
           }
-          // ----------------------------------------
 
           await updateDoc(userRef, updates);
 
-          // Update local state
           const updatedUser = { ...selectedUser, ...updates };
           setUsers(prev => prev.map(u => u.id === selectedUser.id ? updatedUser : u));
           setSelectedUser(updatedUser);
@@ -236,9 +268,12 @@ export default function Users() {
   };
 
   const handleDeleteUser = async () => {
-    // ✅ PROTECT SUPER ADMIN
     if (selectedUser.role === 'super_admin') {
-        return alert("⛔ ACCESS DENIED: You cannot delete a Super Admin account.");
+        return alert("⛔ ACCESS DENIED: The Super Admin cannot be deleted.");
+    }
+
+    if (selectedUser.role === 'admin' && myRole !== 'super_admin') {
+        return alert("⛔ ACCESS DENIED: You cannot delete another Administrator.");
     }
 
     const confirmMsg = `⚠️ DANGER ZONE ⚠️\n\nThis will PERMANENTLY DELETE user "${selectedUser.username}".\n\nAre you sure you want to proceed?`;
@@ -307,20 +342,21 @@ export default function Users() {
                         </div>
                     </div>
                     
-                    <button 
-                        onClick={handleDeleteUser}
-                        disabled={deleting}
-                        style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', padding: '10px 15px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
-                    >
-                        {deleting ? <Loader2 className="animate-spin" size={20}/> : <Trash2 size={20} />}
-                        {deleting ? "Deleting..." : "Delete User"}
-                    </button>
+                    {selectedUser.role !== 'super_admin' && (
+                        <button 
+                            onClick={handleDeleteUser}
+                            disabled={deleting}
+                            style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', padding: '10px 15px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
+                        >
+                            {deleting ? <Loader2 className="animate-spin" size={20}/> : <Trash2 size={20} />}
+                            {deleting ? "Deleting..." : "Delete User"}
+                        </button>
+                    )}
                 </div>
 
                 <div className="card-body">
                     <form onSubmit={handleSaveChanges}>
                         <div className="grid-2">
-                            {/* Left Column: Editable Fields */}
                             <div>
                                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: 20, display:'flex', alignItems:'center', gap:10 }}>
                                     <Shield size={20} className="text-blue-600"/> Edit Profile
@@ -338,15 +374,19 @@ export default function Users() {
                                     </select>
                                 </div>
 
-                                {/* ✅ UPDATED ROLE SELECTOR */}
                                 <div className="form-group">
                                     <span className="form-label">Role</span>
-                                    <select className="input-field" value={editForm.role} onChange={(e) => setEditForm({...editForm, role: e.target.value})}>
+                                    <select 
+                                        className="input-field" 
+                                        value={editForm.role} 
+                                        onChange={(e) => setEditForm({...editForm, role: e.target.value})}
+                                        disabled={selectedUser.role === 'super_admin' && myRole !== 'super_admin'}
+                                    >
                                         <option value="user">User</option>
                                         <option value="anime_producer">Anime Producer</option>
                                         <option value="manga_producer">Manga Producer</option>
                                         <option value="admin">Admin (Moderator)</option>
-                                        <option value="super_admin">Super Admin (Owner)</option>
+                                        {myRole === 'super_admin' && <option value="super_admin">Super Admin</option>}
                                     </select>
                                 </div>
 
@@ -356,7 +396,16 @@ export default function Users() {
                                         <button type="button" onClick={() => setEditForm({...editForm, isBanned: false})} className={`chip ${!editForm.isBanned ? 'selected' : ''}`} style={{ flex: 1, textAlign: 'center', justifyContent:'center', background: !editForm.isBanned ? '#10b981' : 'white', borderColor: !editForm.isBanned ? '#10b981' : '#e5e7eb' }}>
                                             <CheckCircle size={16} style={{marginRight:5}}/> Active
                                         </button>
-                                        <button type="button" onClick={() => setEditForm({...editForm, isBanned: true})} className={`chip ${editForm.isBanned ? 'selected' : ''}`} style={{ flex: 1, textAlign: 'center', justifyContent:'center', background: editForm.isBanned ? '#ef4444' : 'white', borderColor: editForm.isBanned ? '#ef4444' : '#e5e7eb' }}>
+                                        
+                                        <button 
+                                            type="button" 
+                                            onClick={() => {
+                                                if (selectedUser.role === 'super_admin') return alert("You cannot ban the Owner.");
+                                                setEditForm({...editForm, isBanned: true});
+                                            }} 
+                                            className={`chip ${editForm.isBanned ? 'selected' : ''}`} 
+                                            style={{ flex: 1, textAlign: 'center', justifyContent:'center', background: editForm.isBanned ? '#ef4444' : 'white', borderColor: editForm.isBanned ? '#ef4444' : '#e5e7eb', opacity: selectedUser.role === 'super_admin' ? 0.5 : 1 }}
+                                        >
                                             <Ban size={16} style={{marginRight:5}}/> Ban User
                                         </button>
                                     </div>
@@ -381,7 +430,7 @@ export default function Users() {
                                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: 20, display:'flex', alignItems:'center', gap:10 }}>
                                     <Clock size={20} className="text-gray-500"/> Activity & Socials
                                 </h3>
-                                {/* ... (Stats & Socials Card kept same) ... */}
+                                
                                 <div style={{ background:'#f9fafb', padding: 20, borderRadius: 12, border: '1px solid #e5e7eb', display:'flex', flexDirection:'column', gap: 15, marginBottom: 20 }}>
                                     <div style={{ display:'flex', justifyContent:'space-between' }}>
                                         <div>
@@ -390,7 +439,7 @@ export default function Users() {
                                         </div>
                                         <div>
                                             <div style={{fontSize:'0.7rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Last Active</div>
-                                            <div style={{fontWeight:600}}>{formatDate(selectedUser.lastActiveAt)}</div>
+                                            <div style={{fontWeight:600}}>{formatLastActive(selectedUser.lastActiveAt)}</div>
                                         </div>
                                     </div>
                                 </div>
@@ -442,7 +491,6 @@ export default function Users() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
             </div>
-            {/* ✅ CREATE USER BUTTON */}
             <button 
                 onClick={() => setShowCreateModal(true)} 
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
@@ -452,7 +500,6 @@ export default function Users() {
         </div>
       </div>
 
-      {/* ✅ CREATE USER MODAL */}
       {showCreateModal && (
           <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50}}>
               <div style={{background:'white', padding:30, borderRadius:16, width:400, boxShadow:'0 20px 50px rgba(0,0,0,0.2)'}}>
@@ -479,7 +526,7 @@ export default function Users() {
                               <option value="user">Regular User</option>
                               <option value="anime_producer">Anime Producer (Upload Only)</option>
                               <option value="manga_producer">Manga Producer (Upload Only)</option>
-                              <option value="admin">Admin (Moderator)</option>
+                              {myRole === 'super_admin' && <option value="admin">Admin (Moderator)</option>}
                           </select>
                       </div>
                       <button type="submit" disabled={creating} className="btn-publish" style={{width:'100%', marginTop:10}}>
@@ -496,8 +543,8 @@ export default function Users() {
             <tr>
               <th className="p-4 font-semibold text-gray-600">User Profile</th>
               <th className="p-4 font-semibold text-gray-600">UID</th>
-              <th className="p-4 font-semibold text-gray-600">Role</th> {/* Added Role Column */}
-              <th className="p-4 font-semibold text-gray-600">Joined</th>
+              <th className="p-4 font-semibold text-gray-600">Role</th>
+              <th className="p-4 font-semibold text-gray-600">Last Active</th> {/* ✅ NEW COLUMN */}
               <th className="p-4 font-semibold text-gray-600">Status</th>
               <th className="p-4 font-semibold text-gray-600">Actions</th>
             </tr>
@@ -526,7 +573,6 @@ export default function Users() {
                         {user.id.substring(0, 8)}...
                     </span>
                   </td>
-                  {/* ✅ NEW ROLE COLUMN */}
                   <td className="p-4">
                       <span className={`px-2 py-1 rounded text-xs font-bold ${
                           user.role === 'super_admin' ? 'bg-purple-100 text-purple-700' :
@@ -534,10 +580,16 @@ export default function Users() {
                           user.role?.includes('producer') ? 'bg-orange-100 text-orange-700' :
                           'bg-gray-100 text-gray-700'
                       }`}>
+                          {user.role === 'super_admin' && <ShieldAlert size={12} style={{marginRight:4, display:'inline'}}/>}
                           {user.role || 'user'}
                       </span>
                   </td>
-                  <td className="p-4 text-sm text-gray-600">{formatDate(user.createdAt)}</td>
+                  
+                  {/* ✅ SMART LAST ACTIVE COLUMN */}
+                  <td className="p-4 text-sm font-medium text-gray-600">
+                      {formatLastActive(user.lastActiveAt)}
+                  </td>
+                  
                   <td className="p-4">
                     {user.isBanned ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Banned</span>

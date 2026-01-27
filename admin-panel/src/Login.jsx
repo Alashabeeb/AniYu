@@ -1,115 +1,133 @@
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { ArrowRight, Lock, User } from 'lucide-react';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { auth, db } from './firebase';
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { Lock, Mail } from "lucide-react"; // Icons for a better look
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { auth, db } from "./firebase";
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
-    setError('');
 
     try {
+      // 1. Attempt to sign in
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      
-      // Fetch User Role
+
+      // 2. Check the User's Role in Firestore
       const userDoc = await getDoc(doc(db, "users", user.uid));
-      
+
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        const role = userData.role;
+        const role = userData.role || 'user';
 
-        // ✅ ALLOWED ROLES LIST
+        // 3. ⛔ SECURITY CHECK: Allowed Roles List
         const allowedRoles = ['admin', 'super_admin', 'anime_producer', 'manga_producer'];
 
         if (allowedRoles.includes(role)) {
-          navigate('/'); // Success
+          // ✅ Role is allowed -> Go to Dashboard
+          navigate("/");
         } else {
-          await auth.signOut();
-          throw new Error("Access Denied: You do not have staff privileges.");
+          // ❌ Role is NOT allowed (e.g. regular "user") -> Kick them out
+          await signOut(auth);
+          setError("⛔ Access Denied: This area is for Staff and Producers only.");
         }
       } else {
-        await auth.signOut();
-        throw new Error("User profile not found.");
+        // Edge case: User exists in Auth but has no Firestore profile
+        await signOut(auth);
+        setError("Error: User profile not found.");
       }
+
     } catch (err) {
       console.error(err);
-      setError(err.message || "Invalid credentials.");
-      await auth.signOut();
+      // Friendly error messages
+      if (err.code === 'auth/invalid-credential') {
+        setError("Incorrect email or password.");
+      } else if (err.code === 'auth/too-many-requests') {
+        setError("Too many failed attempts. Please try again later.");
+      } else {
+        setError("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f3f4f6' }}>
-      <div className="card" style={{ width: '100%', maxWidth: '450px', margin: '20px', padding: 0 }}>
+    <div className="flex h-screen items-center justify-center bg-gray-100">
+      <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl">
         
-        <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)', padding: '40px', textAlign: 'center' }}>
-          <div style={{ width: 80, height: 80, background: 'rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto', backdropFilter: 'blur(10px)' }}>
-            <Lock size={36} color="white" />
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-black text-blue-600 tracking-tighter mb-2">AniYu Panel</h1>
+          <p className="text-gray-500 text-sm">Authorized Personnel Only</p>
+        </div>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm font-bold rounded-lg border border-red-100 text-center">
+            {error}
           </div>
-          <h1 style={{ color: 'white', fontSize: '2rem', fontWeight: 900, margin: 0, letterSpacing: '-1px' }}>AniYu Admin</h1>
-          <p style={{ color: 'rgba(255,255,255,0.8)', margin: '10px 0 0 0', fontWeight: 500 }}>Secure Access Portal</p>
-        </div>
+        )}
 
-        <div className="card-body" style={{ padding: '40px' }}>
-          {error && (
-            <div style={{ background: '#fef2f2', color: '#dc2626', padding: '15px', borderRadius: '12px', marginBottom: '25px', fontSize: '0.9rem', fontWeight: 600, border: '1px solid #fecaca', textAlign: 'center' }}>
-              {error}
+        <form onSubmit={handleLogin} className="space-y-6">
+          
+          {/* Email Input */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Email Address</label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-3 text-gray-400" size={20} />
+              <input
+                type="email"
+                required
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                placeholder="email@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
-          )}
+          </div>
 
-          <form onSubmit={handleLogin}>
-            <div className="form-group">
-              <span className="form-label" style={{ color: '#4b5563' }}>Email Address</span>
-              <div style={{ position: 'relative' }}>
-                <User size={20} style={{ position: 'absolute', top: 18, left: 15, color: '#9ca3af' }} />
-                <input 
-                  type="email" 
-                  className="input-field" 
-                  style={{ paddingLeft: 45 }}
-                  placeholder="staff@aniyu.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
+          {/* Password Input */}
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-3 text-gray-400" size={20} />
+              <input
+                type="password"
+                required
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
+          </div>
 
-            <div className="form-group" style={{ marginBottom: 30 }}>
-              <span className="form-label" style={{ color: '#4b5563' }}>Password</span>
-              <div style={{ position: 'relative' }}>
-                <Lock size={20} style={{ position: 'absolute', top: 18, left: 15, color: '#9ca3af' }} />
-                <input 
-                  type="password" 
-                  className="input-field" 
-                  style={{ paddingLeft: 45 }}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-200"
+          >
+            {loading ? (
+              <span className="loader w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            ) : (
+              "Sign In to Dashboard"
+            )}
+          </button>
+        </form>
 
-            <button type="submit" className="btn-publish" disabled={loading} style={{ fontSize: '1rem', padding: '18px' }}>
-              {loading ? "Verifying..." : <>Login to Dashboard <ArrowRight size={20} /></>}
-            </button>
-          </form>
-        </div>
-        
-        <div style={{ background: '#f9fafb', padding: '20px', textAlign: 'center', borderTop: '1px solid #e5e7eb' }}>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: '#6b7280', fontWeight: 600 }}>Protected System • Authorized Personnel Only</p>
+        <div className="mt-6 text-center text-xs text-gray-400">
+          &copy; {new Date().getFullYear()} AniYu Admin System
         </div>
       </div>
     </div>

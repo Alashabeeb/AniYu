@@ -6,6 +6,8 @@ import mobileAds, { AdEventType, AppOpenAd } from 'react-native-google-mobile-ad
 import { AdConfig } from '../config/adConfig';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
+// ✅ IMPORT HEARTBEAT HOOK
+import { useUserHeartbeat } from '../hooks/useUserHeartbeat';
 
 const appOpenAd = AppOpenAd.createForAdRequest(AdConfig.appOpen, {
   requestNonPersonalizedAdsOnly: true,
@@ -15,6 +17,9 @@ function RootLayoutNav() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [isAdClosed, setIsAdClosed] = useState(false);
+
+  // ✅ ACTIVATE HEARTBEAT (Runs automatically)
+  useUserHeartbeat();
 
   useEffect(() => {
     // ✅ 1. Initialize AdMob SDK First!
@@ -46,9 +51,6 @@ function RootLayoutNav() {
       unsubscribeError();
     };
   }, []);
-
-  // ... (Rest of the file remains exactly the same)
-  // The Gatekeeper logic, the loading check, and the Stack return...
   
   // 🔒 THE GATEKEEPER LOGIC
   useEffect(() => {
