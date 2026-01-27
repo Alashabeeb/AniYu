@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
-import { addDoc, arrayRemove, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+import { addDoc, arrayRemove, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore'; // ✅ Added onSnapshot
 import {
   ArrowLeft,
   Ban,
@@ -27,6 +27,7 @@ import { auth, db, firebaseConfig } from './firebase';
 const formatLastActive = (timestamp) => {
     if (!timestamp) return <span className="text-gray-400 italic">Never</span>;
     
+    // Handle Firebase Timestamp or standard Date
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
     const diffInSeconds = Math.floor((now - date) / 1000);
@@ -41,6 +42,7 @@ const formatLastActive = (timestamp) => {
     }
 
     // Otherwise show relative time
+    if (diffInSeconds < 60) return "Just now";
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
     
@@ -78,10 +80,9 @@ export default function Users() {
   const [loadingSocials, setLoadingSocials] = useState(false);
   const [socialTab, setSocialTab] = useState('followers'); 
 
-  // --- FETCH USERS & MY ROLE ---
+  // --- 1. REAL-TIME USERS FETCH ---
   useEffect(() => {
-    fetchUsers();
-    
+    // Fetch my role (One time)
     const fetchMyRole = async () => {
         if (auth.currentUser) {
             try {
@@ -91,27 +92,29 @@ export default function Users() {
         }
     };
     fetchMyRole();
+
+    // ✅ LISTEN TO USERS IN REAL-TIME
+    const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
+        const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Sort by Last Active (Desc)
+        usersData.sort((a, b) => {
+            const timeA = a.lastActiveAt?.toDate ? a.lastActiveAt.toDate() : new Date(0);
+            const timeB = b.lastActiveAt?.toDate ? b.lastActiveAt.toDate() : new Date(0);
+            return timeB - timeA; 
+        });
+
+        setUsers(usersData);
+        setLoading(false);
+    }, (error) => {
+        console.error("Error listening to users:", error);
+        setLoading(false);
+    });
+
+    // Cleanup listener on unmount
+    return () => unsubscribe();
   }, []);
 
-  const fetchUsers = async () => {
-    try {
-      const querySnapshot = await getDocs(collection(db, "users"));
-      // Sort by Last Active (most recent first)
-      const usersData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      usersData.sort((a, b) => {
-          const timeA = a.lastActiveAt?.toDate ? a.lastActiveAt.toDate() : new Date(0);
-          const timeB = b.lastActiveAt?.toDate ? b.lastActiveAt.toDate() : new Date(0);
-          return timeB - timeA; // Descending order
-      });
-
-      setUsers(usersData);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // --- CREATE USER LOGIC ---
   const handleCreateUser = async (e) => {
@@ -138,7 +141,7 @@ export default function Users() {
               role: newUser.role, 
               rank: 'GENIN',
               createdAt: serverTimestamp(),
-              lastActiveAt: serverTimestamp(), // Default to now so it's not null
+              lastActiveAt: serverTimestamp(), // Default to now
               isBanned: false,
               searchKeywords: [newUser.username.toLowerCase(), newUser.email.toLowerCase()]
           });
@@ -148,7 +151,7 @@ export default function Users() {
           alert(`Success! Created ${newUser.role} account for "${newUser.username}".`);
           setShowCreateModal(false);
           setNewUser({ email: '', password: '', username: '', role: 'user' });
-          fetchUsers(); 
+          // No need to fetchUsers() manually, the listener handles it!
 
       } catch (error) {
           alert("Error creating user: " + error.message);
@@ -256,7 +259,7 @@ export default function Users() {
           await updateDoc(userRef, updates);
 
           const updatedUser = { ...selectedUser, ...updates };
-          setUsers(prev => prev.map(u => u.id === selectedUser.id ? updatedUser : u));
+          // setUsers update handled by real-time listener
           setSelectedUser(updatedUser);
           
           alert("User profile updated successfully!");
@@ -305,7 +308,6 @@ export default function Users() {
         await deleteDoc(doc(db, "users", targetUid));
 
         alert(`User "${selectedUser.username}" has been deleted from the database.`);
-        await fetchUsers();
         setView('list');
 
     } catch (error) {

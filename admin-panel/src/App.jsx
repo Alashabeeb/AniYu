@@ -1,5 +1,5 @@
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, getCountFromServer, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'; // ✅ Added onSnapshot
 import { Bell, BookOpen, ChevronDown, Edit, Eye, Flag, LayoutDashboard, LogOut, ThumbsUp, Users as UsersIcon, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -34,8 +34,8 @@ function Dashboard({ role, userId }) {
   const navigate = useNavigate();
   
   // ✅ DROPDOWN STATE
-  const [metric, setMetric] = useState('registrations'); // 'registrations' (Total) | 'activity' (Active)
-  const [timeRange, setTimeRange] = useState('week');    // '24h' | 'week' | 'month' | 'all'
+  const [metric, setMetric] = useState('activity'); // Default to Activity to see the change immediately
+  const [timeRange, setTimeRange] = useState('24h'); // Default to 24h
   
   // Data State
   const [allUsers, setAllUsers] = useState([]); 
@@ -56,21 +56,25 @@ function Dashboard({ role, userId }) {
   const isAdmin = role === 'admin' || isSuperAdmin;
   const isProducer = role === 'anime_producer' || role === 'manga_producer';
 
-  // 1. FETCH DATA (Runs Once)
+  // 1. FETCH DATA (REAL-TIME LISTENER)
   useEffect(() => {
+    let unsubscribeUsers = null;
+
     const fetchData = async () => {
       try {
         if (isAdmin) {
-            // Fetch All Users for client-side filtering
-            const userSnapshot = await getDocs(collection(db, "users"));
-            const usersData = userSnapshot.docs.map(doc => ({
-              id: doc.id, ...doc.data(),
-              createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(0),
-              lastActiveAt: doc.data().lastActiveAt?.toDate ? doc.data().lastActiveAt.toDate() : new Date(0), 
-            }));
-            setAllUsers(usersData); 
+            // ✅ REAL-TIME USER LISTENER (Fixes the Graph issue)
+            const usersRef = collection(db, "users");
+            unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
+                const usersData = snapshot.docs.map(doc => ({
+                  id: doc.id, ...doc.data(),
+                  createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(0),
+                  lastActiveAt: doc.data().lastActiveAt?.toDate ? doc.data().lastActiveAt.toDate() : new Date(0), 
+                }));
+                setAllUsers(usersData); // This triggers the filter useEffect below
+            });
 
-            // Fetch Counts
+            // Fetch Counts (Static is fine for these, or make them real-time if needed)
             const rSnap = await getCountFromServer(collection(db, "reports"));
             const aSnap = await getCountFromServer(collection(db, "anime"));
             const mSnap = await getCountFromServer(collection(db, "manga"));
@@ -103,10 +107,16 @@ function Dashboard({ role, userId }) {
         }
       } catch (e) { console.error("Error fetching data:", e); }
     };
+
     if (role && userId) fetchData();
+
+    // Cleanup Listener
+    return () => {
+        if (unsubscribeUsers) unsubscribeUsers();
+    };
   }, [role, userId]); 
 
-  // 2. ✅ DYNAMIC FILTER ENGINE (Chart & Stats)
+  // 2. ✅ DYNAMIC FILTER ENGINE (Runs automatically when allUsers updates)
   useEffect(() => {
     if (!isAdmin || allUsers.length === 0) return;
 
@@ -124,20 +134,17 @@ function Dashboard({ role, userId }) {
         }
     } else if (timeRange === 'week') {
         startTime = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        // Create 7 buckets of 1 day
         for (let i = 6; i >= 0; i--) {
             const d = new Date(); d.setDate(now.getDate() - i); d.setHours(0,0,0,0);
             buckets.push({ date: d, label: formatDateLabel(d, 'week') });
         }
     } else if (timeRange === 'month') {
         startTime = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-        // Create 6 buckets of 5 days
         for (let i = 5; i >= 0; i--) {
             const d = new Date(); d.setDate(now.getDate() - (i * 5)); d.setHours(0,0,0,0);
             buckets.push({ date: d, label: formatDateLabel(d, 'month') });
         }
     } else {
-        // All Time (Default to last 30 days visualization for sanity)
         startTime = new Date(0); 
         for (let i = 5; i >= 0; i--) {
             const d = new Date(); d.setDate(now.getDate() - (i * 5));
@@ -161,10 +168,9 @@ function Dashboard({ role, userId }) {
         
         let count = 0;
         if (metric === 'registrations') {
-            // Count users CREATED in this bucket
             count = allUsers.filter(u => u.createdAt >= bucket.date && u.createdAt < nextBucketDate).length;
         } else {
-            // Count users ACTIVE in this bucket (approximate)
+            // ✅ Active Users Logic for Graph
             count = allUsers.filter(u => u.lastActiveAt >= bucket.date && u.lastActiveAt < nextBucketDate).length;
         }
         
@@ -182,7 +188,6 @@ function Dashboard({ role, userId }) {
             <h1 className="text-2xl font-bold flex items-center gap-2">
                 {role === 'anime_producer' ? <Video className="text-blue-600"/> : <BookOpen className="text-purple-600"/>} Studio Dashboard
             </h1>
-            {/* Same Producer Dashboard UI... */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
                     <p className="text-gray-500 text-sm font-medium">Total Views</p>
@@ -226,7 +231,7 @@ function Dashboard({ role, userId }) {
         <h1 className="text-2xl font-bold">System Overview</h1>
         
         <div className="flex gap-4">
-            {/* ✅ METRIC DROPDOWN: (Total vs Active) */}
+            {/* Metric Dropdown */}
             <div className="relative">
                 <select 
                     className="appearance-none bg-white border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded shadow-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
@@ -239,7 +244,7 @@ function Dashboard({ role, userId }) {
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700"><ChevronDown size={16} /></div>
             </div>
 
-            {/* ✅ TIME RANGE DROPDOWN: (24h, Week, Month) */}
+            {/* Time Range Dropdown */}
             <div className="relative">
                 <select 
                     className="appearance-none bg-white border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded shadow-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
@@ -256,7 +261,6 @@ function Dashboard({ role, userId }) {
         </div>
       </div>
 
-      {/* CHART */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-80">
         <h3 className="text-sm font-bold text-gray-400 mb-2 uppercase flex items-center gap-2">
             {metric === 'registrations' ? '📈 Registration Growth' : '🔥 Activity Trends'}
@@ -288,10 +292,7 @@ function Dashboard({ role, userId }) {
         </ResponsiveContainer>
       </div>
 
-      {/* STAT CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        
-        {/* CARD 1: USERS */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <p className="text-gray-500 text-sm font-medium">
                 {timeRange === 'all' ? 'Total Users' : 'New Users'}
@@ -299,8 +300,6 @@ function Dashboard({ role, userId }) {
             </p>
             <h2 className="text-3xl font-bold text-gray-800 mt-2">{stats.users}</h2>
         </div>
-
-        {/* CARD 2: ACTIVE USERS */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <p className="text-gray-500 text-sm font-medium">
                 Active Users
@@ -308,14 +307,10 @@ function Dashboard({ role, userId }) {
             </p>
             <h2 className="text-3xl font-bold text-green-600 mt-2">{stats.activeUsers}</h2>
         </div>
-
-        {/* CARD 3: ANIME */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <p className="text-gray-500 text-sm font-medium">Total Anime</p>
             <h2 className="text-3xl font-bold text-blue-600 mt-2">{stats.anime}</h2>
         </div>
-
-        {/* CARD 4: MANGA */}
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <p className="text-gray-500 text-sm font-medium">Total Manga</p>
             <h2 className="text-3xl font-bold text-purple-600 mt-2">{stats.manga}</h2>
@@ -330,7 +325,7 @@ function Dashboard({ role, userId }) {
   );
 }
 
-// --- 4. MAIN LAYOUT ---
+// --- 4. MAIN LAYOUT WITH HEARTBEAT ---
 function Layout({ logout, role, userId }) {
   const location = useLocation();
   const isActive = (path) => location.pathname === path ? "bg-blue-50 text-blue-600" : "text-gray-600 hover:bg-gray-50";
@@ -339,6 +334,30 @@ function Layout({ logout, role, userId }) {
   const isAdmin = role === 'admin' || isSuperAdmin;
   const isAnimeProducer = role === 'anime_producer';
   const isMangaProducer = role === 'manga_producer';
+
+  // ✅ WEB ADMIN HEARTBEAT
+  useEffect(() => {
+    const updateHeartbeat = async () => {
+        if (userId) {
+            try {
+                await updateDoc(doc(db, "users", userId), {
+                    lastActiveAt: serverTimestamp(),
+                    isOnline: true
+                });
+            } catch (e) {
+                console.error("Heartbeat fail", e);
+            }
+        }
+    };
+    
+    // Run immediately
+    updateHeartbeat();
+    
+    // Run every 5 minutes
+    const interval = setInterval(updateHeartbeat, 5 * 60 * 1000);
+    
+    return () => clearInterval(interval);
+  }, [userId]);
 
   return (
     <div className="flex h-screen bg-gray-50">
