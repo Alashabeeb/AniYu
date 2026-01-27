@@ -272,6 +272,8 @@ export const getAnimeReviews = async (animeId: string) => {
 export const toggleAnimeReaction = async (animeId: string, userId: string, reaction: 'like' | 'dislike') => {
     try {
         const animeRef = doc(db, 'anime', animeId);
+        // Note: Storing interaction in subcollection of Anime. 
+        // Ensure security rules allow users to write to this path: /anime/{animeId}/interactions/{userId}
         const userInteractRef = doc(db, 'anime', animeId, 'interactions', userId);
 
         await runTransaction(db, async (transaction) => {
@@ -281,23 +283,26 @@ export const toggleAnimeReaction = async (animeId: string, userId: string, react
             if (!animeDoc.exists()) throw "Anime not found";
 
             const currentData = interactDoc.exists() ? interactDoc.data() : {};
-            const oldReaction = currentData.reaction;
+            const oldReaction = currentData.reaction; // 'like' | 'dislike' | undefined
 
             let likesInc = 0;
             let dislikesInc = 0;
 
             if (oldReaction === reaction) {
+                // Case 1: Remove reaction (toggle off)
                 transaction.delete(userInteractRef);
                 if (reaction === 'like') likesInc = -1;
                 if (reaction === 'dislike') dislikesInc = -1;
             } else {
-                transaction.set(userInteractRef, { reaction, userId });
+                // Case 2: New reaction OR Swap reaction
+                transaction.set(userInteractRef, { reaction, userId, updatedAt: new Date().toISOString() });
+                
                 if (reaction === 'like') {
                     likesInc = 1;
-                    if (oldReaction === 'dislike') dislikesInc = -1;
+                    if (oldReaction === 'dislike') dislikesInc = -1; // Swap logic
                 } else {
                     dislikesInc = 1;
-                    if (oldReaction === 'like') likesInc = -1;
+                    if (oldReaction === 'like') likesInc = -1; // Swap logic
                 }
             }
 

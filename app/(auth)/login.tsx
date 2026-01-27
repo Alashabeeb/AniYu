@@ -1,13 +1,14 @@
 import { useRouter } from 'expo-router';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth'; // ✅ Import signOut
+import { doc, getDoc } from 'firebase/firestore'; // ✅ Import Firestore functions
 import React, { useState } from 'react';
 import {
-    ActivityIndicator, Alert,
-    KeyboardAvoidingView, Platform,
-    StyleSheet, Text, TextInput,
-    TouchableOpacity, View
+  ActivityIndicator, Alert,
+  KeyboardAvoidingView, Platform,
+  StyleSheet, Text, TextInput,
+  TouchableOpacity, View
 } from 'react-native';
-import { auth } from '../../config/firebaseConfig';
+import { auth, db } from '../../config/firebaseConfig'; // ✅ Import db
 import { useTheme } from '../../context/ThemeContext';
 
 export default function LoginScreen() {
@@ -23,8 +24,27 @@ export default function LoginScreen() {
     
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // The RootLayout in app/_layout.tsx detects the login and redirects automatically
+      // 1. Attempt to Sign In
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // 2. ✅ Check if this user is an ADMIN
+      const userDoc = await getDoc(doc(db, "users", user.uid));
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        
+        if (userData.role === 'admin') {
+          // ⛔ ADMINS NOT ALLOWED HERE
+          await signOut(auth); // Kick them out immediately
+          Alert.alert("Access Denied", "Admin accounts cannot login to the mobile app. Please use the Admin Panel.");
+          setLoading(false);
+          return; // Stop execution
+        }
+      }
+
+      // 3. If not admin, proceed (RootLayout handles the redirect)
+
     } catch (error: any) {
       Alert.alert("Login Failed", error.message);
     } finally {

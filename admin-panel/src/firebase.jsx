@@ -3,8 +3,8 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// ✅ YOUR CORRECT KEYS
-const firebaseConfig = {
+// ✅ EXPORT THIS VARIABLE so we can use it in Users.jsx for Secondary App creation
+export const firebaseConfig = {
   apiKey: "AIzaSyAIZFWymXq_xaDkWGIUGZ2N4fgSEg5QjrY",
   authDomain: "aniyu-b841b.firebaseapp.com",
   projectId: "aniyu-b841b",
@@ -17,7 +17,7 @@ const firebaseConfig = {
 // Initialize Firebase (Standard Web Version)
 const app = initializeApp(firebaseConfig);
 
-// ✅ WEB AUTH (No AsyncStorage needed here)
+// ✅ WEB AUTH
 export const auth = getAuth(app);
 
 // ✅ WEB DATABASE
@@ -25,3 +25,6 @@ export const db = getFirestore(app);
 
 // ✅ WEB STORAGE
 export const storage = getStorage(app);
+
+// Optional: Analytics
+// export const analytics = getAnalytics(app);

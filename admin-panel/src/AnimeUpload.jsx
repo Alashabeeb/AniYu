@@ -1,26 +1,31 @@
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, updateDoc
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, updateDoc, where
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import {
   ArrowLeft,
+  Bell,
   Captions,
+  CheckCircle, // ✅ Added for Approve
   Download,
   Eye,
   FileVideo,
   Film,
   Image as ImageIcon,
   Loader2,
+  MessageSquare,
   PlayCircle,
   Plus,
-  Search,
   Star,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Upload,
-  X
+  X,
+  XCircle // ✅ Added for Reject
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { db, storage } from './firebase';
+import { auth, db, storage } from './firebase';
 
 const GENRES_LIST = [
   "Action", "Adventure", "Comedy", "Drama", "Fantasy", 
@@ -31,25 +36,31 @@ const GENRES_LIST = [
 
 const AGE_RATINGS = ["All", "12+", "16+", "18+"];
 const LANGUAGES = ["English", "Spanish", "Portuguese", "French", "German", "Indonesian", "Arabic", "Russian", "Japanese", "Chinese"];
-const STATUS_OPTIONS = ["Ongoing", "Completed", "Upcoming"];
+// ✅ Added "Pending"
+const STATUS_OPTIONS = ["Pending", "Ongoing", "Completed", "Upcoming"];
 
 export default function AnimeUpload() {
   // --- GLOBAL STATE ---
   const [view, setView] = useState('list');
   const [animeList, setAnimeList] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
-  const [libraryTab, setLibraryTab] = useState('Ongoing'); // ✅ New Tab State
+  const [libraryTab, setLibraryTab] = useState('Ongoing'); 
   
+  // --- USER ROLE STATE ---
+  const [currentUser, setCurrentUser] = useState(null);
+
   // --- FORM STATE ---
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState(''); // Loading status text
+  const [status, setStatus] = useState(''); 
   const [createdAnimeId, setCreatedAnimeId] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [notifyUsers, setNotifyUsers] = useState(true);
 
   // --- DETAILS VIEW STATE ---
   const [selectedAnime, setSelectedAnime] = useState(null);
   const [selectedAnimeEpisodes, setSelectedAnimeEpisodes] = useState([]);
+  const [selectedAnimeComments, setSelectedAnimeComments] = useState([]); 
 
   // HEADER STATE (Anime Form)
   const [animeCover, setAnimeCover] = useState(null); 
@@ -60,27 +71,93 @@ export default function AnimeUpload() {
   const [synopsis, setSynopsis] = useState('');
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedAge, setSelectedAge] = useState('12+');
-  
-  // ✅ NEW: Status State (Replaces isUpcoming)
   const [animeStatus, setAnimeStatus] = useState('Ongoing'); 
 
   // BODY STATE (Episode Form)
   const [episodes, setEpisodes] = useState([]);
   const [deletedEpisodes, setDeletedEpisodes] = useState([]);
 
-  // --- FETCH LIST ON MOUNT ---
+  // --- 1. FETCH USER ROLE ON MOUNT ---
   useEffect(() => {
-    fetchAnimeList();
+    const fetchUser = async () => {
+        if (auth.currentUser) {
+            const userSnap = await getDoc(doc(db, "users", auth.currentUser.uid));
+            if (userSnap.exists()) {
+                setCurrentUser({ uid: auth.currentUser.uid, ...userSnap.data() });
+            }
+        }
+    };
+    fetchUser();
   }, []);
+
+  // --- 2. FETCH LIST (DEPENDS ON USER ROLE & TAB) ---
+  useEffect(() => {
+    if (currentUser) {
+        fetchAnimeList();
+    }
+  }, [currentUser, libraryTab]); 
 
   const fetchAnimeList = async () => {
     setLoadingList(true);
     try {
-      const q = query(collection(db, 'anime'), orderBy('views', 'desc'));
+      let q;
+      const listRef = collection(db, 'anime');
+
+      if (currentUser.role === 'anime_producer') {
+          // PRODUCER: Only show MY anime
+          q = query(listRef, where('uploaderId', '==', currentUser.uid));
+      } else {
+          // ADMIN: Show ALL anime (Admin Review Queue)
+          q = query(listRef, orderBy('views', 'desc'));
+      }
+
       const snapshot = await getDocs(q);
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Client-side Filter by Tab
+      // If status is undefined, treat as 'Ongoing' for legacy support
+      list = list.filter(a => (a.status || 'Ongoing') === libraryTab);
+
       setAnimeList(list);
-    } catch (error) { console.error("Error fetching list:", error); } finally { setLoadingList(false); }
+    } catch (error) { 
+        console.error("Error fetching list:", error); 
+    } finally { 
+        setLoadingList(false); 
+    }
+  };
+
+  const sendAutoNotification = async (title, body) => {
+      try {
+          const usersSnap = await getDocs(collection(db, "users"));
+          const promises = usersSnap.docs.map(userDoc => 
+              addDoc(collection(db, "users", userDoc.id, "notifications"), {
+                  title, body, read: false, createdAt: serverTimestamp(), type: 'system'
+              })
+          );
+          await Promise.all(promises);
+      } catch (e) { console.error("Notification failed:", e); }
+  };
+
+  // ✅ ADMIN ACTIONS
+  const handleApprove = async (anime) => {
+      if (!window.confirm(`Approve "${anime.title}"? It will go live immediately.`)) return;
+      try {
+          await updateDoc(doc(db, 'anime', anime.id), { status: 'Ongoing' });
+          
+          // Notify Users on Approval
+          await sendAutoNotification(
+              `New Release: ${anime.title}`,
+              `${anime.title} has just been released! Watch it now on AniYu.`
+          );
+
+          alert("Anime Approved & Published!");
+          fetchAnimeList();
+      } catch (e) { alert(e.message); }
+  };
+
+  const handleReject = async (anime) => {
+      if (!window.confirm(`Reject "${anime.title}"? This will DELETE the anime permanently.`)) return;
+      handleDelete(anime);
   };
 
   // --- ACTIONS ---
@@ -89,9 +166,17 @@ export default function AnimeUpload() {
     setCreatedAnimeId(null);
     setIsEditMode(false);
     setAnimeTitle(''); setTotalEpisodes(''); setReleaseYear(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
-    setAnimeStatus('Ongoing'); // Reset Status
+    
+    // ✅ PRODUCER DEFAULT TO PENDING
+    if (currentUser?.role === 'anime_producer') {
+        setAnimeStatus('Pending');
+    } else {
+        setAnimeStatus('Ongoing'); 
+    }
+    
     setEpisodes([{ id: Date.now(), number: 1, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
     setDeletedEpisodes([]);
+    setNotifyUsers(true); 
     setView('form');
   };
 
@@ -106,14 +191,11 @@ export default function AnimeUpload() {
     setSelectedAge(anime.ageRating || '12+');
     setExistingCoverUrl(anime.images?.jpg?.image_url || '');
     setAnimeCover(null);
-    
-    // ✅ Set Status (Map old 'Released' to 'Ongoing' if needed)
-    const currentStatus = anime.status === 'Released' ? 'Ongoing' : (anime.status || 'Ongoing');
-    setAnimeStatus(currentStatus);
+    setNotifyUsers(true); 
+    setAnimeStatus(anime.status || 'Ongoing');
 
     setDeletedEpisodes([]);
     
-    // Fetch Episodes
     setStatus('Fetching episodes...');
     try {
       const q = query(collection(db, 'anime', anime.id, 'episodes'), orderBy('number', 'asc'));
@@ -142,14 +224,30 @@ export default function AnimeUpload() {
     setSelectedAnime(anime);
     setView('details');
     try {
-      const q = query(collection(db, 'anime', anime.id, 'episodes'), orderBy('number', 'asc'));
-      const epSnap = await getDocs(q);
-      const fetchedEps = epSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSelectedAnimeEpisodes(fetchedEps);
+      const qEp = query(collection(db, 'anime', anime.id, 'episodes'), orderBy('number', 'asc'));
+      const epSnap = await getDocs(qEp);
+      setSelectedAnimeEpisodes(epSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+      const qComm = query(collection(db, 'anime', anime.id, 'comments'), orderBy('createdAt', 'desc'));
+      const commSnap = await getDocs(qComm);
+      setSelectedAnimeComments(commSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (e) { console.error(e); }
   };
 
+  const handleDeleteComment = async (commentId) => {
+      if(!window.confirm("Are you sure you want to delete this comment?")) return;
+      try {
+          await deleteDoc(doc(db, 'anime', selectedAnime.id, 'comments', commentId));
+          setSelectedAnimeComments(prev => prev.filter(c => c.id !== commentId));
+      } catch (e) { alert("Error deleting comment: " + e.message); }
+  };
+
   const handleDelete = async (anime) => {
+    // ✅ PRODUCER SECURITY CHECK
+    if (currentUser.role === 'anime_producer' && anime.uploaderId !== currentUser.uid) {
+        return alert("You can only delete your own uploads.");
+    }
+
     if (!window.confirm(`WARNING: This will permanently delete "${anime.title}" along with ALL its episodes and files.\n\nAre you sure?`)) return;
     
     setAnimeList(prev => prev.filter(a => a.id !== anime.id));
@@ -183,7 +281,7 @@ export default function AnimeUpload() {
     }
   };
 
-  // --- FORM LOGIC ---
+  // --- FORM HELPERS ---
   const addEpisodeForm = () => {
     const nextNum = episodes.length > 0 ? Number(episodes[episodes.length - 1].number) + 1 : 1;
     setEpisodes([...episodes, { id: Date.now(), number: nextNum, title: '', videoFile: null, thumbFile: null, subtitles: [], isNew: true }]);
@@ -252,6 +350,12 @@ export default function AnimeUpload() {
       const finalCoverUrl = coverResult?.url || existingCoverUrl;
       let animeId = createdAnimeId;
 
+      // ✅ FORCE STATUS FOR PRODUCERS
+      let finalStatus = animeStatus;
+      if (currentUser?.role === 'anime_producer' && !isEditMode) {
+          finalStatus = 'Pending';
+      }
+
       const animeData = {
         title: animeTitle, 
         totalEpisodes: totalEpisodes || 'Unknown', 
@@ -261,14 +365,22 @@ export default function AnimeUpload() {
         ageRating: selectedAge,
         images: { jpg: { image_url: finalCoverUrl } }, 
         type: 'TV', 
-        status: animeStatus, // ✅ Save selected status
+        status: finalStatus, // ✅ Use enforced status
+        uploaderId: currentUser.uid, 
         updatedAt: serverTimestamp()
       };
 
       if (isEditMode && animeId) {
         await updateDoc(doc(db, 'anime', animeId), animeData);
       } else {
-        const ref = await addDoc(collection(db, 'anime'), { ...animeData, createdAt: serverTimestamp(), views: 0, rating: 0 });
+        const ref = await addDoc(collection(db, 'anime'), { 
+          ...animeData, 
+          createdAt: serverTimestamp(), 
+          views: 0, 
+          likes: 0, 
+          dislikes: 0, 
+          rating: 0 
+        });
         animeId = ref.id;
         setCreatedAnimeId(animeId);
       }
@@ -325,8 +437,29 @@ export default function AnimeUpload() {
       }
 
       setStatus('Success!');
-      setView('success');
-      fetchAnimeList();
+      
+      // ✅ NOTIFY ONLY IF LIVE (Not Pending)
+      if (notifyUsers && finalStatus !== 'Pending') {
+          if (isEditMode) {
+             const newEpCount = episodes.filter(e => e.isNew).length;
+             if (newEpCount > 0) {
+                 await sendAutoNotification(
+                     `New Episode: ${animeTitle}`,
+                     `${newEpCount} new episode(s) added to ${animeTitle}. Watch now!`
+                 );
+             }
+          } else {
+             await sendAutoNotification(
+                 `New Anime Arrived! 🌟`,
+                 `${animeTitle} is now available on AniYu. Check it out!`
+             );
+          }
+      }
+
+      alert(finalStatus === 'Pending' ? "Submitted for Review! Waiting for Admin approval." : "Published Successfully!");
+      
+      setView('list'); 
+      setLibraryTab(finalStatus); 
 
     } catch (error) { console.error(error); alert('Error: ' + error.message); } finally { setLoading(false); }
   };
@@ -350,7 +483,6 @@ export default function AnimeUpload() {
               <div style={{ width: '100%', aspectRatio: '2/3', borderRadius: 15, overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', position:'relative' }}>
                 <img src={selectedAnime.images?.jpg?.image_url} alt={selectedAnime.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 
-                {/* ✅ Status Badge in Details */}
                 <div style={{position:'absolute', top:10, right:10, background: selectedAnime.status === 'Completed' ? '#10b981' : selectedAnime.status === 'Upcoming' ? '#eab308' : '#3b82f6', color:'white', padding:'5px 10px', borderRadius:8, fontWeight:'bold', fontSize:'0.8rem'}}>
                     {selectedAnime.status || 'Ongoing'}
                 </div>
@@ -366,17 +498,76 @@ export default function AnimeUpload() {
                 <div style={{ fontSize: '0.9rem', color: '#4b5563', lineHeight: '1.5' }}>
                   {selectedAnime.synopsis || "No synopsis available."}
                 </div>
+                
                 <div style={{ background: '#f9fafb', padding: 15, borderRadius: 12, border: '1px solid #e5e7eb', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-                  <div><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Views</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#111827'}}><Eye size={16} style={{display:'inline', marginRight:5}}/> {selectedAnime.views || 0}</div></div>
-                  <div><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Total Eps</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#111827'}}><PlayCircle size={16} style={{display:'inline', marginRight:5}}/> {selectedAnime.totalEpisodes || selectedAnimeEpisodes.length}</div></div>
+                  <div>
+                      <div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Views</div>
+                      <div style={{fontSize:'1.1rem', fontWeight:800, color:'#111827', display:'flex', alignItems:'center', gap:5}}>
+                          <Eye size={16}/> {selectedAnime.views || 0}
+                      </div>
+                  </div>
+                  <div>
+                      <div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Rating</div>
+                      <div style={{fontSize:'1.1rem', fontWeight:800, color:'#eab308', display:'flex', alignItems:'center', gap:5}}>
+                          <Star size={16} fill="#eab308"/> {selectedAnime.score ? `${Number(selectedAnime.score).toFixed(1)}` : "N/A"}
+                      </div>
+                  </div>
                   
-                  <div style={{gridColumn:'span 2'}}><div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Fan Rating</div><div style={{fontSize:'1.2rem', fontWeight:800, color:'#eab308'}}><Star size={16} fill="#eab308" style={{display:'inline', marginRight:5}}/> {selectedAnime.score ? `${Number(selectedAnime.score).toFixed(1)}/5` : "N/A"}</div></div>
+                  <div>
+                      <div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Likes</div>
+                      <div style={{fontSize:'1.1rem', fontWeight:800, color:'#10b981', display:'flex', alignItems:'center', gap:5}}>
+                          <ThumbsUp size={16}/> {selectedAnime.likes || 0}
+                      </div>
+                  </div>
+                  <div>
+                      <div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Dislikes</div>
+                      <div style={{fontSize:'1.1rem', fontWeight:800, color:'#ef4444', display:'flex', alignItems:'center', gap:5}}>
+                          <ThumbsDown size={16}/> {selectedAnime.dislikes || 0}
+                      </div>
+                  </div>
+                  
+                  <div style={{ gridColumn: 'span 2' }}>
+                      <div style={{fontSize:'0.75rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Total Comments</div>
+                      <div style={{fontSize:'1.1rem', fontWeight:800, color:'#3b82f6', display:'flex', alignItems:'center', gap:5}}>
+                          <MessageSquare size={16}/> {selectedAnimeComments.length}
+                      </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+             {/* COMMENTS SECTION */}
+             <div className="card" style={{ maxHeight: 400, display: 'flex', flexDirection: 'column' }}>
+                 <div className="card-header blue" style={{ padding: '15px 20px', borderBottom: '1px solid #e5e7eb', fontSize: '1rem' }}>
+                    <MessageSquare size={18} /> Community Comments ({selectedAnimeComments.length})
+                 </div>
+                 <div style={{ overflowY: 'auto', padding: 20, flex: 1 }}>
+                     {selectedAnimeComments.length === 0 ? (
+                         <div style={{ textAlign: 'center', color: '#9ca3af', padding: 20, fontStyle: 'italic' }}>No comments yet.</div>
+                     ) : (
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+                             {selectedAnimeComments.map(comment => (
+                                 <div key={comment.id} style={{ background: '#f9fafb', padding: 15, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                                         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1f2937' }}>{comment.userName || 'Anonymous'}</div>
+                                         <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : 'N/A'}</div>
+                                     </div>
+                                     <p style={{ margin: 0, fontSize: '0.9rem', color: '#4b5563', lineHeight: '1.4' }}>{comment.text}</p>
+                                     <button 
+                                        onClick={() => handleDeleteComment(comment.id)}
+                                        style={{ marginTop: 10, border: 'none', background: 'none', color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                     >
+                                         <Trash2 size={12} /> Delete Comment
+                                     </button>
+                                 </div>
+                             ))}
+                         </div>
+                     )}
+                 </div>
+             </div>
+
              {/* EPISODES LIST */}
              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <PlayCircle className="text-purple-600"/> Episodes List
@@ -410,7 +601,6 @@ export default function AnimeUpload() {
 
   // --- RENDER: LIST VIEW ---
   if (view === 'list') {
-    // ✅ Filter logic based on tabs
     const filteredAnimeList = animeList.filter(item => {
         const itemStatus = item.status === 'Released' ? 'Ongoing' : (item.status || 'Ongoing');
         return itemStatus === libraryTab;
@@ -428,33 +618,25 @@ export default function AnimeUpload() {
            </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Library ({filteredAnimeList.length})</h2>
-            <div style={{ position: 'relative' }}><input type="text" placeholder="Search..." style={{ padding: '10px 15px 10px 40px', borderRadius: 10, border: '1px solid #e5e7eb' }} /><Search size={18} style={{ position: 'absolute', left: 12, top: 12, color: '#9ca3af' }} /></div>
-          </div>
-
-          {/* ✅ TABS: Completed | Ongoing | Upcoming */}
-          <div style={{ display: 'flex', gap: 10, borderBottom: '2px solid #e5e7eb', paddingBottom: 10 }}>
-              {STATUS_OPTIONS.map(status => (
-                  <button 
-                    key={status}
-                    onClick={() => setLibraryTab(status)}
-                    style={{
-                        padding: '8px 20px',
-                        borderRadius: 20,
-                        border: 'none',
-                        background: libraryTab === status ? '#4f46e5' : 'transparent',
-                        color: libraryTab === status ? 'white' : '#6b7280',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                    }}
-                  >
-                      {status}
-                  </button>
-              ))}
-          </div>
+        {/* TAB SWITCHER */}
+        <div style={{ display: 'flex', gap: 10, borderBottom: '2px solid #e5e7eb', paddingBottom: 10, marginBottom: 20 }}>
+            {STATUS_OPTIONS.map(status => (
+                <button 
+                  key={status}
+                  onClick={() => setLibraryTab(status)}
+                  style={{
+                      padding: '8px 20px',
+                      borderRadius: 20,
+                      border: 'none',
+                      background: libraryTab === status ? (status === 'Pending' ? '#f59e0b' : '#4f46e5') : 'transparent',
+                      color: libraryTab === status ? 'white' : '#6b7280',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                  }}
+                >
+                    {status}
+                </button>
+            ))}
         </div>
 
         <div style={{ display: 'grid', gap: 20 }}>
@@ -465,21 +647,36 @@ export default function AnimeUpload() {
               <div style={{ display: 'flex', alignItems: 'center', padding: 20, gap: 20 }}>
                 <div style={{ width: 60, height: 80, borderRadius: 10, overflow: 'hidden', flexShrink: 0, position:'relative' }}>
                     <img src={anime.images?.jpg?.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    {/* Status Label on List Item */}
                     <div style={{position:'absolute', bottom:0, width:'100%', background: anime.status === 'Completed' ? 'rgba(16, 185, 129, 0.9)' : anime.status === 'Upcoming' ? 'rgba(234, 179, 8, 0.9)' : 'rgba(59, 130, 246, 0.9)', color:'white', fontSize:'0.5rem', textAlign:'center', fontWeight:'bold', textTransform:'uppercase'}}>
                         {anime.status || 'Ongoing'}
                     </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', fontWeight: 700 }}>{anime.title}</h3>
-                  <div style={{ display: 'flex', gap: 8, alignItems:'center' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems:'center', marginTop: 5 }}>
                       <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#4f46e5' }}>#{index + 1}</span>
-                      <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>• <Eye size={12} style={{display:'inline', verticalAlign:'middle'}}/> {anime.views || 0}</span>
+                      <span style={{ fontSize: '0.8rem', color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}>
+                         <Eye size={14} /> {anime.views || 0}
+                      </span>
+                      <span style={{ fontSize: '0.8rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}>
+                         <ThumbsUp size={14} /> {anime.likes || 0}
+                      </span>
+                      <span style={{ fontSize: '0.8rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4 }}>
+                         <ThumbsDown size={14} /> {anime.dislikes || 0}
+                      </span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
+                   {/* ✅ ADMIN APPROVAL BUTTONS */}
+                   {libraryTab === 'Pending' && currentUser?.role !== 'anime_producer' && (
+                       <>
+                           <button onClick={() => handleApprove(anime)} style={{ padding: '8px 12px', borderRadius: 8, background: '#dcfce7', color: '#166534', fontWeight: 'bold', border: '1px solid #bbf7d0', display:'flex', gap:5, cursor:'pointer' }}><CheckCircle size={16}/> Approve</button>
+                           <button onClick={() => handleReject(anime)} style={{ padding: '8px 12px', borderRadius: 8, background: '#fee2e2', color: '#991b1b', fontWeight: 'bold', border: '1px solid #fecaca', display:'flex', gap:5, cursor:'pointer' }}><XCircle size={16}/> Reject</button>
+                       </>
+                   )}
+                   
                    <button onClick={() => handleViewDetails(anime)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 600 }}>View</button>
-                   <button onClick={() => handleEdit(anime)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>Edit Anime</button>
+                   <button onClick={() => handleEdit(anime)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>Edit</button>
                    <button onClick={() => handleDelete(anime)} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
                 </div>
               </div>
@@ -501,7 +698,20 @@ export default function AnimeUpload() {
         <div className="page-title"><h1>{isEditMode ? "Manage Series" : "New Series Upload"}</h1></div>
         
         {!loading && (
-           <button onClick={handlePublish} className="btn-publish" style={{ width: 'auto', padding: '12px 30px', fontSize: '1rem' }}>Save All Changes</button>
+           <div style={{display:'flex', gap: 15, alignItems:'center'}}>
+               <div 
+                 onClick={() => setNotifyUsers(!notifyUsers)}
+                 style={{display:'flex', alignItems:'center', gap: 8, cursor:'pointer', background:'white', padding:'10px 15px', borderRadius:10, border: notifyUsers ? '1px solid #2563eb' : '1px solid #e5e7eb'}}
+               >
+                   <Bell size={18} className={notifyUsers ? "text-blue-600 fill-current" : "text-gray-400"} />
+                   <span style={{fontWeight:700, fontSize:'0.9rem', color: notifyUsers ? '#2563eb' : '#6b7280'}}>Notify Users</span>
+               </div>
+
+               {/* ✅ BUTTON TEXT FOR PRODUCER */}
+               <button onClick={handlePublish} className="btn-publish" style={{ width: 'auto', padding: '12px 30px', fontSize: '1rem' }}>
+                   {currentUser?.role === 'anime_producer' ? "Submit for Review" : "Save All Changes"}
+               </button>
+           </div>
         )}
       </div>
 
@@ -511,17 +721,23 @@ export default function AnimeUpload() {
           <div className="card-header blue" style={{justifyContent:'space-between'}}>
               <div style={{display:'flex', alignItems:'center', gap:10}}><Film size={24} /> <span>Header: Anime Details</span></div>
               
-              {/* ✅ STATUS SELECTOR (Replaces Checkbox) */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, background:'white', padding:'5px 15px', borderRadius:12, border:'1px solid #bfdbfe' }}>
-                  <span style={{fontSize:'0.85rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Status:</span>
-                  <select 
-                    value={animeStatus} 
-                    onChange={(e) => setAnimeStatus(e.target.value)}
-                    style={{border:'none', fontWeight:700, color: animeStatus === 'Completed' ? '#10b981' : animeStatus === 'Upcoming' ? '#eab308' : '#3b82f6', outline:'none', fontSize:'0.95rem'}}
-                  >
-                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-              </div>
+              {/* ✅ HIDE STATUS FOR PRODUCER */}
+              {currentUser?.role !== 'anime_producer' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, background:'white', padding:'5px 15px', borderRadius:12, border:'1px solid #bfdbfe' }}>
+                      <span style={{fontSize:'0.85rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Status:</span>
+                      <select 
+                        value={animeStatus} 
+                        onChange={(e) => setAnimeStatus(e.target.value)}
+                        style={{border:'none', fontWeight:700, color: animeStatus === 'Completed' ? '#10b981' : animeStatus === 'Upcoming' ? '#eab308' : '#3b82f6', outline:'none', fontSize:'0.95rem'}}
+                      >
+                          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                  </div>
+              ) : (
+                  <div style={{ background: '#fffbeb', color: '#d97706', padding: '5px 15px', borderRadius: 12, fontWeight: 'bold', fontSize: '0.9rem', border: '1px solid #fcd34d' }}>
+                      {animeStatus === 'Pending' ? "Waiting for Approval" : animeStatus}
+                  </div>
+              )}
           </div>
           <div className="card-body">
             <div className="grid-12">
@@ -549,7 +765,6 @@ export default function AnimeUpload() {
         {/* BODY: EPISODE LIST */}
         <div style={{ marginBottom: 20 }}>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 15, display: 'flex', alignItems: 'center', gap: 10 }}><PlayCircle color="#8b5cf6" /> Episodes ({episodes.length})</h2>
-          
           {episodes.map((ep, index) => (
             <div key={ep.id} className="card" style={{ border: '2px solid #f3f4f6' }}>
               <div className="card-header purple" style={{ padding: '15px 20px', background: '#f9fafb', display: 'flex', justifyContent: 'space-between' }}>
@@ -579,8 +794,6 @@ export default function AnimeUpload() {
                             {ep.videoFile ? <div style={{textAlign:'center', color:'#7c3aed'}}><FileVideo size={40}/><div>{ep.videoFile.name}</div></div> : ep.existingVideoUrl ? <div style={{textAlign:'center', color:'#10b981'}}><FileVideo size={40}/><div>Video Exists</div><div style={{fontSize:10}}>Click to Replace</div></div> : <div style={{textAlign:'center', color:'#9ca3af'}}><Upload size={40}/> Upload Video</div>}
                          </label>
                       </div>
-                      
-                      {/* Subtitles Section */}
                       <div className="form-group" style={{marginTop: 20, background: '#f8fafc', padding: 15, borderRadius: 12, border: '1px dashed #e2e8f0'}}>
                           <div style={{display:'flex', justifyContent:'space-between', marginBottom:10}}>
                              <span className="form-label" style={{marginBottom:0}}>Subtitles ({ep.subtitles.length})</span>
@@ -612,7 +825,6 @@ export default function AnimeUpload() {
           <button type="button" onClick={addEpisodeForm} className="btn-publish" style={{ background: '#f3f4f6', color: '#4b5563', border: '2px dashed #d1d5db', boxShadow: 'none' }}><Plus size={24} /> ADD MORE EPISODE</button>
         </div>
 
-        {/* LOADING BAR (FOOTER) */}
         {loading && (
             <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', width: '90%', maxWidth: 600, background: 'white', padding: 20, borderRadius: 20, boxShadow: '0 20px 50px rgba(0,0,0,0.2)', border: '1px solid #e5e7eb', zIndex: 100 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
