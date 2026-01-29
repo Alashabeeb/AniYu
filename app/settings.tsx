@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants'; // ✅ IMPORTED CONSTANTS
 import { Stack, useRouter } from 'expo-router';
 import { deleteUser } from 'firebase/auth';
 import React, { useEffect, useState } from 'react';
@@ -30,7 +31,7 @@ const TRANSLATIONS: any = {
         data: "DATA & STORAGE", notifs: "Pop-up Notifications", downloads: "Manage Downloads", clearHist: "Clear Watch History",
         privacy: "PRIVACY & SAFETY", restriction: "Content Restriction", blocked: "Blocked Users", delete: "Delete My Account",
         manage: "Manage", free: "Free Plan", premium: "Premium", premiumPlus: "Premium+",
-        comingSoon: "(Coming Soon)"
+        comingSoon: "(Coming Soon)", settings: "Settings"
     },
 };
 
@@ -96,6 +97,9 @@ export default function SettingsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState(''); 
   const [loading, setLoading] = useState(false);
+
+  // ✅ GET APP VERSION DYNAMICALLY
+  const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -269,8 +273,9 @@ export default function SettingsScreen() {
             {renderRow("trash-outline", t('delete'), "", handleDeleteAccount, true)}
         </View>
 
+        {/* ✅ DYNAMIC VERSION DISPLAY */}
         <View style={{ marginTop: 30, alignItems: 'center' }}>
-            <Text style={{ color: theme.subText }}>AniYu v1.0.7 (Beta)</Text>
+            <Text style={{ color: theme.subText }}>AniYu v{appVersion} (Beta)</Text>
         </View>
 
       </ScrollView>

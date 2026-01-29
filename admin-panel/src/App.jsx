@@ -1,93 +1,72 @@
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'; // ✅ Added onSnapshot
-import { Bell, BookOpen, ChevronDown, Edit, Eye, Flag, LayoutDashboard, LogOut, ThumbsUp, Users as UsersIcon, Video } from 'lucide-react';
+import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { Bell, BookOpen, ChevronDown, Edit, Eye, Flag, LayoutDashboard, LogOut, Menu, MessageSquare, Settings, ThumbsUp, TrendingUp, Users as UsersIcon, Video, X } from 'lucide-react'; // ✅ Added Settings
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 // ✅ IMPORT PAGES
+import Analytics from './Analytics';
 import AnimeUpload from './AnimeUpload';
+import Comments from './Comments';
 import Login from './Login';
 import MangaUpload from './MangaUpload';
 import Notifications from './Notifications';
 import Reports from './Reports';
+import SettingsPage from './Settings'; // ✅ Import Settings Page
 import Users from './Users';
 import { auth, db } from './firebase';
 
-// --- HELPER: FORMAT DATES FOR CHART ---
+// --- HELPER: FORMAT DATES ---
 const formatDateLabel = (date, range) => {
     if (range === '24h') return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-// ✅ 1. PROTECTED ROUTE WRAPPER
+// --- PROTECTED ROUTE ---
 const ProtectedRoute = ({ role, allowedRoles, children }) => {
-  if (!role) return <div className="p-10 text-center"><span className="loader"></span> Loading...</div>;
+  if (!role) return <div style={{padding: '40px', textAlign: 'center'}}>Loading...</div>;
   if (!allowedRoles.includes(role)) {
-    return <div className="p-10 text-center text-red-500 font-bold">⛔ Access Denied</div>;
+    return <div style={{padding: '40px', textAlign: 'center', color: '#ef4444', fontWeight: 'bold'}}>⛔ Access Denied</div>;
   }
   return children;
 };
 
-// --- 2. DASHBOARD COMPONENT ---
+// --- DASHBOARD COMPONENT ---
 function Dashboard({ role, userId }) {
   const navigate = useNavigate();
-  
-  // ✅ DROPDOWN STATE
-  const [metric, setMetric] = useState('activity'); // Default to Activity to see the change immediately
-  const [timeRange, setTimeRange] = useState('24h'); // Default to 24h
-  
-  // Data State
+  const [metric, setMetric] = useState('activity'); 
+  const [timeRange, setTimeRange] = useState('24h'); 
   const [allUsers, setAllUsers] = useState([]); 
   const [chartData, setChartData] = useState([]); 
   const [contentList, setContentList] = useState([]); 
-  
-  const [stats, setStats] = useState({ 
-      users: 0, 
-      activeUsers: 0, 
-      anime: 0, 
-      manga: 0, 
-      reports: 0,
-      totalViews: 0, 
-      totalLikes: 0  
-  });
+  const [stats, setStats] = useState({ users: 0, activeUsers: 0, anime: 0, manga: 0, reports: 0, totalViews: 0, totalLikes: 0 });
 
   const isSuperAdmin = role === 'super_admin';
   const isAdmin = role === 'admin' || isSuperAdmin;
   const isProducer = role === 'anime_producer' || role === 'manga_producer';
 
-  // 1. FETCH DATA (REAL-TIME LISTENER)
   useEffect(() => {
     let unsubscribeUsers = null;
-
     const fetchData = async () => {
       try {
         if (isAdmin) {
-            // ✅ REAL-TIME USER LISTENER (Fixes the Graph issue)
-            const usersRef = collection(db, "users");
-            unsubscribeUsers = onSnapshot(usersRef, (snapshot) => {
+            unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
                 const usersData = snapshot.docs.map(doc => ({
                   id: doc.id, ...doc.data(),
                   createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(0),
                   lastActiveAt: doc.data().lastActiveAt?.toDate ? doc.data().lastActiveAt.toDate() : new Date(0), 
                 }));
-                setAllUsers(usersData); // This triggers the filter useEffect below
+                setAllUsers(usersData); 
             });
 
-            // Fetch Counts (Static is fine for these, or make them real-time if needed)
             const rSnap = await getCountFromServer(collection(db, "reports"));
             const aSnap = await getCountFromServer(collection(db, "anime"));
             const mSnap = await getCountFromServer(collection(db, "manga"));
             
-            setStats(prev => ({ 
-                ...prev,
-                anime: aSnap.data().count,
-                manga: mSnap.data().count,
-                reports: rSnap.data().count 
-            }));
+            setStats(prev => ({ ...prev, anime: aSnap.data().count, manga: mSnap.data().count, reports: rSnap.data().count }));
         } 
         else if (isProducer) {
-            // Producer Logic (Unchanged)
             const collectionName = role === 'anime_producer' ? 'anime' : 'manga';
             const q = query(collection(db, collectionName), where("uploaderId", "==", userId));
             const snapshot = await getDocs(q);
@@ -96,116 +75,77 @@ function Dashboard({ role, userId }) {
 
             let views = 0, likes = 0;
             myContent.forEach(item => { views += (item.views || 0); likes += (item.likes || 0); });
-
-            setStats({ 
-                users: 0, activeUsers: 0, anime: role === 'anime_producer' ? myContent.length : 0, manga: role === 'manga_producer' ? myContent.length : 0, 
-                reports: 0, totalViews: views, totalLikes: likes
-            });
+            setStats({ users: 0, activeUsers: 0, anime: role === 'anime_producer' ? myContent.length : 0, manga: role === 'manga_producer' ? myContent.length : 0, reports: 0, totalViews: views, totalLikes: likes });
 
             const topContent = [...myContent].sort((a,b) => (b.views || 0) - (a.views || 0)).slice(0, 5);
             setChartData(topContent.map(item => ({ name: item.title.length > 15 ? item.title.substring(0,12)+'...' : item.title, value: item.views || 0 })));
         }
       } catch (e) { console.error("Error fetching data:", e); }
     };
-
     if (role && userId) fetchData();
-
-    // Cleanup Listener
-    return () => {
-        if (unsubscribeUsers) unsubscribeUsers();
-    };
+    return () => { if (unsubscribeUsers) unsubscribeUsers(); };
   }, [role, userId]); 
 
-  // 2. ✅ DYNAMIC FILTER ENGINE (Runs automatically when allUsers updates)
+  // Filter Logic
   useEffect(() => {
     if (!isAdmin || allUsers.length === 0) return;
-
     const now = new Date();
     let startTime = new Date();
     let buckets = [];
     
-    // --- A. Define Time Buckets ---
     if (timeRange === '24h') {
         startTime = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-        // Create 6 buckets of 4 hours
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date(now.getTime() - (i * 4 * 60 * 60 * 1000));
-            buckets.push({ date: d, label: formatDateLabel(d, '24h') });
-        }
+        for (let i = 6; i >= 0; i--) { const d = new Date(now.getTime() - (i * 4 * 60 * 60 * 1000)); buckets.push({ date: d, label: formatDateLabel(d, '24h') }); }
     } else if (timeRange === 'week') {
         startTime = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date(); d.setDate(now.getDate() - i); d.setHours(0,0,0,0);
-            buckets.push({ date: d, label: formatDateLabel(d, 'week') });
-        }
+        for (let i = 6; i >= 0; i--) { const d = new Date(); d.setDate(now.getDate() - i); d.setHours(0,0,0,0); buckets.push({ date: d, label: formatDateLabel(d, 'week') }); }
     } else if (timeRange === 'month') {
         startTime = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(); d.setDate(now.getDate() - (i * 5)); d.setHours(0,0,0,0);
-            buckets.push({ date: d, label: formatDateLabel(d, 'month') });
-        }
+        for (let i = 5; i >= 0; i--) { const d = new Date(); d.setDate(now.getDate() - (i * 5)); d.setHours(0,0,0,0); buckets.push({ date: d, label: formatDateLabel(d, 'month') }); }
     } else {
         startTime = new Date(0); 
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(); d.setDate(now.getDate() - (i * 5));
-            buckets.push({ date: d, label: formatDateLabel(d, 'month') });
-        }
+        for (let i = 5; i >= 0; i--) { const d = new Date(); d.setDate(now.getDate() - (i * 5)); buckets.push({ date: d, label: formatDateLabel(d, 'month') }); }
     }
 
-    // --- B. Calculate Stats Numbers ---
     const filteredNewUsers = allUsers.filter(u => u.createdAt >= startTime).length;
     const filteredActiveUsers = allUsers.filter(u => u.lastActiveAt >= startTime).length;
+    setStats(prev => ({ ...prev, users: timeRange === 'all' ? allUsers.length : filteredNewUsers, activeUsers: filteredActiveUsers }));
 
-    setStats(prev => ({
-        ...prev,
-        users: timeRange === 'all' ? allUsers.length : filteredNewUsers,
-        activeUsers: filteredActiveUsers
-    }));
-
-    // --- C. Generate Chart Data ---
     const processChart = buckets.map((bucket, index) => {
         const nextBucketDate = buckets[index + 1]?.date || new Date(); 
-        
-        let count = 0;
-        if (metric === 'registrations') {
-            count = allUsers.filter(u => u.createdAt >= bucket.date && u.createdAt < nextBucketDate).length;
-        } else {
-            // ✅ Active Users Logic for Graph
-            count = allUsers.filter(u => u.lastActiveAt >= bucket.date && u.lastActiveAt < nextBucketDate).length;
-        }
-        
+        let count = metric === 'registrations' 
+            ? allUsers.filter(u => u.createdAt >= bucket.date && u.createdAt < nextBucketDate).length
+            : allUsers.filter(u => u.lastActiveAt >= bucket.date && u.lastActiveAt < nextBucketDate).length;
         return { name: bucket.label, value: count };
     });
-
     setChartData(processChart);
-
   }, [timeRange, metric, allUsers, isAdmin]);
 
   // --- RENDER PRODUCER ---
   if (isProducer) {
       return (
-        <div className="p-6 space-y-8">
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-                {role === 'anime_producer' ? <Video className="text-blue-600"/> : <BookOpen className="text-purple-600"/>} Studio Dashboard
-            </h1>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                    <p className="text-gray-500 text-sm font-medium">Total Views</p>
-                    <h2 className="text-3xl font-bold text-blue-600 mt-2 flex items-center gap-2"><Eye size={24}/> {stats.totalViews.toLocaleString()}</h2>
+        <div className="dashboard-container">
+            <h1 className="page-title"><Video className="text-blue"/> Studio Dashboard</h1>
+            
+            <div className="stats-grid">
+                <div className="stat-card">
+                    <p className="stat-label">Total Views</p>
+                    <h2 className="stat-value blue"><Eye size={24}/> {stats.totalViews.toLocaleString()}</h2>
                 </div>
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                    <p className="text-gray-500 text-sm font-medium">Total Likes</p>
-                    <h2 className="text-3xl font-bold text-green-600 mt-2 flex items-center gap-2"><ThumbsUp size={24}/> {stats.totalLikes.toLocaleString()}</h2>
+                <div className="stat-card">
+                    <p className="stat-label">Total Likes</p>
+                    <h2 className="stat-value green"><ThumbsUp size={24}/> {stats.totalLikes.toLocaleString()}</h2>
                 </div>
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                    <p className="text-gray-500 text-sm font-medium">Uploads</p>
-                    <h2 className="text-3xl font-bold text-gray-800 mt-2 flex items-center gap-2">
+                <div className="stat-card">
+                    <p className="stat-label">Uploads</p>
+                    <h2 className="stat-value gray">
                         {role === 'anime_producer' ? <Video size={24}/> : <BookOpen size={24}/>} {role === 'anime_producer' ? stats.anime : stats.manga}
                     </h2>
                 </div>
             </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-96">
-                <h3 className="font-bold text-lg mb-4 text-gray-700">Top 5 Most Viewed</h3>
+            
+            <div className="chart-container">
+                <h3 className="chart-title">Top 5 Most Viewed</h3>
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
@@ -216,57 +156,60 @@ function Dashboard({ role, userId }) {
                     </BarChart>
                 </ResponsiveContainer>
             </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex justify-between items-center"><h3 className="font-bold text-lg">My Library</h3><Link to={role === 'anime_producer' ? "/upload-anime" : "/upload-manga"} className="text-blue-600 font-bold text-sm hover:underline">+ Upload New</Link></div>
-                <table className="w-full text-left"><thead className="bg-gray-50 border-b border-gray-100"><tr><th className="p-4 text-sm font-semibold text-gray-600">Cover</th><th className="p-4 text-sm font-semibold text-gray-600">Title</th><th className="p-4 text-sm font-semibold text-gray-600">Views</th><th className="p-4 text-sm font-semibold text-gray-600">Status</th><th className="p-4 text-sm font-semibold text-gray-600">Action</th></tr></thead><tbody>{contentList.map(item => (<tr key={item.id} className="border-b hover:bg-gray-50"><td className="p-4"><img src={item.images?.jpg?.image_url} className="w-10 h-14 object-cover rounded" /></td><td className="p-4 font-bold text-gray-800">{item.title}</td><td className="p-4 text-blue-600 font-mono">{item.views || 0}</td><td className="p-4"><span className="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-600">{item.status || 'Ongoing'}</span></td><td className="p-4"><button onClick={() => navigate(role === 'anime_producer' ? '/upload-anime' : '/upload-manga', { state: { editId: item.id } })} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 font-bold text-xs hover:bg-blue-100"><Edit size={14}/> Edit</button></td></tr>))}</tbody></table>
+
+            <div className="table-wrapper">
+                <div className="table-header">
+                    <h3>My Library</h3>
+                    <Link to={role === 'anime_producer' ? "/upload-anime" : "/upload-manga"} className="link-action">+ Upload New</Link>
+                </div>
+                <table className="data-table">
+                    <thead><tr><th>Cover</th><th>Title</th><th>Views</th><th>Status</th><th>Action</th></tr></thead>
+                    <tbody>
+                        {contentList.map(item => (
+                            <tr key={item.id}>
+                                <td><img src={item.images?.jpg?.image_url} className="cover-img" /></td>
+                                <td className="title-cell">{item.title}</td>
+                                <td className="blue-text">{item.views || 0}</td>
+                                <td><span className="status-badge">{item.status || 'Ongoing'}</span></td>
+                                <td><button onClick={() => navigate(role === 'anime_producer' ? '/upload-anime' : '/upload-manga', { state: { editId: item.id } })} className="btn-edit"><Edit size={14}/> Edit</button></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
         </div>
       );
   }
 
-  // --- RENDER ADMIN DASHBOARD ---
+  // --- RENDER ADMIN ---
   return (
-    <div className="p-6 space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <h1 className="text-2xl font-bold">System Overview</h1>
-        
-        <div className="flex gap-4">
-            {/* Metric Dropdown */}
-            <div className="relative">
-                <select 
-                    className="appearance-none bg-white border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded shadow-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
-                    value={metric}
-                    onChange={(e) => setMetric(e.target.value)}
-                >
-                    <option value="registrations">New Registrations</option>
+    <div className="dashboard-container">
+      <div className="dashboard-header">
+        <h1 className="page-title">System Overview</h1>
+        <div className="controls">
+            <div className="select-wrapper">
+                <select className="dropdown" value={metric} onChange={(e) => setMetric(e.target.value)}>
+                    <option value="registrations">Registrations</option>
                     <option value="activity">User Activity</option>
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700"><ChevronDown size={16} /></div>
+                <ChevronDown className="select-icon" size={16} />
             </div>
-
-            {/* Time Range Dropdown */}
-            <div className="relative">
-                <select 
-                    className="appearance-none bg-white border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded shadow-sm font-medium outline-none focus:ring-2 focus:ring-blue-500"
-                    value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value)}
-                >
+            <div className="select-wrapper">
+                <select className="dropdown" value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
                     <option value="24h">Last 24 Hours</option>
                     <option value="week">Last 7 Days</option>
                     <option value="month">Last 30 Days</option>
                     <option value="all">All Time</option>
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700"><ChevronDown size={16} /></div>
+                <ChevronDown className="select-icon" size={16} />
             </div>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-80">
-        <h3 className="text-sm font-bold text-gray-400 mb-2 uppercase flex items-center gap-2">
+      <div className="chart-container">
+        <h3 className="chart-header-text">
             {metric === 'registrations' ? '📈 Registration Growth' : '🔥 Activity Trends'}
-            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">
-                {timeRange === '24h' ? '24 HOURS' : timeRange === 'week' ? '7 DAYS' : timeRange === 'month' ? '30 DAYS' : 'ALL TIME'}
-            </span>
+            <span className="badge">{timeRange === '24h' ? '24 HOURS' : timeRange === 'week' ? '7 DAYS' : timeRange === 'month' ? '30 DAYS' : 'ALL TIME'}</span>
         </h3>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData}>
@@ -292,163 +235,293 @@ function Dashboard({ role, userId }) {
         </ResponsiveContainer>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-            <p className="text-gray-500 text-sm font-medium">
-                {timeRange === 'all' ? 'Total Users' : 'New Users'}
-                <span className="ml-2 text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-bold">{timeRange === '24h' ? '24H' : timeRange.toUpperCase()}</span>
-            </p>
-            <h2 className="text-3xl font-bold text-gray-800 mt-2">{stats.users}</h2>
+      <div className="stats-grid">
+        <div className="stat-card">
+            <p className="stat-label">{timeRange === 'all' ? 'Total Users' : 'New Users'}</p>
+            <h2 className="stat-value">{stats.users}</h2>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-            <p className="text-gray-500 text-sm font-medium">
-                Active Users
-                <span className="ml-2 text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-bold">{timeRange === '24h' ? '24H' : timeRange.toUpperCase()}</span>
-            </p>
-            <h2 className="text-3xl font-bold text-green-600 mt-2">{stats.activeUsers}</h2>
+        <div className="stat-card">
+            <p className="stat-label">Active Users</p>
+            <h2 className="stat-value green">{stats.activeUsers}</h2>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-            <p className="text-gray-500 text-sm font-medium">Total Anime</p>
-            <h2 className="text-3xl font-bold text-blue-600 mt-2">{stats.anime}</h2>
+        <div className="stat-card">
+            <p className="stat-label">Total Anime</p>
+            <h2 className="stat-value blue">{stats.anime}</h2>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-            <p className="text-gray-500 text-sm font-medium">Total Manga</p>
-            <h2 className="text-3xl font-bold text-purple-600 mt-2">{stats.manga}</h2>
+        <div className="stat-card">
+            <p className="stat-label">Total Manga</p>
+            <h2 className="stat-value purple">{stats.manga}</h2>
         </div>
       </div>
 
-      <div className="pt-4">
-        <h2 className="text-xl font-bold mb-4 px-1">User Management</h2>
-        <div className="border-t border-gray-200 pt-4"><Users /></div>
+      <div className="section">
+        <h2 className="section-title">User Management</h2>
+        <div className="table-wrapper"><Users /></div>
       </div>
     </div>
   );
 }
 
-// --- 4. MAIN LAYOUT WITH HEARTBEAT ---
+// --- LAYOUT COMPONENT (STANDARD CSS) ---
 function Layout({ logout, role, userId }) {
   const location = useLocation();
-  const isActive = (path) => location.pathname === path ? "bg-blue-50 text-blue-600" : "text-gray-600 hover:bg-gray-50";
+  const isActive = (path) => location.pathname === path ? "nav-item active" : "nav-item";
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isSuperAdmin = role === 'super_admin';
   const isAdmin = role === 'admin' || isSuperAdmin;
   const isAnimeProducer = role === 'anime_producer';
   const isMangaProducer = role === 'manga_producer';
 
-  // ✅ WEB ADMIN HEARTBEAT
+  // Admin Heartbeat
   useEffect(() => {
     const updateHeartbeat = async () => {
         if (userId) {
-            try {
-                await updateDoc(doc(db, "users", userId), {
-                    lastActiveAt: serverTimestamp(),
-                    isOnline: true
-                });
-            } catch (e) {
-                console.error("Heartbeat fail", e);
-            }
+            try { await updateDoc(doc(db, "users", userId), { lastActiveAt: serverTimestamp(), isOnline: true }); } 
+            catch (e) { console.error("Heartbeat fail", e); }
         }
     };
-    
-    // Run immediately
     updateHeartbeat();
-    
-    // Run every 5 minutes
     const interval = setInterval(updateHeartbeat, 5 * 60 * 1000);
-    
     return () => clearInterval(interval);
   }, [userId]);
 
+  // Close sidebar on route change
+  useEffect(() => { setSidebarOpen(false); }, [location]);
+
   return (
-    <div className="flex h-screen bg-gray-50">
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col fixed h-full md:relative z-10">
-        <div className="p-6 border-b border-gray-100">
-          <h1 className="text-xl font-black text-blue-600 tracking-tighter">
-            AniYu<span className="text-gray-400 font-normal text-sm ml-1">
+    <>
+    <style>{`
+        /* --- LAYOUT STYLES --- */
+        .app-wrapper { display: flex; height: 100vh; background-color: #f9fafb; font-family: sans-serif; overflow: hidden; }
+        
+        /* Sidebar */
+        .sidebar { width: 260px; background: white; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; z-index: 50; transition: transform 0.3s ease; }
+        .sidebar-header { padding: 24px; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; }
+        .brand { font-size: 1.25rem; font-weight: 900; color: #2563eb; letter-spacing: -0.5px; margin: 0; }
+        .brand-role { color: #9ca3af; font-weight: 400; font-size: 0.85rem; margin-left: 5px; }
+        .close-btn { background: none; border: none; color: #6b7280; cursor: pointer; display: none; }
+        
+        .nav-menu { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        .nav-label { padding: 16px 16px 8px; font-size: 0.75rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: #4b5563; text-decoration: none; font-weight: 500; transition: all 0.2s; }
+        .nav-item:hover { background-color: #f3f4f6; }
+        .nav-item.active { background-color: #eff6ff; color: #2563eb; font-weight: 600; }
+        
+        .sidebar-footer { padding: 16px; border-top: 1px solid #f3f4f6; }
+        .btn-logout { w-width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: #ef4444; background: none; border: none; border-radius: 8px; cursor: pointer; font-weight: 500; width: 100%; text-align: left; }
+        .btn-logout:hover { background-color: #fef2f2; }
+
+        /* Main Content */
+        .main-wrapper { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+        .mobile-header { display: none; height: 64px; background: white; border-bottom: 1px solid #e5e7eb; align-items: center; justify-content: space-between; padding: 0 16px; z-index: 40; }
+        .mobile-menu-btn { background: none; border: none; color: #4b5563; cursor: pointer; }
+        .content-area { flex: 1; overflow-y: auto; padding: 0; }
+
+        /* Mobile Overlay */
+        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 45; display: none; }
+
+        /* --- DASHBOARD STYLES --- */
+        .dashboard-container { padding: 24px; max-width: 1400px; margin: 0 auto; }
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+        .page-title { font-size: 1.5rem; font-weight: 800; margin: 0; color: #111827; }
+        .controls { display: flex; gap: 12px; }
+        .select-wrapper { position: relative; }
+        .dropdown { appearance: none; background: white; border: 1px solid #e5e7eb; padding: 8px 32px 8px 16px; border-radius: 8px; font-weight: 500; color: #374151; cursor: pointer; outline: none; }
+        .select-icon { position: absolute; right: 10px; top: 10px; color: #6b7280; pointer-events: none; }
+
+        .chart-container { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; height: 320px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 24px; }
+        .chart-header-text { font-size: 0.875rem; font-weight: 700; color: #9ca3af; margin-bottom: 16px; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+        .badge { background: #f3f4f6; color: #4b5563; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 24px; }
+        .stat-card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .stat-label { font-size: 0.875rem; font-weight: 500; color: #6b7280; margin: 0; }
+        .stat-value { font-size: 1.875rem; font-weight: 800; margin: 8px 0 0; color: #1f2937; display:flex; align-items:center; gap:10px; }
+        .stat-value.green { color: #16a34a; }
+        .stat-value.blue { color: #2563eb; }
+        .stat-value.purple { color: #7c3aed; }
+        
+        .section { margin-top: 32px; }
+        .section-title { font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: #111827; }
+        .table-wrapper { background: white; border-radius: 12px; border: 1px solid #e5e7eb; overflow-x: auto; }
+        
+        /* Producer Table Styles */
+        .table-header { padding: 20px; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; }
+        .link-action { color: #2563eb; font-weight: 700; font-size: 0.875rem; text-decoration: none; }
+        .data-table { width: 100%; border-collapse: collapse; text-align: left; }
+        .data-table th { padding: 16px; background: #f9fafb; font-size: 0.875rem; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+        .data-table td { padding: 16px; border-bottom: 1px solid #f3f4f6; font-size: 0.875rem; color: #374151; vertical-align: middle; }
+        .cover-img { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; }
+        .title-cell { font-weight: 700; color: #1f2937; }
+        .status-badge { background: #f3f4f6; color: #4b5563; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+        .btn-edit { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 0.75rem; display: flex; align-items: center; gap: 6px; }
+
+        /* RESPONSIVE MEDIA QUERIES */
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar { position: fixed; inset: 0; transform: translateX(-100%); width: 260px; height: 100%; }
+            .sidebar.open { transform: translateX(0); }
+            .close-btn { display: block; }
+            .mobile-header { display: flex; }
+            .overlay.open { display: block; }
+            
+            .dashboard-container { padding: 16px; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .dashboard-header { flex-direction: column; align-items: flex-start; }
+            .controls { width: 100%; }
+            .select-wrapper { flex: 1; }
+            .dropdown { width: 100%; }
+        }
+    `}</style>
+
+    <div className="app-wrapper">
+      
+      {/* Mobile Overlay */}
+      <div className={`overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)}></div>
+
+      {/* Sidebar */}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <h1 className="brand">
+            AniYu<span className="brand-role">
               {isSuperAdmin ? 'Owner' : isAdmin ? 'Admin' : 'Studio'}
             </span>
           </h1>
+          <button onClick={() => setSidebarOpen(false)} className="close-btn">
+            <X size={24} />
+          </button>
         </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <Link to="/" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/')}`}>
-            <LayoutDashboard size={20} /> <span className="font-medium">Dashboard</span>
+        
+        <nav className="nav-menu">
+          <Link to="/" className={isActive('/')}>
+            <LayoutDashboard size={20} /> <span>Dashboard</span>
           </Link>
           
-          <div className="pt-4 pb-2 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Content</div>
+          <div className="nav-label">Content</div>
           
           {(isAnimeProducer || isAdmin) && (
-            <Link to="/upload-anime" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/upload-anime')}`}>
-                <Video size={20} /> <span className="font-medium">Anime Upload</span>
+            <Link to="/upload-anime" className={isActive('/upload-anime')}>
+                <Video size={20} /> <span>Anime Upload</span>
             </Link>
           )}
           
           {(isMangaProducer || isAdmin) && (
-            <Link to="/upload-manga" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/upload-manga')}`}>
-                <BookOpen size={20} /> <span className="font-medium">Manga Upload</span>
+            <Link to="/upload-manga" className={isActive('/upload-manga')}>
+                <BookOpen size={20} /> <span>Manga Upload</span>
             </Link>
           )}
 
           {isAdmin && (
             <>
-                <div className="pt-4 pb-2 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Management</div>
-                <Link to="/notifications" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/notifications')}`}>
-                    <Bell size={20} /> <span className="font-medium">Notifications</span>
+                <div className="nav-label">Management</div>
+                <Link to="/notifications" className={isActive('/notifications')}>
+                    <Bell size={20} /> <span>Notifications</span>
                 </Link>
-                <Link to="/reports" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/reports')}`}>
-                    <Flag size={20} /> <span className="font-medium">Reports</span>
+                <Link to="/reports" className={isActive('/reports')}>
+                    <Flag size={20} /> <span>Reports</span>
                 </Link>
-                <Link to="/users" className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive('/users')}`}>
-                    <UsersIcon size={20} /> <span className="font-medium">Users</span>
+                <Link to="/users" className={isActive('/users')}>
+                    <UsersIcon size={20} /> <span>Users</span>
+                </Link>
+                {/* ✅ COMMENTS LINK */}
+                <Link to="/comments" className={isActive('/comments')}>
+                    <MessageSquare size={20} /> <span>Comments</span>
+                </Link>
+                {/* ✅ ANALYTICS LINK */}
+                <Link to="/analytics" className={isActive('/analytics')}>
+                    <TrendingUp size={20} /> <span>Analytics</span>
+                </Link>
+                {/* ✅ SETTINGS LINK */}
+                <Link to="/settings" className={isActive('/settings')}>
+                    <Settings size={20} /> <span>Settings</span>
                 </Link>
             </>
           )}
         </nav>
-        <div className="p-4 border-t border-gray-100">
-          <button onClick={logout} className="flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-lg w-full transition-colors">
-            <LogOut size={20} /> <span className="font-medium">Logout</span>
+        <div className="sidebar-footer">
+          <button onClick={logout} className="btn-logout">
+            <LogOut size={20} /> <span>Logout</span>
           </button>
         </div>
-      </div>
-      <div className="flex-1 overflow-auto w-full">
-        <Routes>
-          <Route path="/" element={<Dashboard role={role} userId={userId} />} />
-          
-          <Route path="/upload-anime" element={
-              <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin', 'anime_producer']}>
-                  <AnimeUpload />
-              </ProtectedRoute>
-          } />
-          
-          <Route path="/upload-manga" element={
-              <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin', 'manga_producer']}>
-                  <MangaUpload />
-              </ProtectedRoute>
-          } />
+      </aside>
 
-          <Route path="/notifications" element={
-              <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
-                  <Notifications />
-              </ProtectedRoute>
-          } />
+      {/* Main Content */}
+      <div className="main-wrapper">
+        <header className="mobile-header">
+            <button onClick={() => setSidebarOpen(true)} className="mobile-menu-btn">
+                <Menu size={24} />
+            </button>
+            <span style={{fontWeight: '700', fontSize: '1.1rem', color:'#1f2937'}}>Admin Panel</span>
+            <div style={{width: 24}}></div> 
+        </header>
 
-          <Route path="/reports" element={
-              <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
-                  <Reports />
-              </ProtectedRoute>
-          } />
+        <main className="content-area">
+            <Routes>
+                <Route path="/" element={<Dashboard role={role} userId={userId} />} />
+                
+                <Route path="/upload-anime" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin', 'anime_producer']}>
+                        <AnimeUpload />
+                    </ProtectedRoute>
+                } />
+                
+                <Route path="/upload-manga" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin', 'manga_producer']}>
+                        <MangaUpload />
+                    </ProtectedRoute>
+                } />
 
-          <Route path="/users" element={
-              <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
-                  <Users />
-              </ProtectedRoute>
-          } />
-        </Routes>
+                <Route path="/notifications" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
+                        <Notifications />
+                    </ProtectedRoute>
+                } />
+
+                <Route path="/reports" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
+                        <Reports />
+                    </ProtectedRoute>
+                } />
+
+                <Route path="/users" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
+                        <Users />
+                    </ProtectedRoute>
+                } />
+
+                {/* ✅ COMMENTS ROUTE */}
+                <Route path="/comments" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
+                        <Comments />
+                    </ProtectedRoute>
+                } />
+
+                {/* ✅ ANALYTICS ROUTE */}
+                <Route path="/analytics" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
+                        <Analytics />
+                    </ProtectedRoute>
+                } />
+
+                {/* ✅ SETTINGS ROUTE */}
+                <Route path="/settings" element={
+                    <ProtectedRoute role={role} allowedRoles={['admin', 'super_admin']}>
+                        <SettingsPage />
+                    </ProtectedRoute>
+                } />
+            </Routes>
+        </main>
       </div>
     </div>
+    </>
   );
 }
 
-// ✅ MAIN APP COMPONENT
+// --- MAIN APP COMPONENT ---
 export default function App() { 
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
@@ -475,7 +548,7 @@ export default function App() {
 
   const handleLogout = () => { auth.signOut(); };
 
-  if (loading) return <div className="h-screen w-full flex items-center justify-center text-blue-600 font-bold">Loading Admin Panel...</div>;
+  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', fontWeight: 'bold'}}>Loading Admin Panel...</div>;
 
   return (
     <Router>

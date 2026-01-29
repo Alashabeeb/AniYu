@@ -1,47 +1,28 @@
 import { initializeApp } from 'firebase/app';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
-import { addDoc, arrayRemove, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore'; // ✅ Added onSnapshot
+import { addDoc, arrayRemove, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import {
-  ArrowLeft,
-  Ban,
-  CheckCircle,
-  Clock,
-  Copy,
-  ExternalLink,
-  Loader2,
-  Mail,
-  Plus,
-  Save,
-  Search,
-  Shield,
-  ShieldAlert,
-  Trash2,
-  User,
-  Users as UsersIcon,
-  X
+    ArrowLeft, Ban, CheckCircle, Clock, Copy, ExternalLink, Loader2, Mail, Plus, Save, Search, Shield, ShieldAlert, Trash2, User, Users as UsersIcon, X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { auth, db, firebaseConfig } from './firebase';
 
 // --- HELPER: SMART TIME FORMATTING ---
 const formatLastActive = (timestamp) => {
-    if (!timestamp) return <span className="text-gray-400 italic">Never</span>;
+    if (!timestamp) return <span style={{color: '#9ca3af', fontStyle: 'italic'}}>Never</span>;
     
-    // Handle Firebase Timestamp or standard Date
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
     const diffInSeconds = Math.floor((now - date) / 1000);
 
-    // ✅ If active in last 5 minutes -> SHOW "ACTIVE NOW"
     if (diffInSeconds < 300) {
         return (
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-green-600"></span> Active Now
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: '#dcfce7', color: '#15803d' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#16a34a' }}></span> Active Now
             </span>
         );
     }
 
-    // Otherwise show relative time
     if (diffInSeconds < 60) return "Just now";
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
@@ -56,33 +37,27 @@ const formatDate = (timestamp) => {
 };
 
 export default function Users() {
-  // --- STATE ---
   const [view, setView] = useState('list'); 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [myRole, setMyRole] = useState(null);
 
-  // Create User State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newUser, setNewUser] = useState({ email: '', password: '', username: '', role: 'user' });
 
-  // Edit State
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState({ username: '', rank: 'GENIN', role: 'user', isBanned: false });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Social Data State
   const [followersList, setFollowersList] = useState([]);
   const [followingList, setFollowingList] = useState([]);
   const [loadingSocials, setLoadingSocials] = useState(false);
   const [socialTab, setSocialTab] = useState('followers'); 
 
-  // --- 1. REAL-TIME USERS FETCH ---
   useEffect(() => {
-    // Fetch my role (One time)
     const fetchMyRole = async () => {
         if (auth.currentUser) {
             try {
@@ -93,11 +68,9 @@ export default function Users() {
     };
     fetchMyRole();
 
-    // ✅ LISTEN TO USERS IN REAL-TIME
     const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
         const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        // Sort by Last Active (Desc)
         usersData.sort((a, b) => {
             const timeA = a.lastActiveAt?.toDate ? a.lastActiveAt.toDate() : new Date(0);
             const timeB = b.lastActiveAt?.toDate ? b.lastActiveAt.toDate() : new Date(0);
@@ -111,12 +84,9 @@ export default function Users() {
         setLoading(false);
     });
 
-    // Cleanup listener on unmount
     return () => unsubscribe();
   }, []);
 
-
-  // --- CREATE USER LOGIC ---
   const handleCreateUser = async (e) => {
       e.preventDefault();
       if(!newUser.email || !newUser.password || !newUser.username) return alert("Please fill all fields");
@@ -141,7 +111,7 @@ export default function Users() {
               role: newUser.role, 
               rank: 'GENIN',
               createdAt: serverTimestamp(),
-              lastActiveAt: serverTimestamp(), // Default to now
+              lastActiveAt: serverTimestamp(),
               isBanned: false,
               searchKeywords: [newUser.username.toLowerCase(), newUser.email.toLowerCase()]
           });
@@ -151,7 +121,6 @@ export default function Users() {
           alert(`Success! Created ${newUser.role} account for "${newUser.username}".`);
           setShowCreateModal(false);
           setNewUser({ email: '', password: '', username: '', role: 'user' });
-          // No need to fetchUsers() manually, the listener handles it!
 
       } catch (error) {
           alert("Error creating user: " + error.message);
@@ -159,8 +128,6 @@ export default function Users() {
           setCreating(false);
       }
   };
-
-  // --- ACTIONS ---
   
   const handleViewUser = async (user) => {
       setSelectedUser(user);
@@ -181,16 +148,14 @@ export default function Users() {
               const idsToFetch = user.followers.slice(0, 50);
               const promises = idsToFetch.map(uid => getDoc(doc(db, "users", uid)));
               const snaps = await Promise.all(promises);
-              const resolvedFollowers = snaps.map(s => s.exists() ? { id: s.id, ...s.data() } : { id: s.id, username: 'Unknown User' });
-              setFollowersList(resolvedFollowers);
+              setFollowersList(snaps.map(s => s.exists() ? { id: s.id, ...s.data() } : { id: s.id, username: 'Unknown User' }));
           }
 
           if (user.following && user.following.length > 0) {
               const idsToFetch = user.following.slice(0, 50);
               const promises = idsToFetch.map(uid => getDoc(doc(db, "users", uid)));
               const snaps = await Promise.all(promises);
-              const resolvedFollowing = snaps.map(s => s.exists() ? { id: s.id, ...s.data() } : { id: s.id, username: 'Unknown User' });
-              setFollowingList(resolvedFollowing);
+              setFollowingList(snaps.map(s => s.exists() ? { id: s.id, ...s.data() } : { id: s.id, username: 'Unknown User' }));
           }
 
       } catch (e) {
@@ -259,7 +224,6 @@ export default function Users() {
           await updateDoc(userRef, updates);
 
           const updatedUser = { ...selectedUser, ...updates };
-          // setUsers update handled by real-time listener
           setSelectedUser(updatedUser);
           
           alert("User profile updated successfully!");
@@ -323,22 +287,255 @@ export default function Users() {
     alert("UID Copied!");
   };
 
-  // --- RENDER: USER DETAILS VIEW ---
-  if (view === 'details' && selectedUser) {
-      return (
-        <div className="container">
-            <button onClick={() => setView('list')} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'none', cursor: 'pointer', color: '#6b7280', fontWeight: 600, marginBottom: 20 }}>
+  const filteredUsers = users.filter(user => 
+    user.username?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <>
+    <style>{`
+        .users-page { padding: 24px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .header-title { font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; gap: 8px; margin: 0; }
+        .controls-container { display: flex; gap: 10px; }
+        .search-box { position: relative; }
+        .search-icon { position: absolute; left: 12px; top: 10px; color: #9ca3af; }
+        .search-input { padding: 8px 8px 8px 36px; border: 1px solid #e5e7eb; border-radius: 8px; width: 250px; outline: none; }
+        .search-input:focus { border-color: #2563eb; ring: 2px solid #2563eb; }
+        .btn-create { background-color: #2563eb; color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold; display: flex; align-items: center; gap: 8px; border: none; cursor: pointer; transition: background-color 0.2s; }
+        .btn-create:hover { background-color: #1d4ed8; }
+
+        /* Modal */
+        .modal-overlay { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
+        .modal-content { background-color: white; padding: 30px; border-radius: 16px; width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-title { margin: 0; font-size: 1.2rem; font-weight: 800; }
+        .form-group { margin-bottom: 15px; }
+        .form-label { display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 5px; }
+        .form-input { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; }
+        .btn-submit { width: 100%; padding: 10px; background-color: #2563eb; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .btn-submit:disabled { opacity: 0.7; cursor: not-allowed; }
+
+        /* Table */
+        .table-container { background-color: white; border-radius: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; overflow-x: auto; }
+        .users-table { width: 100%; text-align: left; border-collapse: collapse; white-space: nowrap; }
+        .users-table th { padding: 16px; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb; font-weight: 600; color: #4b5563; }
+        .users-table td { padding: 16px; border-bottom: 1px solid #f3f4f6; }
+        .users-table tr:hover { background-color: #f9fafb; transition: background-color 0.2s; }
+        
+        .user-profile-cell { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+        .avatar-circle { width: 40px; height: 40px; border-radius: 50%; background-color: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; font-weight: bold; color: #2563eb; overflow: hidden; flex-shrink: 0; }
+        .avatar-img { width: 100%; height: 100%; object-fit: cover; }
+        .user-name { font-weight: 600; color: #1f2937; font-size: 0.875rem; margin: 0; }
+        .user-name:hover { color: #2563eb; }
+        .user-email { font-size: 0.75rem; color: #6b7280; margin: 0; }
+        
+        .uid-badge { font-family: monospace; font-size: 0.75rem; color: #6b7280; background-color: #f3f4f6; padding: 2px 8px; border-radius: 4px; border: 1px solid #e5e7eb; cursor: pointer; }
+        .role-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+        .role-super-admin { background-color: #f3e8ff; color: #7e22ce; }
+        .role-admin { background-color: #dbeafe; color: #1d4ed8; }
+        .role-producer { background-color: #ffedd5; color: #c2410c; }
+        .role-user { background-color: #f3f4f6; color: #374151; }
+        
+        .status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+        .status-banned { background-color: #fee2e2; color: #991b1b; }
+        .status-active { background-color: #dcfce7; color: #166534; }
+        
+        .btn-details { padding: 8px; color: #2563eb; background: none; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.875rem; display: flex; align-items: center; gap: 4px; }
+        .btn-details:hover { background-color: #eff6ff; }
+
+        /* Details View */
+        .details-container { max-width: 1200px; margin: 0 auto; }
+        .btn-back { display: flex; align-items: center; gap: 5px; border: none; background: none; cursor: pointer; color: #6b7280; font-weight: 600; margin-bottom: 20px; }
+        .details-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+        .details-header { padding: 30px; background-color: #eff6ff; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #bfdbfe; }
+        .header-avatar { width: 80px; height: 80px; border-radius: 50%; background-color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; color: #2563eb; border: 2px solid #bfdbfe; overflow: hidden; }
+        .header-info { flex: 1; }
+        .header-username { margin: 0; font-size: 1.8rem; font-weight: 800; color: #1e3a8a; }
+        .header-meta { display: flex; align-items: center; gap: 15px; margin-top: 5px; color: #6b7280; font-size: 0.9rem; }
+        .btn-delete { background-color: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 8px; transition: all 0.2s; }
+        
+        .details-body { padding: 30px; }
+        .grid-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        .section-title { font-size: 1.2rem; font-weight: 800; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; color: #374151; }
+        .status-toggle { display: flex; gap: 10px; }
+        .toggle-btn { flex: 1; text-align: center; padding: 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .toggle-btn.active-selected { background-color: #10b981; color: white; border-color: #10b981; }
+        .toggle-btn.ban-selected { background-color: #ef4444; color: white; border-color: #ef4444; }
+        
+        .stats-box { background-color: #f9fafb; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; }
+        .stat-row { display: flex; justify-content: space-between; }
+        .stat-label { font-size: 0.75rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; }
+        .stat-value { font-weight: 600; color: #374151; }
+        
+        .socials-card { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; }
+        .socials-tabs { display: flex; border-bottom: 1px solid #e5e7eb; }
+        .tab-btn { flex: 1; padding: 15px; background: #f9fafb; border: none; font-weight: 700; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tab-btn.active { background: white; color: #2563eb; border-bottom-color: #2563eb; }
+        .socials-list { padding: 0; max-height: 300px; overflow-y: auto; }
+        .social-item { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid #f3f4f6; }
+        .mini-avatar { width: 30px; height: 30px; border-radius: 50%; background-color: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; color: #2563eb; overflow: hidden; flex-shrink: 0; }
+        .social-username { font-size: 0.9rem; font-weight: 600; color: #374151; }
+        .social-rank { font-size: 0.7rem; color: #9ca3af; }
+    `}</style>
+
+    <div className="users-page">
+      {/* HEADER */}
+      {view === 'list' && (
+        <div className="page-header">
+            <h1 className="header-title">
+                <Shield size={28} style={{ color: '#2563eb' }} /> 
+                User Management
+            </h1>
+            <div className="controls-container">
+                <div className="search-box">
+                    <Search className="search-icon" size={18} />
+                    <input 
+                        type="text" 
+                        placeholder="Search users..." 
+                        className="search-input"
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button 
+                    onClick={() => setShowCreateModal(true)} 
+                    className="btn-create"
+                >
+                    <Plus size={20}/> Create Staff
+                </button>
+            </div>
+        </div>
+      )}
+
+      {/* CREATE MODAL */}
+      {showCreateModal && (
+          <div className="modal-overlay">
+              <div className="modal-content">
+                  <div className="modal-header">
+                      <h2 className="modal-title">Create New Account</h2>
+                      <button onClick={() => setShowCreateModal(false)} style={{background:'none', border:'none', cursor:'pointer'}}><X/></button>
+                  </div>
+                  <form onSubmit={handleCreateUser}>
+                      <div className="form-group">
+                          <span className="form-label">Email</span>
+                          <input type="email" required className="form-input" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
+                      </div>
+                      <div className="form-group">
+                          <span className="form-label">Password</span>
+                          <input type="password" required className="form-input" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
+                      </div>
+                      <div className="form-group">
+                          <span className="form-label">Username</span>
+                          <input type="text" required className="form-input" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
+                      </div>
+                      <div className="form-group">
+                          <span className="form-label">Account Role</span>
+                          <select className="form-input" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                              <option value="user">Regular User</option>
+                              <option value="anime_producer">Anime Producer (Upload Only)</option>
+                              <option value="manga_producer">Manga Producer (Upload Only)</option>
+                              {myRole === 'super_admin' && <option value="admin">Admin (Moderator)</option>}
+                          </select>
+                      </div>
+                      <button type="submit" disabled={creating} className="btn-submit">
+                          {creating ? <Loader2 className="animate-spin" style={{margin: '0 auto'}}/> : "Create Account"}
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
+
+      {/* TABLE VIEW */}
+      {view === 'list' && (
+      <div className="table-container">
+        <table className="users-table">
+          <thead>
+            <tr>
+              <th>User Profile</th>
+              <th>UID</th>
+              <th>Role</th>
+              <th>Last Active</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#6b7280' }}>Loading users...</td></tr>
+            ) : filteredUsers.length === 0 ? (
+               <tr><td colSpan="6" style={{ padding: '30px', textAlign: 'center', color: '#6b7280' }}>No users found.</td></tr>
+            ) : (
+              filteredUsers.map(user => (
+                <tr key={user.id}>
+                  <td>
+                    <div className="user-profile-cell" onClick={() => handleViewUser(user)}>
+                      <div className="avatar-circle">
+                        {user.avatar ? <img src={user.avatar} className="avatar-img"/> : (user.username ? user.username[0].toUpperCase() : "U")}
+                      </div>
+                      <div>
+                        <p className="user-name">{user.username || "Unknown"}</p>
+                        <p className="user-email">{user.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="uid-badge" onClick={() => copyToClipboard(user.id)} title="Copy">
+                        {user.id.substring(0, 8)}...
+                    </span>
+                  </td>
+                  <td>
+                      <span className={`role-badge ${
+                          user.role === 'super_admin' ? 'role-super-admin' :
+                          user.role === 'admin' ? 'role-admin' :
+                          user.role?.includes('producer') ? 'role-producer' :
+                          'role-user'
+                      }`}>
+                          {user.role === 'super_admin' && <ShieldAlert size={12} style={{marginRight:4, display:'inline'}}/>}
+                          {user.role || 'user'}
+                      </span>
+                  </td>
+                  
+                  <td style={{ fontSize: '0.875rem', fontWeight: 500, color: '#4b5563' }}>
+                      {formatLastActive(user.lastActiveAt)}
+                  </td>
+                  
+                  <td>
+                    {user.isBanned ? (
+                      <span className="status-badge status-banned">Banned</span>
+                    ) : (
+                      <span className="status-badge status-active">Active</span>
+                    )}
+                  </td>
+                  <td>
+                    <button onClick={() => handleViewUser(user)} className="btn-details">
+                      <UsersIcon size={16}/> Details
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      )}
+
+      {/* DETAILS VIEW */}
+      {view === 'details' && selectedUser && (
+        <div className="details-container">
+            <button onClick={() => setView('list')} className="btn-back">
                 <ArrowLeft size={18} /> Back to Users
             </button>
 
-            <div className="card">
-                <div className="card-header blue" style={{ display:'flex', alignItems:'center', gap: 20, padding: 30 }}>
-                    <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'2rem', fontWeight:'bold', color:'#2563eb', border:'2px solid #bfdbfe', overflow:'hidden', flexShrink: 0 }}>
-                        {selectedUser.avatar ? <img src={selectedUser.avatar} alt="" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : (selectedUser.username ? selectedUser.username[0].toUpperCase() : <User size={40} />)}
+            <div className="details-card">
+                <div className="details-header">
+                    <div className="header-avatar">
+                        {selectedUser.avatar ? <img src={selectedUser.avatar} className="avatar-img" /> : (selectedUser.username ? selectedUser.username[0].toUpperCase() : <User size={40} />)}
                     </div>
-                    <div style={{flex: 1}}>
-                        <h1 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 800 }}>{selectedUser.username}</h1>
-                        <div style={{ display:'flex', alignItems:'center', gap: 10, marginTop: 5, color: '#6b7280', fontSize:'0.9rem' }}>
+                    <div className="header-info">
+                        <h1 className="header-username">{selectedUser.username}</h1>
+                        <div className="header-meta">
                             <span style={{ display:'flex', alignItems:'center', gap: 5 }}><Mail size={14}/> {selectedUser.email}</span>
                             <span style={{ display:'flex', alignItems:'center', gap: 5, cursor:'pointer' }} onClick={() => copyToClipboard(selectedUser.id)} title="Copy UID"><Copy size={14}/> {selectedUser.id}</span>
                         </div>
@@ -348,7 +545,7 @@ export default function Users() {
                         <button 
                             onClick={handleDeleteUser}
                             disabled={deleting}
-                            style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', padding: '10px 15px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
+                            className="btn-delete"
                         >
                             {deleting ? <Loader2 className="animate-spin" size={20}/> : <Trash2 size={20} />}
                             {deleting ? "Deleting..." : "Delete User"}
@@ -356,22 +553,23 @@ export default function Users() {
                     )}
                 </div>
 
-                <div className="card-body">
+                <div className="details-body">
                     <form onSubmit={handleSaveChanges}>
-                        <div className="grid-2">
+                        <div className="grid-layout">
+                            {/* Left Column: Form */}
                             <div>
-                                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: 20, display:'flex', alignItems:'center', gap:10 }}>
+                                <h3 className="section-title">
                                     <Shield size={20} className="text-blue-600"/> Edit Profile
                                 </h3>
                                 
                                 <div className="form-group">
                                     <span className="form-label">Username</span>
-                                    <input type="text" className="input-field" value={editForm.username} onChange={(e) => setEditForm({...editForm, username: e.target.value})} />
+                                    <input type="text" className="form-input" value={editForm.username} onChange={(e) => setEditForm({...editForm, username: e.target.value})} />
                                 </div>
 
                                 <div className="form-group">
                                     <span className="form-label">Rank</span>
-                                    <select className="input-field" value={editForm.rank} onChange={(e) => setEditForm({...editForm, rank: e.target.value})}>
+                                    <select className="form-input" value={editForm.rank} onChange={(e) => setEditForm({...editForm, rank: e.target.value})}>
                                         {["GENIN", "CHUNIN", "JONIN", "ANBU", "KAGE"].map(r => <option key={r} value={r}>{r}</option>)}
                                     </select>
                                 </div>
@@ -379,7 +577,7 @@ export default function Users() {
                                 <div className="form-group">
                                     <span className="form-label">Role</span>
                                     <select 
-                                        className="input-field" 
+                                        className="form-input" 
                                         value={editForm.role} 
                                         onChange={(e) => setEditForm({...editForm, role: e.target.value})}
                                         disabled={selectedUser.role === 'super_admin' && myRole !== 'super_admin'}
@@ -394,9 +592,9 @@ export default function Users() {
 
                                 <div className="form-group">
                                     <span className="form-label">Account Status</span>
-                                    <div style={{ display:'flex', gap: 10 }}>
-                                        <button type="button" onClick={() => setEditForm({...editForm, isBanned: false})} className={`chip ${!editForm.isBanned ? 'selected' : ''}`} style={{ flex: 1, textAlign: 'center', justifyContent:'center', background: !editForm.isBanned ? '#10b981' : 'white', borderColor: !editForm.isBanned ? '#10b981' : '#e5e7eb' }}>
-                                            <CheckCircle size={16} style={{marginRight:5}}/> Active
+                                    <div className="status-toggle">
+                                        <button type="button" onClick={() => setEditForm({...editForm, isBanned: false})} className={`toggle-btn ${!editForm.isBanned ? 'active-selected' : ''}`}>
+                                            <CheckCircle size={16}/> Active
                                         </button>
                                         
                                         <button 
@@ -405,10 +603,10 @@ export default function Users() {
                                                 if (selectedUser.role === 'super_admin') return alert("You cannot ban the Owner.");
                                                 setEditForm({...editForm, isBanned: true});
                                             }} 
-                                            className={`chip ${editForm.isBanned ? 'selected' : ''}`} 
-                                            style={{ flex: 1, textAlign: 'center', justifyContent:'center', background: editForm.isBanned ? '#ef4444' : 'white', borderColor: editForm.isBanned ? '#ef4444' : '#e5e7eb', opacity: selectedUser.role === 'super_admin' ? 0.5 : 1 }}
+                                            className={`toggle-btn ${editForm.isBanned ? 'ban-selected' : ''}`} 
+                                            style={{ opacity: selectedUser.role === 'super_admin' ? 0.5 : 1 }}
                                         >
-                                            <Ban size={16} style={{marginRight:5}}/> Ban User
+                                            <Ban size={16}/> Ban User
                                         </button>
                                     </div>
 
@@ -422,40 +620,56 @@ export default function Users() {
                                         </div>
                                     )}
                                 </div>
-                                <button type="submit" className="btn-publish" disabled={saving} style={{ width: '100%', padding: '15px', marginTop: 20 }}>
-                                    {saving ? "Saving..." : <><Save size={20}/> Save Changes</>}
+                                <button type="submit" className="btn-submit" disabled={saving}>
+                                    {saving ? "Saving..." : <span style={{display:'flex', alignItems:'center', justifyContent:'center', gap:5}}><Save size={20}/> Save Changes</span>}
                                 </button>
                             </div>
 
                             {/* Right Column: Stats & Socials */}
                             <div>
-                                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: 20, display:'flex', alignItems:'center', gap:10 }}>
-                                    <Clock size={20} className="text-gray-500"/> Activity & Socials
+                                <h3 className="section-title">
+                                    <Clock size={20} style={{color: '#6b7280'}}/> Activity & Socials
                                 </h3>
                                 
-                                <div style={{ background:'#f9fafb', padding: 20, borderRadius: 12, border: '1px solid #e5e7eb', display:'flex', flexDirection:'column', gap: 15, marginBottom: 20 }}>
-                                    <div style={{ display:'flex', justifyContent:'space-between' }}>
-                                        <div>
-                                            <div style={{fontSize:'0.7rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Joined</div>
-                                            <div style={{fontWeight:600}}>{formatDate(selectedUser.createdAt)}</div>
-                                        </div>
-                                        <div>
-                                            <div style={{fontSize:'0.7rem', fontWeight:700, color:'#9ca3af', textTransform:'uppercase'}}>Last Active</div>
-                                            <div style={{fontWeight:600}}>{formatLastActive(selectedUser.lastActiveAt)}</div>
-                                        </div>
+                                <div className="stats-box">
+                                    <div className="stat-row">
+                                        <div className="stat-label">Joined</div>
+                                        <div className="stat-value">{formatDate(selectedUser.createdAt)}</div>
+                                    </div>
+                                    <div className="stat-row">
+                                        <div className="stat-label">Last Active</div>
+                                        <div className="stat-value">{formatLastActive(selectedUser.lastActiveAt)}</div>
                                     </div>
                                 </div>
 
-                                <div className="card" style={{ border: '1px solid #e5e7eb', boxShadow: 'none' }}>
-                                    <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb' }}>
-                                        <button type="button" onClick={() => setSocialTab('followers')} style={{ flex: 1, padding: 15, background: socialTab === 'followers' ? 'white' : '#f9fafb', borderBottom: socialTab === 'followers' ? '2px solid #2563eb' : 'none', fontWeight: 700, color: socialTab === 'followers' ? '#2563eb' : '#6b7280', cursor:'pointer' }}>Followers ({selectedUser.followers?.length || 0})</button>
-                                        <button type="button" onClick={() => setSocialTab('following')} style={{ flex: 1, padding: 15, background: socialTab === 'following' ? 'white' : '#f9fafb', borderBottom: socialTab === 'following' ? '2px solid #2563eb' : 'none', fontWeight: 700, color: socialTab === 'following' ? '#2563eb' : '#6b7280', cursor:'pointer' }}>Following ({selectedUser.following?.length || 0})</button>
+                                <div className="socials-card">
+                                    <div className="socials-tabs">
+                                        <button type="button" onClick={() => setSocialTab('followers')} className={`tab-btn ${socialTab === 'followers' ? 'active' : ''}`}>Followers ({selectedUser.followers?.length || 0})</button>
+                                        <button type="button" onClick={() => setSocialTab('following')} className={`tab-btn ${socialTab === 'following' ? 'active' : ''}`}>Following ({selectedUser.following?.length || 0})</button>
                                     </div>
-                                    <div style={{ padding: 0, maxHeight: 300, overflowY: 'auto' }}>
+                                    <div className="socials-list">
                                         {loadingSocials ? <div style={{ padding: 30, display:'flex', justifyContent:'center', alignItems:'center', color:'#6b7280', gap:10 }}><Loader2 className="animate-spin"/> Loading profiles...</div> : (
                                             <>
-                                                {socialTab === 'followers' && (followersList.length === 0 ? <div style={{padding:20, textAlign:'center', color:'#9ca3af', fontStyle:'italic'}}>No followers found.</div> : followersList.map(u => (<div key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 15px', borderBottom:'1px solid #f3f4f6' }}><div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.8rem', fontWeight:'bold', color:'#2563eb', overflow:'hidden', flexShrink: 0 }}>{u.avatar ? <img src={u.avatar} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : u.username?.[0].toUpperCase()}</div><div style={{flex:1}}><div style={{fontSize:'0.9rem', fontWeight:600}}>{u.username}</div><div style={{fontSize:'0.7rem', color:'#9ca3af'}}>{u.rank || 'GENIN'}</div></div><button onClick={() => handleViewUser(u)} style={{background:'none', border:'none', cursor:'pointer', color:'#2563eb'}}><ExternalLink size={14}/></button></div>)))}
-                                                {socialTab === 'following' && (followingList.length === 0 ? <div style={{padding:20, textAlign:'center', color:'#9ca3af', fontStyle:'italic'}}>Not following anyone.</div> : followingList.map(u => (<div key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 15px', borderBottom:'1px solid #f3f4f6' }}><div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.8rem', fontWeight:'bold', color:'#2563eb', overflow:'hidden', flexShrink: 0 }}>{u.avatar ? <img src={u.avatar} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : u.username?.[0].toUpperCase()}</div><div style={{flex:1}}><div style={{fontSize:'0.9rem', fontWeight:600}}>{u.username}</div><div style={{fontSize:'0.7rem', color:'#9ca3af'}}>{u.rank || 'GENIN'}</div></div><button onClick={() => handleViewUser(u)} style={{background:'none', border:'none', cursor:'pointer', color:'#2563eb'}}><ExternalLink size={14}/></button></div>)))}
+                                                {socialTab === 'followers' && (followersList.length === 0 ? <div style={{padding:20, textAlign:'center', color:'#9ca3af', fontStyle:'italic'}}>No followers found.</div> : followersList.map(u => (
+                                                    <div key={u.id} className="social-item">
+                                                        <div className="mini-avatar">{u.avatar ? <img src={u.avatar} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : u.username?.[0].toUpperCase()}</div>
+                                                        <div style={{flex:1}}>
+                                                            <div className="social-username">{u.username}</div>
+                                                            <div className="social-rank">{u.rank || 'GENIN'}</div>
+                                                        </div>
+                                                        <button onClick={() => handleViewUser(u)} style={{background:'none', border:'none', cursor:'pointer', color:'#2563eb'}}><ExternalLink size={14}/></button>
+                                                    </div>
+                                                )))}
+                                                {socialTab === 'following' && (followingList.length === 0 ? <div style={{padding:20, textAlign:'center', color:'#9ca3af', fontStyle:'italic'}}>Not following anyone.</div> : followingList.map(u => (
+                                                    <div key={u.id} className="social-item">
+                                                        <div className="mini-avatar">{u.avatar ? <img src={u.avatar} style={{width:'100%', height:'100%', objectFit:'cover'}}/> : u.username?.[0].toUpperCase()}</div>
+                                                        <div style={{flex:1}}>
+                                                            <div className="social-username">{u.username}</div>
+                                                            <div className="social-rank">{u.rank || 'GENIN'}</div>
+                                                        </div>
+                                                        <button onClick={() => handleViewUser(u)} style={{background:'none', border:'none', cursor:'pointer', color:'#2563eb'}}><ExternalLink size={14}/></button>
+                                                    </div>
+                                                )))}
                                             </>
                                         )}
                                     </div>
@@ -466,150 +680,8 @@ export default function Users() {
                 </div>
             </div>
         </div>
-      );
-  }
-
-  // --- RENDER: LIST VIEW ---
-  const filteredUsers = users.filter(user => 
-    user.username?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Shield size={28} className="text-blue-600" /> 
-          User Management
-        </h1>
-        <div style={{display:'flex', gap:10}}>
-            <div className="relative">
-                <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-                <input 
-                    type="text" 
-                    placeholder="Search users..." 
-                    className="pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
-            </div>
-            <button 
-                onClick={() => setShowCreateModal(true)} 
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
-            >
-                <Plus size={20}/> Create Staff
-            </button>
-        </div>
-      </div>
-
-      {showCreateModal && (
-          <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50}}>
-              <div style={{background:'white', padding:30, borderRadius:16, width:400, boxShadow:'0 20px 50px rgba(0,0,0,0.2)'}}>
-                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
-                      <h2 style={{margin:0, fontSize:'1.2rem', fontWeight:800}}>Create New Account</h2>
-                      <button onClick={() => setShowCreateModal(false)} style={{background:'none', border:'none', cursor:'pointer'}}><X/></button>
-                  </div>
-                  <form onSubmit={handleCreateUser}>
-                      <div className="form-group">
-                          <span className="form-label">Email</span>
-                          <input type="email" required className="input-field" value={newUser.email} onChange={e => setNewUser({...newUser, email: e.target.value})} />
-                      </div>
-                      <div className="form-group">
-                          <span className="form-label">Password</span>
-                          <input type="password" required className="input-field" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} />
-                      </div>
-                      <div className="form-group">
-                          <span className="form-label">Username</span>
-                          <input type="text" required className="input-field" value={newUser.username} onChange={e => setNewUser({...newUser, username: e.target.value})} />
-                      </div>
-                      <div className="form-group">
-                          <span className="form-label">Account Role</span>
-                          <select className="input-field" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
-                              <option value="user">Regular User</option>
-                              <option value="anime_producer">Anime Producer (Upload Only)</option>
-                              <option value="manga_producer">Manga Producer (Upload Only)</option>
-                              {myRole === 'super_admin' && <option value="admin">Admin (Moderator)</option>}
-                          </select>
-                      </div>
-                      <button type="submit" disabled={creating} className="btn-publish" style={{width:'100%', marginTop:10}}>
-                          {creating ? <Loader2 className="animate-spin"/> : "Create Account"}
-                      </button>
-                  </form>
-              </div>
-          </div>
       )}
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-        <table className="w-full text-left whitespace-nowrap">
-          <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>
-              <th className="p-4 font-semibold text-gray-600">User Profile</th>
-              <th className="p-4 font-semibold text-gray-600">UID</th>
-              <th className="p-4 font-semibold text-gray-600">Role</th>
-              <th className="p-4 font-semibold text-gray-600">Last Active</th> {/* ✅ NEW COLUMN */}
-              <th className="p-4 font-semibold text-gray-600">Status</th>
-              <th className="p-4 font-semibold text-gray-600">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan="6" className="p-8 text-center text-gray-500">Loading users...</td></tr>
-            ) : filteredUsers.length === 0 ? (
-               <tr><td colSpan="6" className="p-8 text-center text-gray-500">No users found.</td></tr>
-            ) : (
-              filteredUsers.map(user => (
-                <tr key={user.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="p-4">
-                    <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleViewUser(user)}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.875rem', fontWeight: 'bold', color: '#2563eb', overflow: 'hidden', flexShrink: 0 }}>
-                        {user.avatar ? <img src={user.avatar} className="w-full h-full object-cover"/> : (user.username ? user.username[0].toUpperCase() : "U")}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-800 text-sm hover:text-blue-600 transition-colors">{user.username || "Unknown"}</p>
-                        <p className="text-xs text-gray-500">{user.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded border border-gray-200 cursor-pointer" onClick={() => copyToClipboard(user.id)} title="Copy">
-                        {user.id.substring(0, 8)}...
-                    </span>
-                  </td>
-                  <td className="p-4">
-                      <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          user.role === 'super_admin' ? 'bg-purple-100 text-purple-700' :
-                          user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
-                          user.role?.includes('producer') ? 'bg-orange-100 text-orange-700' :
-                          'bg-gray-100 text-gray-700'
-                      }`}>
-                          {user.role === 'super_admin' && <ShieldAlert size={12} style={{marginRight:4, display:'inline'}}/>}
-                          {user.role || 'user'}
-                      </span>
-                  </td>
-                  
-                  {/* ✅ SMART LAST ACTIVE COLUMN */}
-                  <td className="p-4 text-sm font-medium text-gray-600">
-                      {formatLastActive(user.lastActiveAt)}
-                  </td>
-                  
-                  <td className="p-4">
-                    {user.isBanned ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Banned</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
-                    )}
-                  </td>
-                  <td className="p-4">
-                    <button onClick={() => handleViewUser(user)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm font-semibold flex items-center gap-1">
-                      <UsersIcon size={16}/> Details
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
     </div>
+    </>
   );
 }

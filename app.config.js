@@ -61,7 +61,7 @@ export default {
       },
       eas: {
         // ✅ ADDED: Required for "eas build" to work
-        projectId: "6b64dac3-7900-41fd-9178-5903526532a4"
+        projectId: "e54c07a1-62a1-4074-a2ad-1e7400d97cf5"
       }
     }
   }

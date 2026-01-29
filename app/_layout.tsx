@@ -7,6 +7,7 @@ import { AdConfig } from '../config/adConfig';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
 // ✅ IMPORT HEARTBEAT HOOK
+import GlobalGatekeeper from '../components/GlobalGatekeeper';
 import { useUserHeartbeat } from '../hooks/useUserHeartbeat';
 
 const appOpenAd = AppOpenAd.createForAdRequest(AdConfig.appOpen, {
@@ -72,6 +73,7 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider>
+      <GlobalGatekeeper />
       <Stack>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
