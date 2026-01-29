@@ -8,6 +8,16 @@ export default {
     scheme: "aniyu",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    
+    // ✅ ADDED: OTA Updates Configuration
+    updates: {
+      url: "https://u.expo.dev/e54c07a1-62a1-4074-a2ad-1e7400d97cf5" // Matches your EAS Project ID
+    },
+    // ✅ ADDED: Ensures updates only run if native code is compatible
+    runtimeVersion: {
+      policy: "appVersion"
+    },
+
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.aniyu.app"
@@ -42,7 +52,6 @@ export default {
       ],
       "expo-video",
       "expo-font",
-      // ✅ FIXED: Keys changed from 'android_app_id' to 'androidAppId'
       [
         "react-native-google-mobile-ads",
         {
@@ -60,7 +69,6 @@ export default {
         origin: false
       },
       eas: {
-        // ✅ ADDED: Required for "eas build" to work
         projectId: "e54c07a1-62a1-4074-a2ad-1e7400d97cf5"
       }
     }
