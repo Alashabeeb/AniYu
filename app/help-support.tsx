@@ -2,12 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import React from 'react';
 import {
-    Alert,
-    Linking,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  Linking,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
@@ -50,7 +50,7 @@ export default function HelpSupportScreen() {
         {/* WhatsApp */}
         <TouchableOpacity 
             style={[styles.optionCard, { backgroundColor: theme.card }]}
-            onPress={() => openLink('https://wa.me/08164020445')} // Replace with your number
+            onPress={() => openLink('https://wa.me/08111542402')} // Replace with your number
         >
             <View style={[styles.iconBox, { backgroundColor: '#25D366' }]}>
                 <Ionicons name="logo-whatsapp" size={28} color="white" />
@@ -65,7 +65,7 @@ export default function HelpSupportScreen() {
         {/* X (Twitter) */}
         <TouchableOpacity 
             style={[styles.optionCard, { backgroundColor: theme.card }]}
-            onPress={() => openLink('https://x.com/aniyuapp')} // Replace with your handle
+            onPress={() => openLink('https://x.com/AniYuApp')} // Replace with your handle
         >
             <View style={[styles.iconBox, { backgroundColor: 'black' }]}>
                 <Ionicons name="logo-twitter" size={28} color="white" />

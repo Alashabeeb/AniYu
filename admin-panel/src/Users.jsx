@@ -5,6 +5,7 @@ import {
     ArrowLeft, Ban, CheckCircle, Clock, Copy, ExternalLink, Loader2, Mail, Plus, Save, Search, Shield, ShieldAlert, Trash2, User, Users as UsersIcon, X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom'; // ✅ ADDED
 import { auth, db, firebaseConfig } from './firebase';
 
 // --- HELPER: SMART TIME FORMATTING ---
@@ -37,6 +38,7 @@ const formatDate = (timestamp) => {
 };
 
 export default function Users() {
+  const location = useLocation(); // ✅ ADDED
   const [view, setView] = useState('list'); 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +58,28 @@ export default function Users() {
   const [followingList, setFollowingList] = useState([]);
   const [loadingSocials, setLoadingSocials] = useState(false);
   const [socialTab, setSocialTab] = useState('followers'); 
+
+  // ✅ ADDED: Logic to open user from navigation
+  useEffect(() => {
+      const targetId = location.state?.targetUserId;
+      if (targetId) {
+          fetchAndOpenUser(targetId);
+          // Optional: Clear state to avoid reopening on refresh
+          window.history.replaceState({}, document.title);
+      }
+  }, [location]);
+
+  const fetchAndOpenUser = async (uid) => {
+      try {
+          const docRef = doc(db, "users", uid);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+              handleViewUser({ id: docSnap.id, ...docSnap.data() });
+          }
+      } catch (e) {
+          console.error("Error opening user:", e);
+      }
+  };
 
   useEffect(() => {
     const fetchMyRole = async () => {

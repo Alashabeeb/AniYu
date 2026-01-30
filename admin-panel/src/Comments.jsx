@@ -1,12 +1,14 @@
 import {
-    addDoc, collection, deleteDoc, doc, getDoc, getDocs,
-    limit, orderBy, query, serverTimestamp, updateDoc, where
+    collection, deleteDoc, doc, getDoc, getDocs,
+    limit, orderBy, query, serverTimestamp,
+    where, writeBatch // ✅ ADDED writeBatch
 } from 'firebase/firestore';
 import {
     Ban, ChevronDown, ChevronUp, Clock, FileText,
     Loader2, MessageSquare, Search, Trash2, User
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from './firebase';
 
 // --- HELPER: FORMAT DATES ---
@@ -17,10 +19,11 @@ const formatDate = (timestamp) => {
 };
 
 export default function Comments() {
+    const navigate = useNavigate();
     const [posts, setPosts] = useState([]);
-    const [commentsMap, setCommentsMap] = useState({}); // Stores comments for each post: { postId: [comment1, comment2] }
+    const [commentsMap, setCommentsMap] = useState({}); 
     const [loading, setLoading] = useState(true);
-    const [expandedPostId, setExpandedPostId] = useState(null); // Which post is expanded
+    const [expandedPostId, setExpandedPostId] = useState(null); 
     const [loadingComments, setLoadingComments] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [actionLoading, setActionLoading] = useState(null);
@@ -33,14 +36,10 @@ export default function Comments() {
     const fetchPosts = async () => {
         setLoading(true);
         try {
-            // Fetch latest 50 items
             const q = query(collection(db, "posts"), orderBy("createdAt", "desc"), limit(50));
             const snap = await getDocs(q);
-            
-            // Filter client-side to get only Main Posts (no parentId)
             const allItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             const mainPosts = allItems.filter(item => !item.parentId);
-            
             setPosts(mainPosts);
         } catch (error) {
             console.error("Error fetching posts:", error);
@@ -51,8 +50,7 @@ export default function Comments() {
 
     // 2. Fetch Comments for a specific Post
     const fetchCommentsForPost = async (postId) => {
-        if (commentsMap[postId]) return; // Already fetched
-        
+        if (commentsMap[postId]) return; 
         setLoadingComments(true);
         try {
             const q = query(
@@ -62,7 +60,6 @@ export default function Comments() {
             );
             const snap = await getDocs(q);
             const postComments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            
             setCommentsMap(prev => ({ ...prev, [postId]: postComments }));
         } catch (e) {
             console.error("Error fetching sub-comments:", e);
@@ -73,10 +70,16 @@ export default function Comments() {
 
     const togglePost = (postId) => {
         if (expandedPostId === postId) {
-            setExpandedPostId(null); // Collapse
+            setExpandedPostId(null); 
         } else {
-            setExpandedPostId(postId); // Expand
-            fetchCommentsForPost(postId); // Load comments
+            setExpandedPostId(postId); 
+            fetchCommentsForPost(postId); 
+        }
+    };
+
+    const handleViewProfile = (userId) => {
+        if (userId) {
+            navigate('/users', { state: { targetUserId: userId } });
         }
     };
 
@@ -89,11 +92,8 @@ export default function Comments() {
             await deleteDoc(doc(db, "posts", itemId));
             
             if (isMainPost) {
-                // If Post, remove from main list
                 setPosts(prev => prev.filter(p => p.id !== itemId));
-                // Optional: You could recursively delete comments here if needed
             } else {
-                // If Comment, remove from the specific post's comment list
                 setCommentsMap(prev => ({
                     ...prev,
                     [parentId]: prev[parentId].filter(c => c.id !== itemId)
@@ -106,38 +106,69 @@ export default function Comments() {
         }
     };
 
+    // ✅ UPDATED: Used Batch Write for safer banning
     const handleBanUser = async (item, isMainPost, parentId = null) => {
         if (!window.confirm(`Ban user @${item.username || 'unknown'}?`)) return;
         setActionLoading(item.id);
         
         try {
+            const batch = writeBatch(db); // 1. Start Batch
+            
             const userRef = doc(db, "users", item.userId);
             const userSnap = await getDoc(userRef);
 
             if (userSnap.exists()) {
                 const banExpires = new Date();
-                banExpires.setHours(banExpires.getHours() + 24); // 24 Hour Ban
+                banExpires.setHours(banExpires.getHours() + 24); 
                 
-                await updateDoc(userRef, {
+                // 2. Queue User Update (Ban)
+                batch.update(userRef, {
                     isBanned: true,
                     banExpiresAt: banExpires,
                     banCount: (userSnap.data().banCount || 0) + 1
                 });
 
-                await addDoc(collection(db, "users", item.userId, "notifications"), {
+                // 3. Queue Notification
+                const notifRef = doc(collection(db, "users", item.userId, "notifications"));
+                batch.set(notifRef, {
                     title: "Account Suspended ⛔",
                     body: `You have been banned for 24h due to offensive content.`,
                     read: false,
                     createdAt: serverTimestamp(),
                     type: 'system'
                 });
-                alert(`User @${item.username} has been banned.`);
-            } else {
-                alert(`User document not found. They may be deleted. Proceeding to delete content.`);
-            }
 
-            // Delete content after banning
-            await handleDelete(item.id, isMainPost, parentId);
+                // 4. Queue Content Deletion
+                const postRef = doc(db, "posts", item.id);
+                batch.delete(postRef);
+
+                // 5. Commit All Changes Together
+                await batch.commit();
+
+                alert(`User @${item.username} has been banned and content removed.`);
+
+                // Update UI Manually since we bypassed handleDelete
+                if (isMainPost) {
+                    setPosts(prev => prev.filter(p => p.id !== item.id));
+                } else {
+                    setCommentsMap(prev => ({
+                        ...prev,
+                        [parentId]: prev[parentId].filter(c => c.id !== item.id)
+                    }));
+                }
+
+            } else {
+                alert(`User document not found. Deleting content only.`);
+                await deleteDoc(doc(db, "posts", item.id));
+                 if (isMainPost) {
+                    setPosts(prev => prev.filter(p => p.id !== item.id));
+                } else {
+                    setCommentsMap(prev => ({
+                        ...prev,
+                        [parentId]: prev[parentId].filter(c => c.id !== item.id)
+                    }));
+                }
+            }
 
         } catch (e) {
             console.error(e);
@@ -168,12 +199,15 @@ export default function Comments() {
             .post-card:hover { box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
             
             .post-header { padding: 20px; display: flex; gap: 15px; }
-            .avatar { width: 45px; height: 45px; border-radius: 50%; background: #f3f4f6; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+            .avatar { width: 45px; height: 45px; border-radius: 50%; background: #f3f4f6; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; } 
+            .avatar:hover { opacity: 0.8; }
             .avatar img { width: 100%; height: 100%; object-fit: cover; }
             
             .post-content { flex: 1; }
             .meta-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-            .username { font-weight: 700; color: #111827; }
+            .username { font-weight: 700; color: #111827; cursor: pointer; } 
+            .username:hover { color: #2563eb; text-decoration: underline; }
+
             .time { font-size: 0.8rem; color: #9ca3af; display: flex; align-items: center; gap: 4px; }
             
             .text-content { color: #374151; line-height: 1.5; font-size: 0.95rem; white-space: pre-wrap; margin-bottom: 10px; }
@@ -196,12 +230,15 @@ export default function Comments() {
             
             .comment-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
             .comment-item:last-child { border-bottom: none; }
-            .comment-avatar { width: 30px; height: 30px; border-radius: 50%; background: #e2e8f0; overflow: hidden; flex-shrink: 0; }
+            .comment-avatar { width: 30px; height: 30px; border-radius: 50%; background: #e2e8f0; overflow: hidden; flex-shrink: 0; cursor: pointer; } 
+            .comment-avatar:hover { opacity: 0.8; }
             .comment-avatar img { width: 100%; height: 100%; object-fit: cover; }
             
             .comment-body { flex: 1; }
             .comment-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-            .comment-user { font-weight: 700; font-size: 0.85rem; color: #334155; }
+            .comment-user { font-weight: 700; font-size: 0.85rem; color: #334155; cursor: pointer; } 
+            .comment-user:hover { color: #2563eb; }
+            
             .comment-text { font-size: 0.9rem; color: #475569; line-height: 1.4; }
             .comment-actions { display: flex; gap: 5px; }
             .icon-btn { padding: 4px; border: none; background: none; cursor: pointer; color: #94a3b8; border-radius: 4px; }
@@ -243,12 +280,14 @@ export default function Comments() {
                         <div key={post.id} className="post-card">
                             {/* MAIN POST CONTENT */}
                             <div className="post-header">
-                                <div className="avatar">
+                                <div className="avatar" onClick={() => handleViewProfile(post.userId)} title="View Profile">
                                     {post.userAvatar ? <img src={post.userAvatar} /> : <User size={20} color="#9ca3af"/>}
                                 </div>
                                 <div className="post-content">
                                     <div className="meta-row">
-                                        <span className="username">{post.displayName || post.username || 'Anonymous'}</span>
+                                        <span className="username" onClick={() => handleViewProfile(post.userId)} title="View Profile">
+                                            {post.displayName || post.username || 'Anonymous'}
+                                        </span>
                                         <span className="time"><Clock size={12}/> {formatDate(post.createdAt)}</span>
                                     </div>
                                     <div className="text-content">
@@ -297,12 +336,14 @@ export default function Comments() {
                                     ) : (commentsMap[post.id] && commentsMap[post.id].length > 0) ? (
                                         commentsMap[post.id].map(comment => (
                                             <div key={comment.id} className="comment-item">
-                                                <div className="comment-avatar">
+                                                <div className="comment-avatar" onClick={() => handleViewProfile(comment.userId)} title="View Profile">
                                                     {comment.userAvatar ? <img src={comment.userAvatar} /> : <User size={16} color="#9ca3af"/>}
                                                 </div>
                                                 <div className="comment-body">
                                                     <div className="comment-meta">
-                                                        <span className="comment-user">@{comment.username}</span>
+                                                        <span className="comment-user" onClick={() => handleViewProfile(comment.userId)}>
+                                                            @{comment.username}
+                                                        </span>
                                                         <div className="comment-actions">
                                                             <button 
                                                                 className="icon-btn" 

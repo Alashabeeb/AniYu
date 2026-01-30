@@ -66,7 +66,7 @@ export default function GlobalGatekeeper() {
                     <Text style={styles.subtitle}>
                         We are currently improving AniYu to serve you better. Please check back shortly.
                     </Text>
-                    <TouchableOpacity style={styles.btn} onPress={() => Linking.openURL('https://x.com/aniyu_app')}>
+                    <TouchableOpacity style={styles.btn} onPress={() => Linking.openURL('https://x.com/AniYuApp')}>
                         <Text style={styles.btnText}>Check Updates on X</Text>
                     </TouchableOpacity>
                 </View>

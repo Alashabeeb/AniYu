@@ -1,6 +1,6 @@
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { Lock, Mail } from "lucide-react"; // Icons for a better look
+import { Lock, Mail, ShieldCheck } from "lucide-react"; // ✅ Added ShieldCheck for logo
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "./firebase";
@@ -62,33 +62,117 @@ export default function Login() {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center bg-gray-100">
-      <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl">
+    <>
+    {/* ✅ Internal CSS: Guarantees styling works without Tailwind */}
+    <style>{`
+      .login-wrapper {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #f3f4f6;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .login-card {
+        background: white;
+        width: 100%;
+        max-width: 400px;
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        border: 1px solid #e5e7eb;
+      }
+      .brand-section { text-align: center; margin-bottom: 30px; }
+      .brand-title { font-size: 1.8rem; font-weight: 900; color: #2563eb; margin: 0; letter-spacing: -1px; }
+      .brand-sub { color: #6b7280; font-size: 0.85rem; margin-top: 5px; font-weight: 500; }
+      
+      .error-alert {
+        background: #fef2f2;
+        color: #dc2626;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-align: center;
+        margin-bottom: 20px;
+        border: 1px solid #fecaca;
+      }
+
+      .input-group { margin-bottom: 20px; }
+      .label { display: block; font-size: 0.85rem; font-weight: 700; color: #374151; margin-bottom: 6px; }
+      .input-wrapper { position: relative; }
+      .input-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #9ca3af; }
+      
+      .form-input {
+        width: 100%;
+        padding: 12px 12px 12px 40px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 1rem;
+        outline: none;
+        transition: all 0.2s;
+        box-sizing: border-box;
+      }
+      .form-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+
+      .btn-submit {
+        width: 100%;
+        background-color: #2563eb;
+        color: white;
+        padding: 14px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-top: 10px;
+      }
+      .btn-submit:hover { background-color: #1d4ed8; }
+      .btn-submit:disabled { background-color: #93c5fd; cursor: not-allowed; }
+
+      .spinner {
+        width: 20px; height: 20px;
+        border: 2px solid #ffffff;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      .footer { margin-top: 25px; text-align: center; font-size: 0.75rem; color: #9ca3af; }
+    `}</style>
+
+    <div className="login-wrapper">
+      <div className="login-card">
         
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-black text-blue-600 tracking-tighter mb-2">AniYu Panel</h1>
-          <p className="text-gray-500 text-sm">Authorized Personnel Only</p>
+        <div className="brand-section">
+          <div style={{display:'flex', justifyContent:'center', marginBottom: 15}}>
+            <div style={{background: '#eff6ff', padding: 12, borderRadius: '50%', color: '#2563eb'}}>
+               <ShieldCheck size={32} />
+            </div>
+          </div>
+          <h1 className="brand-title">AniYu Panel</h1>
+          <p className="brand-sub">Authorized Personnel Only</p>
         </div>
 
         {/* Error Alert */}
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm font-bold rounded-lg border border-red-100 text-center">
-            {error}
-          </div>
-        )}
+        {error && <div className="error-alert">{error}</div>}
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        <form onSubmit={handleLogin}>
           
           {/* Email Input */}
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-3 text-gray-400" size={20} />
+          <div className="input-group">
+            <label className="label">Email Address</label>
+            <div className="input-wrapper">
+              <Mail className="input-icon" size={20} />
               <input
                 type="email"
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="form-input"
                 placeholder="email@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -97,14 +181,14 @@ export default function Login() {
           </div>
 
           {/* Password Input */}
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 text-gray-400" size={20} />
+          <div className="input-group">
+            <label className="label">Password</label>
+            <div className="input-wrapper">
+              <Lock className="input-icon" size={20} />
               <input
                 type="password"
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="form-input"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -113,23 +197,17 @@ export default function Login() {
           </div>
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-200"
-          >
-            {loading ? (
-              <span className="loader w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-            ) : (
-              "Sign In to Dashboard"
-            )}
+          <button type="submit" disabled={loading} className="btn-submit">
+            {loading ? <div className="spinner"></div> : "Sign In to Dashboard"}
           </button>
+
         </form>
 
-        <div className="mt-6 text-center text-xs text-gray-400">
+        <div className="footer">
           &copy; {new Date().getFullYear()} AniYu Admin System
         </div>
       </div>
     </div>
+    </>
   );
 }
