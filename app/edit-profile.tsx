@@ -1,23 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useRouter } from 'expo-router'; // ✅ Added Stack
+import { Stack, useRouter } from 'expo-router';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
 import { auth, db, storage } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 
@@ -33,6 +33,19 @@ export default function EditProfileScreen() {
   const [bio, setBio] = useState('');
   const [avatar, setAvatar] = useState('');
   const [banner, setBanner] = useState('');
+
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  // ✅ Helper function
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
 
   useEffect(() => {
     loadUserData();
@@ -81,7 +94,7 @@ export default function EditProfileScreen() {
           else setBanner(downloadUrl);
 
       } catch (error) {
-          Alert.alert("Upload Failed", "Could not upload image. Please try again.");
+          showAlert('error', 'Upload Failed', 'Could not upload image. Please try again.');
           console.error(error);
       } finally {
           setUploading(false);
@@ -93,8 +106,7 @@ export default function EditProfileScreen() {
     if (!user) return;
 
     if (!username.trim() || !displayName.trim()) {
-        Alert.alert("Error", "Username and Name are required.");
-        return;
+        return showAlert('warning', 'Missing Info', 'Username and Display Name are required.');
     }
 
     setLoading(true);
@@ -106,10 +118,10 @@ export default function EditProfileScreen() {
             avatar,
             banner
         });
-        Alert.alert("Success", "Profile updated!");
-        router.back();
+        // ✅ Success Alert
+        showAlert('success', 'Profile Updated', 'Your changes have been saved successfully.');
     } catch (error) {
-        Alert.alert("Error", "Could not update profile.");
+        showAlert('error', 'Update Failed', 'Could not update profile. Please check your connection.');
     } finally {
         setLoading(false);
     }
@@ -117,7 +129,6 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        {/* ✅ FIXED: Hide the default header so only the custom one shows */}
         <Stack.Screen options={{ headerShown: false }} />
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
@@ -189,6 +200,20 @@ export default function EditProfileScreen() {
 
             </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* ✅ Render Custom Alert */}
+        <CustomAlert 
+            visible={alertConfig.visible}
+            type={alertConfig.type}
+            title={alertConfig.title}
+            message={alertConfig.message}
+            onClose={() => {
+                setAlertConfig(prev => ({ ...prev, visible: false }));
+                if (alertConfig.type === 'success') {
+                    router.back(); // Go back only on success
+                }
+            }}
+        />
     </SafeAreaView>
   );
 }

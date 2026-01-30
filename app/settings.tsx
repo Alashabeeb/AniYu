@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants'; // ✅ IMPORTED CONSTANTS
+import Constants from 'expo-constants';
 import { Stack, useRouter } from 'expo-router';
 import { deleteUser } from 'firebase/auth';
 import React, { useEffect, useState } from 'react';
@@ -16,6 +16,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
 import { auth } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 import { clearHistory } from '../services/historyService';
@@ -35,8 +36,7 @@ const TRANSLATIONS: any = {
     },
 };
 
-// ✅ OPTIONS CONFIGURATION (Active vs Coming Soon)
-
+// ✅ OPTIONS CONFIGURATION
 const SUBSCRIPTION_OPTS = [
     { id: 'Free Plan', name: 'Free Plan', price: '$0.00', features: 'Ads • 480p', active: true },
     { id: 'Premium', name: 'Premium', price: '$4.99/mo', features: 'No Ads • 1080p', active: false },
@@ -86,7 +86,6 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [cellularEnabled, setCellularEnabled] = useState(true);
   
-  // ✅ SET DEFAULTS
   const [subscription, setSubscription] = useState('Free Plan');
   const [videoQuality, setVideoQuality] = useState('480p');
   const [appLanguage, setAppLanguage] = useState('English');
@@ -98,7 +97,19 @@ export default function SettingsScreen() {
   const [modalType, setModalType] = useState(''); 
   const [loading, setLoading] = useState(false);
 
-  // ✅ GET APP VERSION DYNAMICALLY
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  // ✅ Helper function
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
+
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   useEffect(() => { loadSettings(); }, []);
@@ -108,7 +119,6 @@ export default function SettingsScreen() {
       setNotificationsEnabled(enabled);
       
       const savedRating = await getContentRating();
-      // If saved rating is valid and active in our list, use it. Otherwise default to All Ages.
       const isValid = RATING_OPTS.find(r => r.id === savedRating && r.active);
       setContentRatingState(isValid ? savedRating : 'All Ages');
   };
@@ -124,7 +134,8 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-      Alert.alert(t('delete'), "Irreversible action. Are you sure?", [
+      // ✅ Keep native Alert for critical confirmations (Safety First)
+      Alert.alert(t('delete'), "This is an irreversible action. Are you sure you want to permanently delete your account?", [
           { text: "Cancel", style: "cancel" },
           { 
               text: "Delete", 
@@ -134,7 +145,10 @@ export default function SettingsScreen() {
                       setLoading(true);
                       await deleteUser(user!);
                       router.replace('/login');
-                  } catch (e: any) { Alert.alert("Error", "Re-login required."); } 
+                  } catch (e: any) { 
+                      // Use Custom Alert for Error
+                      showAlert('error', 'Delete Failed', 'Please log out and log in again, then try deleting your account.');
+                  } 
                   finally { setLoading(false); }
               }
           }
@@ -189,7 +203,6 @@ export default function SettingsScreen() {
       </TouchableOpacity>
   );
 
-  // ✅ Reusable Option Renderer
   const renderOptions = (options: any[], currentVal: string, type: string) => (
       options.map(opt => (
           <TouchableOpacity 
@@ -263,7 +276,11 @@ export default function SettingsScreen() {
         <View style={[styles.section, { backgroundColor: theme.card }]}>
             {renderRow("notifications-outline", t('notifs'), <Switch value={notificationsEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#767577', true: theme.tint }} thumbColor={'white'} />)}
             {renderRow("download-outline", t('downloads'), "", () => router.push('/downloads'))}
-            {renderRow("time-outline", t('clearHist'), "", async () => { await clearHistory(); Alert.alert("Success", "History Cleared"); }, true)}
+            {renderRow("time-outline", t('clearHist'), "", async () => { 
+                await clearHistory(); 
+                // ✅ Custom Alert
+                showAlert('success', 'History Cleared', 'Your watch history has been successfully removed.'); 
+            }, true)}
         </View>
 
         {/* 5. PRIVACY & SAFETY */}
@@ -305,6 +322,15 @@ export default function SettingsScreen() {
             <ActivityIndicator size="large" color={theme.tint} />
         </View>
       )}
+
+      {/* ✅ Render Custom Alert */}
+      <CustomAlert 
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
 
     </SafeAreaView>
   );

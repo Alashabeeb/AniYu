@@ -4,10 +4,11 @@ import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator, Alert, KeyboardAvoidingView,
+    ActivityIndicator, KeyboardAvoidingView,
     Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../../components/CustomAlert'; // ✅ Imported CustomAlert
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -20,15 +21,26 @@ export default function SignUpScreen() {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  // ✅ Helper function
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
+
   const handleSignUp = async () => {
     // 1. Basic Validation
     if (!email || !password || !username) {
-        Alert.alert("Missing Fields", "Please fill in all fields.");
-        return;
+        return showAlert('warning', 'Missing Fields', 'Please fill in all fields to continue.');
     }
     if (password.length < 6) {
-        Alert.alert("Weak Password", "Password must be at least 6 characters.");
-        return;
+        return showAlert('warning', 'Weak Password', 'Password must be at least 6 characters long.');
     }
 
     setLoading(true);
@@ -40,9 +52,8 @@ export default function SignUpScreen() {
         const snapshot = await getDocs(q);
 
         if (!snapshot.empty) {
-            Alert.alert("Username Taken", "This username is already in use. Please choose another.");
             setLoading(false);
-            return;
+            return showAlert('error', 'Username Taken', 'This username is already in use. Please choose another.');
         }
 
         // 3. Create User in Auth
@@ -52,7 +63,7 @@ export default function SignUpScreen() {
         // 4. Set Display Name
         await updateProfile(user, { displayName: username });
 
-        // 5. Create Database Profile (✅ FORCING 'user' ROLE)
+        // 5. Create Database Profile
         await setDoc(doc(db, "users", user.uid), {
             username: username.toLowerCase(),
             displayName: username,
@@ -67,12 +78,11 @@ export default function SignUpScreen() {
             isVerified: false 
         });
 
-        Alert.alert("Welcome!", "Your account has been created successfully.", [
-            { text: "Let's Go!", onPress: () => router.replace('/(tabs)/feed') }
-        ]);
+        // ✅ Show Success Alert (Redirect handled in onClose below)
+        showAlert('success', 'Welcome!', 'Your account has been created successfully.');
 
     } catch (error: any) {
-        Alert.alert("Sign Up Failed", error.message);
+        showAlert('error', 'Sign Up Failed', error.message);
     } finally {
         setLoading(false);
     }
@@ -149,6 +159,21 @@ export default function SignUpScreen() {
             </View>
 
         </ScrollView>
+
+        {/* ✅ Render Custom Alert */}
+        <CustomAlert 
+            visible={alertConfig.visible}
+            type={alertConfig.type}
+            title={alertConfig.title}
+            message={alertConfig.message}
+            onClose={() => {
+                setAlertConfig(prev => ({ ...prev, visible: false }));
+                // Redirect if success
+                if (alertConfig.type === 'success') {
+                    router.replace('/(tabs)/feed');
+                }
+            }}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

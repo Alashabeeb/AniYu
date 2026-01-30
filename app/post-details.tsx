@@ -3,14 +3,14 @@ import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
-    addDoc,
     arrayRemove, arrayUnion,
     collection, deleteDoc, doc,
     getDoc,
     increment,
     onSnapshot, orderBy,
     query, serverTimestamp, updateDoc,
-    where
+    where,
+    writeBatch
 } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -20,6 +20,7 @@ import {
     Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View, ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 import { sendSocialNotification } from '../services/notificationService';
@@ -33,7 +34,7 @@ const REPORT_REASONS = [
   "Other"
 ];
 
-// ✅ GLOBAL CACHE: Tracks posts & comments viewed in this session to prevent spamming views
+// ✅ GLOBAL CACHE
 const viewedSessionIds = new Set<string>();
 const viewedCommentSessionIds = new Set<string>();
 
@@ -53,6 +54,19 @@ export default function PostDetailsScreen() {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  // ✅ Helper function
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
+
   // Initialize Video Player
   const videoSource = post?.mediaType === 'video' && post?.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => {
@@ -64,12 +78,10 @@ export default function PostDetailsScreen() {
   useEffect(() => {
     if (!postId) return;
     
-    // 1. Listen for post data
     const postUnsub = onSnapshot(doc(db, 'posts', postId as string), (doc) => {
       if (doc.exists()) setPost({ id: doc.id, ...doc.data() });
     });
 
-    // 2. Fetch comments
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', postId), 
@@ -79,19 +91,13 @@ export default function PostDetailsScreen() {
       setComments(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // ✅ 3. INCREMENT VIEW COUNT (Post - Once per session)
     const incrementView = async () => {
         const pId = postId as string;
         if (!viewedSessionIds.has(pId)) {
             viewedSessionIds.add(pId);
             try {
-                const ref = doc(db, 'posts', pId);
-                await updateDoc(ref, {
-                    views: increment(1)
-                });
-            } catch (e) {
-                console.log("Error incrementing view", e);
-            }
+                await updateDoc(doc(db, 'posts', pId), { views: increment(1) });
+            } catch (e) { console.log("Error incrementing view", e); }
         }
     };
     incrementView();
@@ -99,25 +105,16 @@ export default function PostDetailsScreen() {
     return () => { postUnsub(); commentsUnsub(); };
   }, [postId]);
 
-  // ✅ 4. COMMENT VIEW TRACKING CONFIG
-  const viewabilityConfig = useRef({
-      itemVisiblePercentThreshold: 50
-  }).current;
-
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
       viewableItems.forEach((viewToken) => {
           if (viewToken.isViewable && viewToken.item?.id) {
               const commentId = viewToken.item.id;
-              // Check if comment viewed in this session
               if (!viewedCommentSessionIds.has(commentId)) {
                   viewedCommentSessionIds.add(commentId);
                   try {
-                      updateDoc(doc(db, 'posts', commentId), {
-                          views: increment(1)
-                      });
-                  } catch (e) {
-                      console.log("Error incrementing comment view", e);
-                  }
+                      updateDoc(doc(db, 'posts', commentId), { views: increment(1) });
+                  } catch (e) { console.log("Error incrementing comment view", e); }
               }
           }
       });
@@ -136,9 +133,7 @@ export default function PostDetailsScreen() {
               message: `Check out this post from ${item.displayName || item.username} on AniYu: ${item.text || 'Check this out!'}`,
               url: item.mediaUrl || '' 
           });
-      } catch (error) {
-          console.log("Share error", error);
-      }
+      } catch (error) { console.log("Share error", error); }
   };
 
   const goToDetails = (id: string) => {
@@ -147,7 +142,8 @@ export default function PostDetailsScreen() {
 
   const handleDelete = () => {
       setMenuVisible(false);
-      Alert.alert("Delete Post", "Are you sure?", [
+      // Keep native Alert for confirmation options (Yes/No)
+      Alert.alert("Delete Post", "Are you sure you want to delete this post permanently?", [
           { text: "Cancel", style: "cancel" },
           { text: "Delete", style: "destructive", onPress: async () => {
               await deleteDoc(doc(db, "posts", postId as string));
@@ -159,6 +155,7 @@ export default function PostDetailsScreen() {
   const handleBlockUser = async () => {
       if (!user || !post) return;
       setMenuVisible(false);
+      // Keep native Alert for confirmation options (Yes/No)
       Alert.alert("Block User", `Are you sure you want to block @${post.username}?`, [
           { text: "Cancel", style: "cancel" },
           { 
@@ -166,14 +163,14 @@ export default function PostDetailsScreen() {
               style: "destructive", 
               onPress: async () => {
                   try {
-                      const myRef = doc(db, 'users', user.uid);
-                      await updateDoc(myRef, {
+                      await updateDoc(doc(db, 'users', user.uid), {
                           blockedUsers: arrayUnion(post.userId)
                       });
-                      Alert.alert("Blocked", `You have blocked @${post.username}.`);
+                      // ✅ Use CustomAlert for success feedback
+                      showAlert('success', 'User Blocked', `You have blocked @${post.username}.`);
                       router.back();
                   } catch (e) {
-                      Alert.alert("Error", "Could not block user.");
+                      showAlert('error', 'Error', "Could not block user.");
                   }
               }
           }
@@ -184,7 +181,9 @@ export default function PostDetailsScreen() {
       if (!user) return;
       setReportLoading(true);
       try {
-        await addDoc(collection(db, 'reports'), {
+        const batch = writeBatch(db);
+        const reportRef = doc(collection(db, 'reports'));
+        batch.set(reportRef, {
           type: 'post',
           targetId: postId,
           targetContent: post?.text || 'media',
@@ -193,10 +192,13 @@ export default function PostDetailsScreen() {
           createdAt: serverTimestamp(),
           status: 'pending'
         });
-        Alert.alert("Report Submitted", "Thank you.");
+        await batch.commit();
+
         setReportModalVisible(false);
+        // ✅ Custom Alert
+        showAlert('success', 'Report Submitted', 'Thank you for keeping our community safe. We will review this shortly.');
       } catch (error) {
-        Alert.alert("Error", "Could not submit.");
+        showAlert('error', 'Submission Failed', 'Could not submit report. Please try again.');
       } finally {
         setReportLoading(false);
       }
@@ -212,7 +214,10 @@ export default function PostDetailsScreen() {
       const realDisplayName = userData.displayName || user.displayName || "Anonymous";
       const realAvatar = userData.avatar || user.photoURL;
 
-      await addDoc(collection(db, 'posts'), {
+      const batch = writeBatch(db);
+
+      const newCommentRef = doc(collection(db, 'posts'));
+      batch.set(newCommentRef, {
         text: newComment,
         userId: user.uid,
         username: realUsername,        
@@ -223,11 +228,18 @@ export default function PostDetailsScreen() {
         likes: [],
         reposts: [],
         commentCount: 0,
-        views: 0 // ✅ Initialize views
+        views: 0
       });
-      await updateDoc(doc(db, 'posts', postId as string), { commentCount: increment(1) });
+
+      const parentPostRef = doc(db, 'posts', postId as string);
+      batch.update(parentPostRef, { commentCount: increment(1) });
+
+      const userRef = doc(db, 'users', user.uid);
+      batch.update(userRef, { lastPostedAt: serverTimestamp() });
+
+      await batch.commit();
       
-      if (post && post.userId) {
+      if (post && post.userId && post.userId !== user.uid) {
           sendSocialNotification(
               post.userId, 
               'comment', 
@@ -238,7 +250,15 @@ export default function PostDetailsScreen() {
       }
 
       setNewComment('');
-    } catch (e) { console.error(e); } 
+    } catch (e: any) { 
+        console.error(e); 
+        // ✅ Custom Alerts for Errors
+        if (e.message.includes("permission-denied")) {
+            showAlert('error', '⛔ Blocked', 'You are posting too fast (30s cooldown) or you have been banned.');
+        } else {
+            showAlert('error', 'Comment Failed', 'Could not post comment. Please check your connection.');
+        }
+    } 
     finally { setSending(false); }
   };
 
@@ -283,13 +303,10 @@ export default function PostDetailsScreen() {
                         <Ionicons name="repeat-outline" size={16} color={isReposted ? "#00BA7C" : theme.subText} />
                          <Text style={[styles.actionText, { color: theme.subText }]}>{item.reposts?.length || 0}</Text>
                     </TouchableOpacity>
-                    
-                    {/* ✅ Views Icon for Comment */}
                     <View style={styles.actionButton}>
                         <Ionicons name="stats-chart" size={16} color={theme.subText} />
                         <Text style={[styles.actionText, { color: theme.subText }]}>{item.views || 0}</Text>
                     </View>
-
                     <TouchableOpacity style={styles.actionButton} onPress={() => handleShare(item)}>
                         <Ionicons name="share-social-outline" size={16} color={theme.subText} />
                     </TouchableOpacity>
@@ -320,12 +337,10 @@ export default function PostDetailsScreen() {
             data={comments}
             keyExtractor={item => item.id}
             contentContainerStyle={{ paddingBottom: 20 }}
-            // ✅ Attach Comment View Tracking
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
             ListHeaderComponent={() => (
                <View style={[styles.mainPost, { borderBottomColor: theme.border }]}>
-                  {/* ... (Header content same as before) */}
                   <View style={styles.row}>
                      <Image source={{ uri: post.userAvatar }} style={styles.avatar} />
                      <View style={{ marginLeft: 10 }}>
@@ -363,7 +378,6 @@ export default function PostDetailsScreen() {
                        <TouchableOpacity onPress={() => toggleAction(postId as string, 'likes', post.likes || [])}><Ionicons name={post.likes?.includes(user?.uid)?"heart":"heart-outline"} size={22} color={theme.text} /></TouchableOpacity>
                        <TouchableOpacity><Ionicons name="chatbubble-outline" size={22} color={theme.text} /></TouchableOpacity>
                        <TouchableOpacity onPress={() => toggleAction(postId as string, 'reposts', post.reposts || [])}><Ionicons name="repeat-outline" size={22} color={theme.text} /></TouchableOpacity>
-                       
                        <TouchableOpacity onPress={() => handleShare(post)}><Ionicons name="share-social-outline" size={22} color={theme.text} /></TouchableOpacity>
                   </View>
                </View>
@@ -443,6 +457,14 @@ export default function PostDetailsScreen() {
         </View>
       </Modal>
 
+      {/* ✅ Render Custom Alert */}
+      <CustomAlert 
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

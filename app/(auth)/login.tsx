@@ -3,11 +3,12 @@ import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Alert,
+  ActivityIndicator,
   KeyboardAvoidingView, Platform,
   StyleSheet, Text, TextInput,
   TouchableOpacity, View
 } from 'react-native';
+import CustomAlert from '../../components/CustomAlert'; // ✅ Imported CustomAlert
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -19,8 +20,23 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  // ✅ Helper function to show alert easily
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
+
   const handleLogin = async () => {
-    if(!email || !password) return Alert.alert("Error", "Please fill in all fields");
+    if(!email || !password) {
+      return showAlert('warning', 'Missing Info', 'Please fill in both email and password fields.');
+    }
     
     setLoading(true);
     try {
@@ -38,12 +54,12 @@ export default function LoginScreen() {
         // ⛔ SECURITY: BLOCK EVERYONE EXCEPT 'user'
         if (userRole !== 'user') {
           await signOut(auth); // Kick them out immediately
-          Alert.alert(
-            "Access Denied", 
-            "This app is for Viewers only.\n\nAdmins and Producers must use the Web Dashboard."
-          );
           setLoading(false);
-          return; // Stop execution
+          return showAlert(
+            'error', 
+            'Access Denied', 
+            'This mobile app is for Viewers only.\n\nAdmins and Producers must log in via the Web Dashboard.'
+          );
         }
       }
 
@@ -52,9 +68,11 @@ export default function LoginScreen() {
     } catch (error: any) {
       // Handle specific Firebase errors for better UX
       if (error.code === 'auth/invalid-credential') {
-        Alert.alert("Login Failed", "Incorrect email or password.");
+        showAlert('error', 'Login Failed', 'The email or password you entered is incorrect.');
+      } else if (error.code === 'auth/too-many-requests') {
+        showAlert('error', 'Account Locked', 'Too many failed attempts. Please try again later.');
       } else {
-        Alert.alert("Login Failed", error.message);
+        showAlert('error', 'Login Error', error.message);
       }
     } finally {
       setLoading(false);
@@ -79,6 +97,7 @@ export default function LoginScreen() {
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            keyboardType="email-address"
           />
         </View>
 
@@ -108,6 +127,15 @@ export default function LoginScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* ✅ Render Custom Alert */}
+      <CustomAlert 
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </KeyboardAvoidingView>
   );
 }

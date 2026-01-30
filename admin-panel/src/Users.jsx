@@ -5,7 +5,7 @@ import {
     ArrowLeft, Ban, CheckCircle, Clock, Copy, ExternalLink, Loader2, Mail, Plus, Save, Search, Shield, ShieldAlert, Trash2, User, Users as UsersIcon, X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom'; // ✅ ADDED
+import { useLocation } from 'react-router-dom';
 import { auth, db, firebaseConfig } from './firebase';
 
 // --- HELPER: SMART TIME FORMATTING ---
@@ -38,7 +38,7 @@ const formatDate = (timestamp) => {
 };
 
 export default function Users() {
-  const location = useLocation(); // ✅ ADDED
+  const location = useLocation(); 
   const [view, setView] = useState('list'); 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,13 +59,12 @@ export default function Users() {
   const [loadingSocials, setLoadingSocials] = useState(false);
   const [socialTab, setSocialTab] = useState('followers'); 
 
-  // ✅ ADDED: Logic to open user from navigation
+  // ✅ AUTO-OPEN USER FROM NAVIGATION STATE
   useEffect(() => {
       const targetId = location.state?.targetUserId;
       if (targetId) {
-          fetchAndOpenUser(targetId);
-          // Optional: Clear state to avoid reopening on refresh
           window.history.replaceState({}, document.title);
+          fetchAndOpenUser(targetId);
       }
   }, [location]);
 
@@ -75,10 +74,10 @@ export default function Users() {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
               handleViewUser({ id: docSnap.id, ...docSnap.data() });
+          } else {
+              alert("User not found or deleted.");
           }
-      } catch (e) {
-          console.error("Error opening user:", e);
-      }
+      } catch (e) { console.error("Error opening user:", e); }
   };
 
   useEffect(() => {
@@ -321,9 +320,9 @@ export default function Users() {
     <>
     <style>{`
         .users-page { padding: 24px; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px; }
         .header-title { font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; gap: 8px; margin: 0; }
-        .controls-container { display: flex; gap: 10px; }
+        .controls-container { display: flex; gap: 10px; flex-wrap: wrap; }
         .search-box { position: relative; }
         .search-icon { position: absolute; left: 12px; top: 10px; color: #9ca3af; }
         .search-input { padding: 8px 8px 8px 36px; border: 1px solid #e5e7eb; border-radius: 8px; width: 250px; outline: none; }
@@ -332,8 +331,8 @@ export default function Users() {
         .btn-create:hover { background-color: #1d4ed8; }
 
         /* Modal */
-        .modal-overlay { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
-        .modal-content { background-color: white; padding: 30px; border-radius: 16px; width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
+        .modal-overlay { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+        .modal-content { background-color: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .modal-title { margin: 0; font-size: 1.2rem; font-weight: 800; }
         .form-group { margin-bottom: 15px; }
@@ -375,34 +374,47 @@ export default function Users() {
         .btn-back { display: flex; align-items: center; gap: 5px; border: none; background: none; cursor: pointer; color: #6b7280; font-weight: 600; margin-bottom: 20px; }
         .details-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
         .details-header { padding: 30px; background-color: #eff6ff; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #bfdbfe; }
-        .header-avatar { width: 80px; height: 80px; border-radius: 50%; background-color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; color: #2563eb; border: 2px solid #bfdbfe; overflow: hidden; }
+        .header-avatar { width: 80px; height: 80px; border-radius: 50%; background-color: white; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; color: #2563eb; border: 2px solid #bfdbfe; overflow: hidden; flex-shrink: 0; }
         .header-info { flex: 1; }
         .header-username { margin: 0; font-size: 1.8rem; font-weight: 800; color: #1e3a8a; }
-        .header-meta { display: flex; align-items: center; gap: 15px; margin-top: 5px; color: #6b7280; font-size: 0.9rem; }
-        .btn-delete { background-color: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 8px; transition: all 0.2s; }
+        .header-meta { display: flex; align-items: center; gap: 15px; margin-top: 5px; color: #6b7280; font-size: 0.9rem; flex-wrap: wrap; }
+        .btn-delete { background-color: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: 700; display: flex; align-items: center; gap: 8px; transition: all 0.2s; white-space: nowrap; }
         
         .details-body { padding: 30px; }
         .grid-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
         .section-title { font-size: 1.2rem; font-weight: 800; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; color: #374151; }
-        .status-toggle { display: flex; gap: 10px; }
-        .toggle-btn { flex: 1; text-align: center; padding: 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .status-toggle { display: flex; gap: 10px; flex-wrap: wrap; }
+        .toggle-btn { flex: 1; text-align: center; padding: 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
         .toggle-btn.active-selected { background-color: #10b981; color: white; border-color: #10b981; }
         .toggle-btn.ban-selected { background-color: #ef4444; color: white; border-color: #ef4444; }
         
         .stats-box { background-color: #f9fafb; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; }
         .stat-row { display: flex; justify-content: space-between; }
         .stat-label { font-size: 0.75rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; }
-        .stat-value { font-weight: 600; color: #374151; }
+        .stat-value { font-weight: 600; color: #374151; font-size: 0.9rem; } /* ✅ Updated Font Size */
         
         .socials-card { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; }
         .socials-tabs { display: flex; border-bottom: 1px solid #e5e7eb; }
-        .tab-btn { flex: 1; padding: 15px; background: #f9fafb; border: none; font-weight: 700; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tab-btn { flex: 1; padding: 15px; background: #f9fafb; border: none; font-weight: 700; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
         .tab-btn.active { background: white; color: #2563eb; border-bottom-color: #2563eb; }
         .socials-list { padding: 0; max-height: 300px; overflow-y: auto; }
         .social-item { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid #f3f4f6; }
         .mini-avatar { width: 30px; height: 30px; border-radius: 50%; background-color: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold; color: #2563eb; overflow: hidden; flex-shrink: 0; }
         .social-username { font-size: 0.9rem; font-weight: 600; color: #374151; }
         .social-rank { font-size: 0.7rem; color: #9ca3af; }
+
+        /* ✅ MOBILE RESPONSIVE TWEAKS */
+        @media (max-width: 768px) {
+            .users-page { padding: 16px; }
+            .grid-layout { grid-template-columns: 1fr; gap: 20px; }
+            .details-header { flex-direction: column; text-align: center; padding: 20px; }
+            .header-meta { justify-content: center; }
+            .details-body { padding: 20px; }
+            .btn-delete { width: 100%; justify-content: center; margin-top: 15px; }
+            .search-input { width: 100%; }
+            .controls-container { width: 100%; }
+            .search-box { width: 100%; }
+        }
     `}</style>
 
     <div className="users-page">

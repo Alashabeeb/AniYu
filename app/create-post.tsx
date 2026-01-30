@@ -2,17 +2,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { ResizeMode, Video } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useRouter } from 'expo-router';
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  serverTimestamp,
+  writeBatch
+} from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert,
+  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
+import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
 import { auth, db, storage } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 
@@ -28,8 +34,20 @@ export default function CreatePostScreen() {
   const [media, setMedia] = useState<any>(null);
   const [avatar, setAvatar] = useState(user?.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Anime');
   
-  // ✅ UPDATED: State to hold multiple tags (Array)
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  // ✅ Helper function
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
 
   useEffect(() => {
      if(user) {
@@ -57,17 +75,15 @@ export default function CreatePostScreen() {
     return await getDownloadURL(storageRef);
   };
 
-  // ✅ UPDATED: Toggle Tag Selection Logic (Max 3)
   const toggleTag = (tag: string) => {
       if (selectedTags.includes(tag)) {
-          // Remove tag if already selected
           setSelectedTags(selectedTags.filter(t => t !== tag));
       } else {
-          // Add tag if limit not reached
           if (selectedTags.length < 3) {
               setSelectedTags([...selectedTags, tag]);
           } else {
-              Alert.alert("Limit Reached", "You can only select up to 3 topics.");
+              // ✅ Replaced Alert.alert with CustomAlert
+              showAlert('warning', 'Limit Reached', 'You can only select up to 3 topics.');
           }
       }
   };
@@ -93,7 +109,14 @@ export default function CreatePostScreen() {
           mediaUrl = await uploadMediaToStorage(media.uri, mediaType);
       }
 
-      await addDoc(collection(db, 'posts'), {
+      // 1. Start Batch
+      const batch = writeBatch(db);
+
+      // 2. Create Post Reference (Auto-ID)
+      const newPostRef = doc(collection(db, 'posts'));
+      
+      // 3. Queue Post Creation
+      batch.set(newPostRef, {
         text: text,
         mediaUrl: mediaUrl,   
         mediaType: mediaType,
@@ -101,17 +124,31 @@ export default function CreatePostScreen() {
         displayName: realDisplayName, 
         username: realUsername,       
         userAvatar: realAvatar,
-        tags: selectedTags, // ✅ Saves the array of tags
+        tags: selectedTags,
         createdAt: serverTimestamp(),
         likes: [],
         reposts: [],
         commentCount: 0,
-        parentId: null
+        parentId: null,
+        views: 0 // Initialize views
       });
+
+      // 4. Queue User Update (Reset Rate Limit Timer)
+      const userRef = doc(db, 'users', user.uid);
+      batch.update(userRef, { lastPostedAt: serverTimestamp() });
+
+      // 5. Commit All
+      await batch.commit();
 
       router.back(); 
     } catch (error: any) {
-      Alert.alert("Error", error.message);
+      console.error(error);
+      // ✅ Replaced Alert.alert with CustomAlert
+      if (error.message.includes("permission-denied")) {
+        showAlert('error', '⛔ Blocked', 'You are posting too fast (30s cooldown) or you are banned.');
+      } else {
+        showAlert('error', 'Post Failed', 'Could not create post. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -208,7 +245,6 @@ export default function CreatePostScreen() {
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {GENRES.map(genre => {
-                    // ✅ CHECK IF SELECTED
                     const isSelected = selectedTags.includes(genre);
                     return (
                         <TouchableOpacity 
@@ -236,6 +272,14 @@ export default function CreatePostScreen() {
 
       </ScrollView>
 
+      {/* ✅ Render Custom Alert */}
+      <CustomAlert 
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

@@ -3,12 +3,13 @@ import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
+import CustomAlert from '../../components/CustomAlert'; // ✅ Imported CustomAlert
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
 
@@ -29,12 +30,42 @@ export default function ProfileScreen() {
   const [userData, setUserData] = useState<any>(null); 
   const [refreshing, setRefreshing] = useState(false);
 
+  // ✅ Track previous rank to detect upgrades
+  const prevRankRef = useRef<string | null>(null);
+
+  // ✅ New State for Custom Alert
+  const [alertConfig, setAlertConfig] = useState({
+    visible: false,
+    type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    title: '',
+    message: ''
+  });
+
+  const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+    setAlertConfig({ visible: true, type, title, message });
+  };
+
   // Load data whenever the screen comes into focus
   useFocusEffect(
     useCallback(() => { 
         loadProfileData(); 
     }, [])
   );
+
+  // ✅ EFFECT: Check for Rank Up
+  useEffect(() => {
+    if (userData?.rank) {
+        if (prevRankRef.current && prevRankRef.current !== userData.rank) {
+            // Rank Changed! Show Celebration Alert
+            showAlert(
+                'success', 
+                '🎉 RANK PROMOTION!', 
+                `Congratulations! You have been promoted to ${userData.rank}. Keep watching to reach the next level!`
+            );
+        }
+        prevRankRef.current = userData.rank;
+    }
+  }, [userData?.rank]);
 
   const loadProfileData = async () => {
     setRefreshing(true);
@@ -58,7 +89,8 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = async () => {
-    Alert.alert("Log Out", "Are you sure?", [
+    // Keep native alert for Logout (Safety: allows Cancel option)
+    Alert.alert("Log Out", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
       { text: "Log Out", style: "destructive", onPress: () => signOut(auth) }
     ]);
@@ -127,10 +159,9 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ✅ UPDATED: Stats Row with Clickable Actions */}
+        {/* Stats Row */}
         <View style={[styles.statsRow, { backgroundColor: theme.card }]}>
             
-            {/* Following */}
             <TouchableOpacity 
                 style={styles.statItem}
                 onPress={() => router.push({ pathname: '/user-list', params: { type: 'following' } })}
@@ -141,7 +172,6 @@ export default function ProfileScreen() {
 
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             
-            {/* Watched */}
             <TouchableOpacity 
                 style={styles.statItem}
                 onPress={() => router.push({ pathname: '/anime-list', params: { type: 'watched' } })}
@@ -152,7 +182,6 @@ export default function ProfileScreen() {
 
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-            {/* Favorites */}
             <TouchableOpacity 
                 style={styles.statItem}
                 onPress={() => router.push({ pathname: '/anime-list', params: { type: 'favorites' } })}
@@ -163,7 +192,6 @@ export default function ProfileScreen() {
 
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             
-            {/* Followers */}
             <TouchableOpacity 
                 style={styles.statItem}
                 onPress={() => router.push({ pathname: '/user-list', params: { type: 'followers' } })}
@@ -212,6 +240,15 @@ export default function ProfileScreen() {
         </View>
 
       </ScrollView>
+
+      {/* ✅ Render Custom Alert */}
+      <CustomAlert 
+        visible={alertConfig.visible}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }
@@ -249,14 +286,11 @@ const styles = StyleSheet.create({
   username: { fontSize: 14, marginTop: 2 },
   bio: { marginTop: 8, textAlign: 'center', paddingHorizontal: 40, fontSize: 13, lineHeight: 18 },
   editBtn: { marginTop: 15, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-  
-  // Adjusted for 4 stats (space-evenly)
   statsRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 25, paddingVertical: 20, marginHorizontal: 20, borderRadius: 16 },
   statItem: { alignItems: 'center', flex: 1 },
   statNum: { fontSize: 18, fontWeight: 'bold' },
   statLabel: { fontSize: 11 },
   divider: { width: 1, height: '80%', alignSelf: 'center' },
-  
   menuContainer: { marginTop: 30, paddingHorizontal: 20 },
   menuItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   iconBox: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
