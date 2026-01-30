@@ -8,9 +8,20 @@ interface CustomAlertProps {
   title: string;
   message: string;
   onClose: () => void;
+  // ✅ NEW: Optional Secondary Button Props
+  secondaryButtonText?: string;
+  onSecondaryPress?: () => void;
 }
 
-export default function CustomAlert({ visible, type = 'info', title, message, onClose }: CustomAlertProps) {
+export default function CustomAlert({ 
+  visible, 
+  type = 'info', 
+  title, 
+  message, 
+  onClose,
+  secondaryButtonText,
+  onSecondaryPress 
+}: CustomAlertProps) {
   if (!visible) return null;
 
   const getIcon = () => {
@@ -35,6 +46,7 @@ export default function CustomAlert({ visible, type = 'info', title, message, on
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           
+          {/* Primary Button */}
           <TouchableOpacity 
             style={[styles.button, { backgroundColor: iconData.color }]} 
             onPress={onClose}
@@ -42,6 +54,20 @@ export default function CustomAlert({ visible, type = 'info', title, message, on
           >
             <Text style={styles.buttonText}>Okay</Text>
           </TouchableOpacity>
+
+          {/* ✅ NEW: Secondary Button (Only shows if text is provided) */}
+          {secondaryButtonText && onSecondaryPress && (
+            <TouchableOpacity 
+              style={styles.secondaryButton} 
+              onPress={onSecondaryPress}
+              activeOpacity={0.6}
+            >
+              <Text style={[styles.secondaryButtonText, { color: '#6b7280' }]}>
+                {secondaryButtonText}
+              </Text>
+            </TouchableOpacity>
+          )}
+
         </View>
       </View>
     </Modal>
@@ -101,5 +127,16 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // ✅ Styles for Secondary Button
+  secondaryButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+    width: '100%',
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
   }
 });

@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
-// ✅ ADDED: Firestore updateDoc
 import { useFocusEffect } from '@react-navigation/native';
+import { Stack, useRouter } from 'expo-router';
 import { collection, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -15,7 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-// ✅ ADDED: markLocalNotificationAsRead
 import { AppNotification, getNotifications, markAllAsRead, markLocalNotificationAsRead } from '../services/notificationService';
 
 export default function NotificationsScreen() {
@@ -39,7 +37,7 @@ export default function NotificationsScreen() {
     setLocalNotifs(data);
   };
 
-  // 2. Fetch Social Notifications (Interactions)
+  // 2. Fetch Social & System Notifications (Firestore)
   useEffect(() => {
       if (!currentUser) return;
       const q = query(
@@ -60,40 +58,50 @@ export default function NotificationsScreen() {
   };
 
   const handleMarkRead = async () => {
+      // Mark Firestore (Batch update is ideal, but looping works for now)
+      socialNotifs.forEach(async (item) => {
+        if (!item.read) {
+           await updateDoc(doc(db, 'users', currentUser!.uid, 'notifications', item.id), { read: true });
+        }
+      });
+      // Mark Local
       await markAllAsRead();
       loadLocalData();
   };
 
+  // 3. Combine & Sort (Newest First)
   const combinedNotifications = [...socialNotifs, ...localNotifs].sort((a, b) => {
-      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : a.date;
-      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : b.date;
+      const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.date || 0);
+      const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.date || 0);
       return timeB - timeA;
   });
 
+  // ✅ UPDATED ICON LOGIC: Handle Admin Types
   const getIcon = (type: string) => {
       switch(type) {
           case 'like': return { name: 'heart', color: '#FF6B6B' };
           case 'comment': return { name: 'chatbubble', color: '#4ECDC4' };
           case 'repost': return { name: 'repeat', color: '#45B7D1' };
           case 'follow': return { name: 'person-add', color: '#FFD700' };
+          // New Admin Types
+          case 'system': return { name: 'megaphone', color: '#FF9F1C' }; // 📢 Admin Broadcast
+          case 'error': return { name: 'warning', color: '#EF4444' };    // ⚠️ Ban/Warning
+          case 'success': return { name: 'checkmark-circle', color: '#10B981' }; // ✅ Success
           default: return { name: 'notifications', color: theme.tint };
       }
   };
 
-  // ✅ UPDATED HANDLE PRESS
   const handlePress = async (item: any) => {
       if (!currentUser) return;
 
-      // 1. Mark as Read Logic
+      // 1. Mark as Read
       if (!item.read) {
           try {
               if (item.createdAt) {
-                  // It's a Social Notif (Firestore)
-                  await updateDoc(doc(db, 'users', currentUser.uid, 'notifications', item.id), {
-                      read: true
-                  });
+                  // Firestore
+                  await updateDoc(doc(db, 'users', currentUser.uid, 'notifications', item.id), { read: true });
               } else {
-                  // It's a Local Notif (AsyncStorage)
+                  // Local
                   await markLocalNotificationAsRead(item.id);
                   loadLocalData();
               }
@@ -103,12 +111,19 @@ export default function NotificationsScreen() {
       }
 
       // 2. Navigation Logic
-      if (item.targetId && (item.type === 'like' || item.type === 'comment' || item.type === 'repost')) {
-          router.push({ pathname: '/post-details', params: { postId: item.targetId } });
+      if (item.targetId) {
+          if (item.type === 'like' || item.type === 'comment' || item.type === 'repost') {
+             router.push({ pathname: '/post-details', params: { postId: item.targetId } });
+          } else if (item.type === 'anime') {
+             router.push({ pathname: '/anime/[id]', params: { id: item.targetId } });
+          } else if (item.type === 'manga') {
+             router.push({ pathname: '/manga/[id]', params: { id: item.targetId } });
+          }
       }
       else if (item.actorId && item.type === 'follow') {
           router.push({ pathname: '/feed-profile', params: { userId: item.actorId } });
       }
+      // System/Admin messages stay on screen (just marked read)
   };
 
   return (
@@ -120,15 +135,17 @@ export default function NotificationsScreen() {
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Notifications</Text>
-        <TouchableOpacity onPress={handleMarkRead} style={{ marginLeft: 'auto' }}>
-            <Ionicons name="checkmark-done-outline" size={24} color={theme.tint} />
+        
+        {/* Mark All Read Button */}
+        <TouchableOpacity onPress={handleMarkRead} style={{ marginLeft: 'auto', padding: 5 }}>
+            <Ionicons name="checkmark-done-outline" size={26} color={theme.tint} />
         </TouchableOpacity>
       </View>
 
       <FlatList
         data={combinedNotifications}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 15 }}
+        contentContainerStyle={{ padding: 15, paddingBottom: 50 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -144,21 +161,23 @@ export default function NotificationsScreen() {
                 onPress={() => handlePress(item)}
                 style={[
                   styles.card, 
-                  { backgroundColor: theme.card, borderLeftColor: item.read ? 'transparent' : theme.tint }
+                  { backgroundColor: theme.card, borderLeftColor: item.read ? 'transparent' : iconData.color }
                 ]}
               >
                 <View style={[styles.iconBox, { backgroundColor: `${iconData.color}20` }]}>
                     <Ionicons name={iconData.name as any} size={24} color={iconData.color} />
                 </View>
                 <View style={styles.info}>
-                  <Text style={[styles.title, { color: theme.text, fontWeight: item.read ? 'normal' : 'bold' }]}>
+                  <Text style={[styles.title, { color: theme.text, fontWeight: item.read ? 'normal' : '800' }]}>
                       {item.title}
                   </Text>
-                  <Text style={[styles.body, { color: theme.subText }]}>{item.body}</Text>
+                  <Text style={[styles.body, { color: theme.subText }]} numberOfLines={3}>
+                      {item.body}
+                  </Text>
                   <Text style={[styles.date, { color: theme.subText }]}>
                     {item.createdAt?.seconds 
                         ? new Date(item.createdAt.seconds * 1000).toLocaleDateString() 
-                        : new Date(item.date).toLocaleDateString()}
+                        : (item.date ? new Date(item.date).toLocaleDateString() : '')}
                   </Text>
                 </View>
                 {!item.read && <View style={[styles.dot, { backgroundColor: theme.tint }]} />}
@@ -178,11 +197,11 @@ const styles = StyleSheet.create({
   emptyContainer: { alignItems: 'center', marginTop: 100 },
   emptyText: { marginTop: 10, fontSize: 16 },
   
-  card: { flexDirection: 'row', padding: 15, borderRadius: 12, marginBottom: 10, borderLeftWidth: 4, alignItems: 'center' },
+  card: { flexDirection: 'row', padding: 15, borderRadius: 12, marginBottom: 10, borderLeftWidth: 4, alignItems: 'center', elevation: 1 },
   iconBox: { width: 45, height: 45, borderRadius: 22.5, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   info: { flex: 1 },
   title: { fontSize: 16, marginBottom: 4 },
-  body: { fontSize: 14, marginBottom: 6 },
+  body: { fontSize: 14, marginBottom: 6, lineHeight: 20 },
   date: { fontSize: 10 },
   dot: { width: 8, height: 8, borderRadius: 4, marginLeft: 10 }
 });

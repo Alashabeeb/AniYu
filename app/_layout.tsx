@@ -1,14 +1,15 @@
 import { Stack, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-// ✅ Import mobileAds
 import mobileAds, { AdEventType, AppOpenAd } from 'react-native-google-mobile-ads';
+import GlobalGatekeeper from '../components/GlobalGatekeeper';
 import { AdConfig } from '../config/adConfig';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
-// ✅ IMPORT HEARTBEAT HOOK
-import GlobalGatekeeper from '../components/GlobalGatekeeper';
+import { ToastProvider } from '../context/ToastContext';
 import { useUserHeartbeat } from '../hooks/useUserHeartbeat';
+// ✅ IMPORT THE LISTENER
+import NotificationListener from '../components/NotificationListener';
 
 const appOpenAd = AppOpenAd.createForAdRequest(AdConfig.appOpen, {
   requestNonPersonalizedAdsOnly: true,
@@ -19,17 +20,12 @@ function RootLayoutNav() {
   const router = useRouter();
   const [isAdClosed, setIsAdClosed] = useState(false);
 
-  // ✅ ACTIVATE HEARTBEAT (Runs automatically)
   useUserHeartbeat();
 
   useEffect(() => {
-    // ✅ 1. Initialize AdMob SDK First!
     mobileAds()
       .initialize()
       .then(adapterStatuses => {
-        console.log('AdMob Initialized:', adapterStatuses);
-        
-        // ✅ 2. Only THEN load the App Open Ad
         appOpenAd.load();
       });
 
@@ -42,8 +38,7 @@ function RootLayoutNav() {
     });
 
     const unsubscribeError = appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
-      console.log("App Open Ad Failed:", error);
-      setIsAdClosed(true); // Proceed even if ad fails
+      setIsAdClosed(true); 
     });
 
     return () => {
@@ -53,7 +48,6 @@ function RootLayoutNav() {
     };
   }, []);
   
-  // 🔒 THE GATEKEEPER LOGIC
   useEffect(() => {
     if (loading || !isAdClosed) return;
     if (!user) {
@@ -73,15 +67,22 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider>
-      <GlobalGatekeeper />
-      <Stack>
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="anime/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="manga/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="chapter-read" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
-      </Stack>
+      {/* 1. Wrap with ToastProvider */}
+      <ToastProvider>
+        
+        {/* 2. Activate the Listener */}
+        <NotificationListener /> 
+        
+        <GlobalGatekeeper />
+        <Stack>
+          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="anime/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="manga/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="chapter-read" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+        </Stack>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

@@ -20,10 +20,11 @@ import {
     Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, View, ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
+import CustomAlert from '../components/CustomAlert';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 import { sendSocialNotification } from '../services/notificationService';
+import { getFriendlyErrorMessage } from '../utils/errorHandler';
 
 const REPORT_REASONS = [
   "Offensive content",
@@ -54,7 +55,6 @@ export default function PostDetailsScreen() {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
 
-  // ✅ New State for Custom Alert
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
@@ -62,7 +62,6 @@ export default function PostDetailsScreen() {
     message: ''
   });
 
-  // ✅ Helper function
   const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
     setAlertConfig({ visible: true, type, title, message });
   };
@@ -142,7 +141,6 @@ export default function PostDetailsScreen() {
 
   const handleDelete = () => {
       setMenuVisible(false);
-      // Keep native Alert for confirmation options (Yes/No)
       Alert.alert("Delete Post", "Are you sure you want to delete this post permanently?", [
           { text: "Cancel", style: "cancel" },
           { text: "Delete", style: "destructive", onPress: async () => {
@@ -155,7 +153,6 @@ export default function PostDetailsScreen() {
   const handleBlockUser = async () => {
       if (!user || !post) return;
       setMenuVisible(false);
-      // Keep native Alert for confirmation options (Yes/No)
       Alert.alert("Block User", `Are you sure you want to block @${post.username}?`, [
           { text: "Cancel", style: "cancel" },
           { 
@@ -166,11 +163,11 @@ export default function PostDetailsScreen() {
                       await updateDoc(doc(db, 'users', user.uid), {
                           blockedUsers: arrayUnion(post.userId)
                       });
-                      // ✅ Use CustomAlert for success feedback
                       showAlert('success', 'User Blocked', `You have blocked @${post.username}.`);
                       router.back();
                   } catch (e) {
-                      showAlert('error', 'Error', "Could not block user.");
+                      const friendlyMessage = getFriendlyErrorMessage(e);
+                      showAlert('error', 'Block Failed', friendlyMessage);
                   }
               }
           }
@@ -195,10 +192,10 @@ export default function PostDetailsScreen() {
         await batch.commit();
 
         setReportModalVisible(false);
-        // ✅ Custom Alert
         showAlert('success', 'Report Submitted', 'Thank you for keeping our community safe. We will review this shortly.');
       } catch (error) {
-        showAlert('error', 'Submission Failed', 'Could not submit report. Please try again.');
+        const friendlyMessage = getFriendlyErrorMessage(error);
+        showAlert('error', 'Submission Failed', friendlyMessage);
       } finally {
         setReportLoading(false);
       }
@@ -252,11 +249,11 @@ export default function PostDetailsScreen() {
       setNewComment('');
     } catch (e: any) { 
         console.error(e); 
-        // ✅ Custom Alerts for Errors
         if (e.message.includes("permission-denied")) {
             showAlert('error', '⛔ Blocked', 'You are posting too fast (30s cooldown) or you have been banned.');
         } else {
-            showAlert('error', 'Comment Failed', 'Could not post comment. Please check your connection.');
+            const friendlyMessage = getFriendlyErrorMessage(e);
+            showAlert('error', 'Comment Failed', friendlyMessage);
         }
     } 
     finally { setSending(false); }
@@ -332,7 +329,12 @@ export default function PostDetailsScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* ✅ UPDATED KEYBOARD AVOIDING VIEW */}
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} // Accounts for Header
+      >
           <FlatList
             data={comments}
             keyExtractor={item => item.id}
@@ -457,7 +459,6 @@ export default function PostDetailsScreen() {
         </View>
       </Modal>
 
-      {/* ✅ Render Custom Alert */}
       <CustomAlert 
         visible={alertConfig.visible}
         type={alertConfig.type}

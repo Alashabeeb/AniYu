@@ -16,12 +16,13 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
+import CustomAlert from '../components/CustomAlert';
 import { auth } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 import { clearHistory } from '../services/historyService';
 import { getNotificationPreference, setNotificationPreference } from '../services/notificationService';
 import { getContentRating, setContentRating } from '../services/settingsService';
+import { getFriendlyErrorMessage } from '../utils/errorHandler'; // ✅ Imported Friendly Error Handler
 
 // ✅ TRANSLATIONS
 const TRANSLATIONS: any = {
@@ -97,7 +98,6 @@ export default function SettingsScreen() {
   const [modalType, setModalType] = useState(''); 
   const [loading, setLoading] = useState(false);
 
-  // ✅ New State for Custom Alert
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
@@ -105,7 +105,6 @@ export default function SettingsScreen() {
     message: ''
   });
 
-  // ✅ Helper function
   const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
     setAlertConfig({ visible: true, type, title, message });
   };
@@ -134,7 +133,7 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-      // ✅ Keep native Alert for critical confirmations (Safety First)
+      // Keep native Alert for critical confirmations (Safety First)
       Alert.alert(t('delete'), "This is an irreversible action. Are you sure you want to permanently delete your account?", [
           { text: "Cancel", style: "cancel" },
           { 
@@ -146,13 +145,24 @@ export default function SettingsScreen() {
                       await deleteUser(user!);
                       router.replace('/login');
                   } catch (e: any) { 
-                      // Use Custom Alert for Error
-                      showAlert('error', 'Delete Failed', 'Please log out and log in again, then try deleting your account.');
+                      // ✅ UPDATED: Use Friendly Error
+                      const friendlyMessage = getFriendlyErrorMessage(e);
+                      showAlert('error', 'Delete Failed', friendlyMessage);
                   } 
                   finally { setLoading(false); }
               }
           }
       ]);
+  };
+
+  const handleClearHistory = async () => {
+      try {
+        await clearHistory(); 
+        showAlert('success', 'History Cleared', 'Your watch history has been successfully removed.');
+      } catch (e: any) {
+         const friendlyMessage = getFriendlyErrorMessage(e);
+         showAlert('error', 'Error', friendlyMessage);
+      }
   };
 
   const openModal = (type: string) => {
@@ -276,11 +286,8 @@ export default function SettingsScreen() {
         <View style={[styles.section, { backgroundColor: theme.card }]}>
             {renderRow("notifications-outline", t('notifs'), <Switch value={notificationsEnabled} onValueChange={toggleNotifications} trackColor={{ false: '#767577', true: theme.tint }} thumbColor={'white'} />)}
             {renderRow("download-outline", t('downloads'), "", () => router.push('/downloads'))}
-            {renderRow("time-outline", t('clearHist'), "", async () => { 
-                await clearHistory(); 
-                // ✅ Custom Alert
-                showAlert('success', 'History Cleared', 'Your watch history has been successfully removed.'); 
-            }, true)}
+            {/* Updated clear history action */}
+            {renderRow("time-outline", t('clearHist'), "", handleClearHistory, true)}
         </View>
 
         {/* 5. PRIVACY & SAFETY */}

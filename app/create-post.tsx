@@ -18,9 +18,10 @@ import {
   StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import CustomAlert from '../components/CustomAlert'; // ✅ Imported CustomAlert
+import CustomAlert from '../components/CustomAlert';
 import { auth, db, storage } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
+import { getFriendlyErrorMessage } from '../utils/errorHandler'; // ✅ Imported Friendly Error Handler
 
 const GENRES = ["Action", "Adventure", "Romance", "Fantasy", "Drama", "Comedy", "Sci-Fi", "Slice of Life", "Sports", "Mystery"];
 
@@ -36,7 +37,6 @@ export default function CreatePostScreen() {
   
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  // ✅ New State for Custom Alert
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
@@ -44,7 +44,6 @@ export default function CreatePostScreen() {
     message: ''
   });
 
-  // ✅ Helper function
   const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
     setAlertConfig({ visible: true, type, title, message });
   };
@@ -82,7 +81,6 @@ export default function CreatePostScreen() {
           if (selectedTags.length < 3) {
               setSelectedTags([...selectedTags, tag]);
           } else {
-              // ✅ Replaced Alert.alert with CustomAlert
               showAlert('warning', 'Limit Reached', 'You can only select up to 3 topics.');
           }
       }
@@ -130,7 +128,7 @@ export default function CreatePostScreen() {
         reposts: [],
         commentCount: 0,
         parentId: null,
-        views: 0 // Initialize views
+        views: 0 
       });
 
       // 4. Queue User Update (Reset Rate Limit Timer)
@@ -143,11 +141,13 @@ export default function CreatePostScreen() {
       router.back(); 
     } catch (error: any) {
       console.error(error);
-      // ✅ Replaced Alert.alert with CustomAlert
       if (error.message.includes("permission-denied")) {
+        // Keep specific context for this error
         showAlert('error', '⛔ Blocked', 'You are posting too fast (30s cooldown) or you are banned.');
       } else {
-        showAlert('error', 'Post Failed', 'Could not create post. Please try again.');
+        // ✅ UPDATED: Use Friendly Error for everything else (Network, etc.)
+        const friendlyMessage = getFriendlyErrorMessage(error);
+        showAlert('error', 'Post Failed', friendlyMessage);
       }
     } finally {
       setLoading(false);
@@ -272,7 +272,7 @@ export default function CreatePostScreen() {
 
       </ScrollView>
 
-      {/* ✅ Render Custom Alert */}
+      {/* Custom Alert Component */}
       <CustomAlert 
         visible={alertConfig.visible}
         type={alertConfig.type}

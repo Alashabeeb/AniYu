@@ -8,9 +8,10 @@ import {
     Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import CustomAlert from '../../components/CustomAlert'; // ✅ Imported CustomAlert
+import CustomAlert from '../../components/CustomAlert';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
+import { getFriendlyErrorMessage } from '../../utils/errorHandler'; // ✅ Imported Friendly Error Handler
 
 export default function SignUpScreen() {
   const router = useRouter();
@@ -21,7 +22,6 @@ export default function SignUpScreen() {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // ✅ New State for Custom Alert
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
@@ -29,7 +29,6 @@ export default function SignUpScreen() {
     message: ''
   });
 
-  // ✅ Helper function
   const showAlert = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
     setAlertConfig({ visible: true, type, title, message });
   };
@@ -78,11 +77,13 @@ export default function SignUpScreen() {
             isVerified: false 
         });
 
-        // ✅ Show Success Alert (Redirect handled in onClose below)
+        // ✅ Show Success Alert
         showAlert('success', 'Welcome!', 'Your account has been created successfully.');
 
     } catch (error: any) {
-        showAlert('error', 'Sign Up Failed', error.message);
+        // ✅ UPDATED: Convert raw Firebase errors to friendly text
+        const friendlyMessage = getFriendlyErrorMessage(error);
+        showAlert('error', 'Sign Up Failed', friendlyMessage);
     } finally {
         setLoading(false);
     }
@@ -160,7 +161,7 @@ export default function SignUpScreen() {
 
         </ScrollView>
 
-        {/* ✅ Render Custom Alert */}
+        {/* Custom Alert Component */}
         <CustomAlert 
             visible={alertConfig.visible}
             type={alertConfig.type}
