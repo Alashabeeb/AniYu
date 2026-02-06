@@ -7,9 +7,25 @@ import {
   makeDirectoryAsync,
   writeAsStringAsync
 } from 'expo-file-system/legacy';
+// ✅ ADDED: Import Auth to get User ID
+import { auth } from '../config/firebaseConfig';
 
-const DOWNLOAD_STORAGE_KEY = 'my_downloaded_episodes_v1'; // Anime Key
-const MANGA_DOWNLOAD_KEY = 'my_downloaded_chapters_v1';   // ✅ New Manga Key
+// ❌ REMOVED: Static Keys
+// const DOWNLOAD_STORAGE_KEY = 'my_downloaded_episodes_v1'; 
+// const MANGA_DOWNLOAD_KEY = 'my_downloaded_chapters_v1'; 
+
+// ✅ NEW: Dynamic Key Generators
+const getAnimeKey = () => {
+  const userId = auth.currentUser?.uid;
+  if (!userId) return 'guest_downloaded_episodes_v1';
+  return `user_${userId}_downloaded_episodes_v1`;
+};
+
+const getMangaKey = () => {
+  const userId = auth.currentUser?.uid;
+  if (!userId) return 'guest_downloaded_chapters_v1';
+  return `user_${userId}_downloaded_chapters_v1`;
+};
 
 const rootDir = documentDirectory || 'file:///data/user/0/host.exp.exponent/files/';
 const DOWNLOAD_FOLDER = rootDir + 'anime_downloads/';
@@ -62,7 +78,8 @@ const ensureDirExists = async () => {
 
 export const getDownloads = async (): Promise<DownloadItem[]> => {
   try {
-    const jsonValue = await AsyncStorage.getItem(DOWNLOAD_STORAGE_KEY);
+    // ✅ UPDATE: Use Dynamic Key
+    const jsonValue = await AsyncStorage.getItem(getAnimeKey());
     return jsonValue != null ? JSON.parse(jsonValue) : [];
   } catch (e) {
     console.error("Error fetching downloads", e);
@@ -74,7 +91,8 @@ const saveDownloadRecord = async (newItem: DownloadItem) => {
   const current = await getDownloads();
   const filtered = current.filter(d => String(d.episodeId) !== String(newItem.episodeId));
   const updated = [...filtered, newItem];
-  await AsyncStorage.setItem(DOWNLOAD_STORAGE_KEY, JSON.stringify(updated));
+  // ✅ UPDATE: Use Dynamic Key
+  await AsyncStorage.setItem(getAnimeKey(), JSON.stringify(updated));
 };
 
 export const cancelDownload = async (episodeId: string | number) => {
@@ -125,6 +143,13 @@ export const downloadEpisodeToFile = async (
     delete progressListeners[epId];
 
     if (result && result.uri) {
+       // ✅ ADDED: Safety check for small files (Fake 403 downloads)
+       const fileInfo = await getInfoAsync(result.uri);
+       if(fileInfo.exists && fileInfo.size < 10000) {
+           await deleteAsync(result.uri, { idempotent: true });
+           throw new Error("Download failed: Access Denied (File too small)");
+       }
+
       const record: DownloadItem = {
         mal_id: anime.mal_id,
         episodeId: episode.mal_id,
@@ -167,7 +192,8 @@ export const removeDownload = async (episodeId: string | number) => {
     if (toRemove) {
         await deleteAsync(toRemove.localUri, { idempotent: true });
         const updated = downloads.filter(d => String(d.episodeId) !== String(episodeId));
-        await AsyncStorage.setItem(DOWNLOAD_STORAGE_KEY, JSON.stringify(updated));
+        // ✅ UPDATE: Use Dynamic Key
+        await AsyncStorage.setItem(getAnimeKey(), JSON.stringify(updated));
     }
 };
 
@@ -177,7 +203,8 @@ export const removeDownload = async (episodeId: string | number) => {
 
 export const getMangaDownloads = async (): Promise<DownloadItem[]> => {
   try {
-    const jsonValue = await AsyncStorage.getItem(MANGA_DOWNLOAD_KEY);
+    // ✅ UPDATE: Use Dynamic Key
+    const jsonValue = await AsyncStorage.getItem(getMangaKey());
     return jsonValue != null ? JSON.parse(jsonValue) : [];
   } catch (e) {
     console.error("Error fetching manga downloads", e);
@@ -190,7 +217,8 @@ const saveMangaDownloadRecord = async (newItem: DownloadItem) => {
   // Filter out duplicates based on ID
   const filtered = current.filter(d => String(d.episodeId) !== String(newItem.episodeId));
   const updated = [...filtered, newItem];
-  await AsyncStorage.setItem(MANGA_DOWNLOAD_KEY, JSON.stringify(updated));
+  // ✅ UPDATE: Use Dynamic Key
+  await AsyncStorage.setItem(getMangaKey(), JSON.stringify(updated));
 };
 
 export const downloadChapterToFile = async (
@@ -218,6 +246,13 @@ export const downloadChapterToFile = async (
     const result = await downloadResumable.downloadAsync();
 
     if (result && result.uri) {
+       // ✅ ADDED: Safety check for small files (Fake 403 downloads)
+       const fileInfo = await getInfoAsync(result.uri);
+       if(fileInfo.exists && fileInfo.size < 10000) {
+           await deleteAsync(result.uri, { idempotent: true });
+           throw new Error("Download failed: Access Denied (File too small)");
+       }
+
       const record: DownloadItem = {
         mal_id: manga.mal_id,
         episodeId: chapId, // We reuse 'episodeId' field for chapter ID
@@ -247,6 +282,7 @@ export const removeMangaDownload = async (chapterId: string | number) => {
     if (toRemove) {
         await deleteAsync(toRemove.localUri, { idempotent: true });
         const updated = downloads.filter(d => String(d.episodeId) !== String(chapterId));
-        await AsyncStorage.setItem(MANGA_DOWNLOAD_KEY, JSON.stringify(updated));
+        // ✅ UPDATE: Use Dynamic Key
+        await AsyncStorage.setItem(getMangaKey(), JSON.stringify(updated));
     }
 };
