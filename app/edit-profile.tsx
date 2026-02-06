@@ -20,7 +20,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../components/CustomAlert';
 import { auth, db, storage } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-import { getFriendlyErrorMessage } from '../utils/errorHandler';
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -78,33 +77,50 @@ export default function EditProfileScreen() {
     }
   };
 
+  // ✅ NEW: Bulletproof Blob Creator
+  const getBlobFromUri = async (uri: string): Promise<Blob> => {
+    const blob = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.onload = function () {
+        resolve(xhr.response);
+      };
+      xhr.onerror = function (e) {
+        reject(new TypeError("Network request failed"));
+      };
+      xhr.responseType = "blob";
+      xhr.open("GET", uri, true);
+      xhr.send(null);
+    });
+    return blob as Blob;
+  };
+
   const uploadImage = async (uri: string, type: 'avatar' | 'banner') => {
       setUploading(true);
       try {
           const user = auth.currentUser;
-          if (!user) return;
+          if (!user) throw new Error("User not found");
 
-          const response = await fetch(uri);
-          const blob = await response.blob();
+          const blob = await getBlobFromUri(uri);
           
-          // 1. Upload the file
+          // Use exact path matching the rules: users/{uid}/{file}
           const storageRef = ref(storage, `users/${user.uid}/${type}.jpg`);
-          await uploadBytesResumable(storageRef, blob);
           
-          // 2. Get URL
+          // Add Metadata
+          const metadata = { contentType: 'image/jpeg' };
+          
+          await uploadBytesResumable(storageRef, blob, metadata);
           const downloadUrl = await getDownloadURL(storageRef);
 
-          // ✅ 3. ADD CACHE BUSTER (Timestamp)
-          // This forces the Image component to reload the image immediately
-          const urlWithCacheBuster = `${downloadUrl}?t=${new Date().getTime()}`;
-
-          if (type === 'avatar') setAvatar(urlWithCacheBuster);
-          else setBanner(urlWithCacheBuster);
+          if (type === 'avatar') setAvatar(downloadUrl);
+          else setBanner(downloadUrl);
 
       } catch (error: any) {
-          console.log("Upload Error:", error); // Helpful for debugging
-          const friendlyMessage = getFriendlyErrorMessage(error);
-          showAlert('error', 'Upload Failed', friendlyMessage);
+          console.error(error);
+          if (error.code === 'storage/unauthorized') {
+             showAlert('error', 'Permission Denied', 'You cannot upload to this profile.');
+          } else {
+             showAlert('error', 'Upload Failed', 'Could not upload image. Please try again.');
+          }
       } finally {
           setUploading(false);
       }
@@ -120,21 +136,16 @@ export default function EditProfileScreen() {
 
     setLoading(true);
     try {
-        // Remove the cache buster before saving to DB to keep the URL clean
-        const cleanAvatar = avatar.split('?')[0];
-        const cleanBanner = banner.split('?')[0];
-
         await updateDoc(doc(db, "users", user.uid), {
             displayName,
             username,
             bio,
-            avatar: cleanAvatar,
-            banner: cleanBanner
+            avatar,
+            banner
         });
         showAlert('success', 'Profile Updated', 'Your changes have been saved successfully.');
-    } catch (error: any) {
-        const friendlyMessage = getFriendlyErrorMessage(error);
-        showAlert('error', 'Update Failed', friendlyMessage);
+    } catch (error) {
+        showAlert('error', 'Update Failed', 'Could not update profile. Please check your connection.');
     } finally {
         setLoading(false);
     }
@@ -161,12 +172,7 @@ export default function EditProfileScreen() {
 
                 <TouchableOpacity onPress={() => pickImage('banner')} style={styles.bannerContainer}>
                     {banner ? (
-                        <Image 
-                            source={{ uri: banner }} 
-                            style={styles.bannerImage} 
-                            contentFit="cover"
-                            cachePolicy="none" // ✅ Important: Don't cache while editing
-                        />
+                        <Image source={{ uri: banner }} style={styles.bannerImage} contentFit="cover" />
                     ) : (
                         <View style={[styles.bannerPlaceholder, { backgroundColor: theme.card }]}>
                             <Ionicons name="camera-outline" size={30} color={theme.subText} />
@@ -178,11 +184,7 @@ export default function EditProfileScreen() {
 
                 <View style={{ alignItems: 'center', marginTop: -40 }}>
                     <TouchableOpacity onPress={() => pickImage('avatar')}>
-                        <Image 
-                            source={{ uri: avatar || 'https://via.placeholder.com/150' }} 
-                            style={[styles.avatar, { borderColor: theme.background }]} 
-                            cachePolicy="none" // ✅ Important: Don't cache while editing
-                        />
+                        <Image source={{ uri: avatar || 'https://via.placeholder.com/150' }} style={[styles.avatar, { borderColor: theme.background }]} />
                         <View style={styles.cameraIcon}>
                              <Ionicons name="camera" size={18} color="white" />
                         </View>
@@ -223,7 +225,6 @@ export default function EditProfileScreen() {
             </ScrollView>
         </KeyboardAvoidingView>
 
-        {/* Custom Alert Component */}
         <CustomAlert 
             visible={alertConfig.visible}
             type={alertConfig.type}

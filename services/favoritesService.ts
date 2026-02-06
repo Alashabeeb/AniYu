@@ -1,12 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth } from '../config/firebaseConfig'; // ✅ Import Auth
 
-const FAVORITES_KEY = 'my_favorites'; // Anime Key
-const MANGA_FAVORITES_KEY = 'my_manga_favorites'; // ✅ New Manga Key
+// Base Keys
+const FAVORITES_BASE_KEY = 'favorites';
+const MANGA_FAVORITES_BASE_KEY = 'manga_favorites';
 
-// --- ANIME FUNCTIONS (Keep these as is) ---
+// ✅ HELPER: Generate a unique key for the current user
+const getUserKey = (baseKey: string) => {
+  const userId = auth.currentUser?.uid || 'guest';
+  return `user_${userId}_${baseKey}`;
+};
+
+// --- ANIME FUNCTIONS ---
 export const getFavorites = async () => {
   try {
-    const jsonValue = await AsyncStorage.getItem(FAVORITES_KEY);
+    const key = getUserKey(FAVORITES_BASE_KEY); // ✅ Use Dynamic Key
+    const jsonValue = await AsyncStorage.getItem(key);
     return jsonValue != null ? JSON.parse(jsonValue) : [];
   } catch (e) {
     return [];
@@ -25,7 +34,8 @@ export const toggleFavorite = async (anime: any) => {
       newFavorites = [...favorites, anime];
     }
     
-    await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(newFavorites));
+    const key = getUserKey(FAVORITES_BASE_KEY); // ✅ Use Dynamic Key
+    await AsyncStorage.setItem(key, JSON.stringify(newFavorites));
     return newFavorites;
   } catch (e) {
     console.error(e);
@@ -33,10 +43,11 @@ export const toggleFavorite = async (anime: any) => {
   }
 };
 
-// --- ✅ NEW: MANGA FUNCTIONS ---
+// --- MANGA FUNCTIONS ---
 export const getMangaFavorites = async () => {
   try {
-    const jsonValue = await AsyncStorage.getItem(MANGA_FAVORITES_KEY);
+    const key = getUserKey(MANGA_FAVORITES_BASE_KEY); // ✅ Use Dynamic Key
+    const jsonValue = await AsyncStorage.getItem(key);
     return jsonValue != null ? JSON.parse(jsonValue) : [];
   } catch (e) {
     return [];
@@ -55,7 +66,8 @@ export const toggleMangaFavorite = async (manga: any) => {
       newFavorites = [...favorites, manga];
     }
     
-    await AsyncStorage.setItem(MANGA_FAVORITES_KEY, JSON.stringify(newFavorites));
+    const key = getUserKey(MANGA_FAVORITES_BASE_KEY); // ✅ Use Dynamic Key
+    await AsyncStorage.setItem(key, JSON.stringify(newFavorites));
     return newFavorites;
   } catch (e) {
     console.error(e);
