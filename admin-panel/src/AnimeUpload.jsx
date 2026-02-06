@@ -6,7 +6,7 @@ import {
   ArrowLeft,
   Bell,
   Captions,
-  CheckCircle, // ✅ Added for Approve
+  CheckCircle,
   Download,
   Eye,
   FileVideo,
@@ -22,7 +22,7 @@ import {
   Trash2,
   Upload,
   X,
-  XCircle // ✅ Added for Reject
+  XCircle
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { auth, db, storage } from './firebase';
@@ -36,7 +36,6 @@ const GENRES_LIST = [
 
 const AGE_RATINGS = ["All", "12+", "16+", "18+"];
 const LANGUAGES = ["English", "Spanish", "Portuguese", "French", "German", "Indonesian", "Arabic", "Russian", "Japanese", "Chinese"];
-// ✅ Added "Pending"
 const STATUS_OPTIONS = ["Pending", "Ongoing", "Completed", "Upcoming"];
 
 export default function AnimeUpload() {
@@ -115,7 +114,6 @@ export default function AnimeUpload() {
       let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       // Client-side Filter by Tab
-      // If status is undefined, treat as 'Ongoing' for legacy support
       list = list.filter(a => (a.status || 'Ongoing') === libraryTab);
 
       setAnimeList(list);
@@ -138,7 +136,8 @@ export default function AnimeUpload() {
       } catch (e) { console.error("Notification failed:", e); }
   };
 
-  // ✅ ADMIN ACTIONS
+  // --- ACTIONS ---
+
   const handleApprove = async (anime) => {
       if (!window.confirm(`Approve "${anime.title}"? It will go live immediately.`)) return;
       try {
@@ -160,14 +159,11 @@ export default function AnimeUpload() {
       handleDelete(anime);
   };
 
-  // --- ACTIONS ---
-
   const handleCreateNew = () => {
     setCreatedAnimeId(null);
     setIsEditMode(false);
     setAnimeTitle(''); setTotalEpisodes(''); setReleaseYear(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setAnimeCover(null);
     
-    // ✅ PRODUCER DEFAULT TO PENDING
     if (currentUser?.role === 'anime_producer') {
         setAnimeStatus('Pending');
     } else {
@@ -243,7 +239,6 @@ export default function AnimeUpload() {
   };
 
   const handleDelete = async (anime) => {
-    // ✅ PRODUCER SECURITY CHECK
     if (currentUser.role === 'anime_producer' && anime.uploaderId !== currentUser.uid) {
         return alert("You can only delete your own uploads.");
     }
@@ -297,7 +292,23 @@ export default function AnimeUpload() {
     setEpisodes(newEps); 
   };
 
-  const updateEpisodeState = (index, field, value) => { const newEps = [...episodes]; newEps[index][field] = value; setEpisodes(newEps); };
+  // ✅ UPDATED: Strict Type Validation for Episode Files
+  const updateEpisodeState = (index, field, value) => { 
+      if (field === 'thumbFile' && value && !value.type.startsWith('image/')) {
+          alert("Invalid file type. Please upload an image file (JPG, PNG, etc) for the thumbnail.");
+          return;
+      }
+      // ✅ We keep this check simple to catch non-video MIME types, 
+      // but rely on the accept attribute for the specific extensions.
+      if (field === 'videoFile' && value && !value.type.startsWith('video/')) {
+          // Some MKV files might not have a standard MIME type in some browsers, 
+          // but we'll warn the user anyway to be safe.
+          alert("Warning: The file type detected is not a standard video format. If this is a valid video file, you may proceed, otherwise please check the file.");
+      }
+      const newEps = [...episodes]; 
+      newEps[index][field] = value; 
+      setEpisodes(newEps); 
+  };
 
   const addSubtitle = (epIndex) => {
     const newEps = [...episodes];
@@ -315,7 +326,18 @@ export default function AnimeUpload() {
     setEpisodes(newEps);
   };
 
-  const handleFileChange = (e, setter) => { if (e.target.files[0]) setter(e.target.files[0]); };
+  // ✅ UPDATED: Strict Type Validation for Cover Image
+  const handleFileChange = (e, setter, requiredType = 'image') => { 
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (requiredType === 'image' && !file.type.startsWith('image/')) {
+          alert("Invalid file type. Please upload a valid image file.");
+          e.target.value = null; // Reset the input
+          return;
+      }
+      setter(file); 
+  };
   
   const uploadFile = (file, path) => {
     return new Promise((resolve, reject) => {
@@ -350,7 +372,6 @@ export default function AnimeUpload() {
       const finalCoverUrl = coverResult?.url || existingCoverUrl;
       let animeId = createdAnimeId;
 
-      // ✅ FORCE STATUS FOR PRODUCERS
       let finalStatus = animeStatus;
       if (currentUser?.role === 'anime_producer' && !isEditMode) {
           finalStatus = 'Pending';
@@ -438,7 +459,6 @@ export default function AnimeUpload() {
 
       setStatus('Success!');
       
-      // ✅ NOTIFY ONLY IF LIVE (Not Pending)
       if (notifyUsers && finalStatus !== 'Pending') {
           if (isEditMode) {
              const newEpCount = episodes.filter(e => e.isNew).length;
@@ -743,7 +763,8 @@ export default function AnimeUpload() {
             <div className="grid-12">
               <div>
                 <span className="form-label">Cover</span>
-                <input type="file" className="hidden" id="animeCover" onChange={(e) => handleFileChange(e, setAnimeCover)} />
+                {/* ✅ ADDED accept="image/*" and validation logic */}
+                <input type="file" accept="image/*" className="hidden" id="animeCover" onChange={(e) => handleFileChange(e, setAnimeCover, 'image')} />
                 <label htmlFor="animeCover" className={`upload-zone ${animeCover ? 'active' : ''}`}>
                   {animeCover ? <img src={URL.createObjectURL(animeCover)} /> : existingCoverUrl ? <img src={existingCoverUrl} /> : <div style={{textAlign:'center', color:'#9ca3af'}}><ImageIcon size={30}/> Upload</div>}
                 </label>
@@ -776,7 +797,8 @@ export default function AnimeUpload() {
                    <div>
                       <div className="form-group">
                          <span className="form-label">Thumbnail</span>
-                         <input type="file" className="hidden" id={`thumb-${ep.id}`} onChange={(e) => updateEpisodeState(index, 'thumbFile', e.target.files[0])} />
+                         {/* ✅ ADDED accept="image/*" and validation logic */}
+                         <input type="file" accept="image/*" className="hidden" id={`thumb-${ep.id}`} onChange={(e) => updateEpisodeState(index, 'thumbFile', e.target.files[0])} />
                          <label htmlFor={`thumb-${ep.id}`} className="upload-zone upload-zone-small">
                             {ep.thumbFile ? <img src={URL.createObjectURL(ep.thumbFile)} /> : ep.existingThumbUrl ? <img src={ep.existingThumbUrl} /> : <div style={{textAlign:'center', color:'#9ca3af'}}><ImageIcon /> Thumb</div>}
                          </label>
@@ -789,7 +811,8 @@ export default function AnimeUpload() {
                    <div>
                       <div className="form-group">
                          <span className="form-label">Video File {ep.existingVideoUrl && "(Uploaded)"}</span>
-                         <input type="file" accept="video/*" className="hidden" id={`vid-${ep.id}`} onChange={(e) => updateEpisodeState(index, 'videoFile', e.target.files[0])} />
+                         {/* ✅ ADDED expanded accept attribute as requested */}
+                         <input type="file" accept="video/*, .mkv, .mp4, .avi, .mov, .flv, .wmv, .webm" className="hidden" id={`vid-${ep.id}`} onChange={(e) => updateEpisodeState(index, 'videoFile', e.target.files[0])} />
                          <label htmlFor={`vid-${ep.id}`} className={`upload-zone ${ep.videoFile ? 'active' : ''}`} style={{ minHeight: 180 }}>
                             {ep.videoFile ? <div style={{textAlign:'center', color:'#7c3aed'}}><FileVideo size={40}/><div>{ep.videoFile.name}</div></div> : ep.existingVideoUrl ? <div style={{textAlign:'center', color:'#10b981'}}><FileVideo size={40}/><div>Video Exists</div><div style={{fontSize:10}}>Click to Replace</div></div> : <div style={{textAlign:'center', color:'#9ca3af'}}><Upload size={40}/> Upload Video</div>}
                          </label>

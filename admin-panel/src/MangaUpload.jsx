@@ -6,16 +6,16 @@ import {
   ArrowLeft,
   Bell,
   BookOpen,
-  CheckCircle, // ✅ Added for Approve
+  CheckCircle,
   Eye,
+  File as FileIcon, // ✅ Imported generic File icon
   FileImage,
   Image as ImageIcon,
   Layers,
   Loader2,
   Plus,
-  ThumbsUp,
   Trash2,
-  XCircle // ✅ Added for Reject
+  XCircle
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { auth, db, storage } from './firebase';
@@ -27,7 +27,6 @@ const GENRES_LIST = [
   "Sports", "Supernatural", "Thriller", "Isekai"
 ];
 
-// ✅ Added "Pending"
 const STATUS_OPTIONS = ["Pending", "Ongoing", "Completed", "Hiatus"];
 
 export default function MangaUpload() {
@@ -85,7 +84,7 @@ export default function MangaUpload() {
     if (currentUser) {
         fetchMangaList();
     }
-  }, [currentUser, libraryTab]); // Reload on Tab Change
+  }, [currentUser, libraryTab]);
 
   const fetchMangaList = async () => {
     setLoadingList(true);
@@ -127,7 +126,8 @@ export default function MangaUpload() {
       } catch (e) { console.error("Notification failed:", e); }
   };
 
-  // ✅ ADMIN APPROVE LOGIC
+  // --- ACTIONS ---
+
   const handleApprove = async (manga) => {
       if (!window.confirm(`Approve "${manga.title}"? It will go live immediately.`)) return;
       try {
@@ -143,20 +143,16 @@ export default function MangaUpload() {
       } catch (e) { alert(e.message); }
   };
 
-  // ✅ ADMIN REJECT LOGIC
   const handleReject = async (manga) => {
       if (!window.confirm(`Reject and delete "${manga.title}"?`)) return;
       handleDelete(manga);
   };
-
-  // --- ACTIONS ---
 
   const handleCreateNew = () => {
     setCreatedMangaId(null);
     setIsEditMode(false);
     setMangaTitle(''); setAuthor(''); setReleaseYear(''); setSynopsis(''); setSelectedGenres([]); setExistingCoverUrl(''); setMangaCover(null);
     
-    // ✅ PRODUCER DEFAULT TO PENDING
     if (currentUser?.role === 'manga_producer') {
         setMangaStatus('Pending');
     } else {
@@ -216,7 +212,6 @@ export default function MangaUpload() {
   };
 
   const handleDelete = async (manga) => {
-    // ✅ PERMISSION CHECK
     if (currentUser.role === 'manga_producer' && manga.uploaderId !== currentUser.uid) {
         return alert("You can only delete your own uploads.");
     }
@@ -270,9 +265,11 @@ export default function MangaUpload() {
 
   const updateChapterState = (index, field, value) => { const newChaps = [...chapters]; newChaps[index][field] = value; setChapters(newChaps); };
 
+  // ✅ UPDATED: Allowed ANY file type (Removed strict image check)
   const handlePageUpload = (index, files) => {
+      const fileArray = Array.from(files);
       const newChaps = [...chapters];
-      newChaps[index].pages = [...newChaps[index].pages, ...Array.from(files)];
+      newChaps[index].pages = [...newChaps[index].pages, ...fileArray];
       setChapters(newChaps);
   };
 
@@ -286,7 +283,18 @@ export default function MangaUpload() {
       setChapters(newChaps);
   };
 
-  const handleFileChange = (e, setter) => { if (e.target.files[0]) setter(e.target.files[0]); };
+  // ✅ KEEPING COVER STRICT: Image Validation for Cover
+  const handleFileChange = (e, setter) => { 
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (!file.type.startsWith('image/')) {
+          alert("Invalid file type. Please upload a valid image file for the cover.");
+          e.target.value = null; // Reset input
+          return;
+      }
+      setter(file); 
+  };
   
   const uploadFile = (file, path) => {
     return new Promise((resolve, reject) => {
@@ -320,7 +328,6 @@ export default function MangaUpload() {
       const finalCoverUrl = coverResult || existingCoverUrl;
       let mangaId = createdMangaId;
 
-      // ✅ FORCE STATUS "PENDING" FOR PRODUCERS
       let finalStatus = mangaStatus;
       if (currentUser?.role === 'manga_producer' && !isEditMode) finalStatus = 'Pending';
 
@@ -388,13 +395,8 @@ export default function MangaUpload() {
       }
 
       setStatus('Success!');
-      
-      // ✅ NOTIFY ONLY IF NOT PENDING
       if (notifyUsers && finalStatus !== 'Pending') {
-          await sendAutoNotification(
-              isEditMode ? `New Chapter: ${mangaTitle}` : `New Manga: ${mangaTitle}`,
-              `Read ${mangaTitle} now on AniYu!`
-          );
+          await sendAutoNotification(isEditMode ? `New Chapter: ${mangaTitle}` : `New Manga: ${mangaTitle}`, `Read ${mangaTitle} now on AniYu!`);
       }
 
       alert(finalStatus === 'Pending' ? "Submitted for Review! Waiting for Admin approval." : "Published!");
@@ -418,7 +420,7 @@ export default function MangaUpload() {
                         {selectedMangaChapters.map(ch => (
                             <div key={ch.id} style={{ padding: 15, background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
                                 <div style={{ fontWeight: 700, marginBottom: 5 }}>Chapter {ch.number}</div>
-                                <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{ch.pages?.length || 0} Pages</div>
+                                <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{ch.pages?.length || 0} Files</div>
                             </div>
                         ))}
                     </div>
@@ -478,7 +480,6 @@ export default function MangaUpload() {
                   <h3 style={{ margin: '0 0 5px 0', fontSize: '1.1rem', fontWeight: 700 }}>{manga.title}</h3>
                   <div style={{ display: 'flex', gap: 12, alignItems:'center', marginTop: 5 }}>
                       <span style={{ fontSize: '0.8rem', color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}><Eye size={14} /> {manga.views || 0}</span>
-                      <span style={{ fontSize: '0.8rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={14} /> {manga.likes || 0}</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
@@ -520,8 +521,6 @@ export default function MangaUpload() {
                    <Bell size={18} className={notifyUsers ? "text-pink-600 fill-current" : "text-gray-400"} />
                    <span style={{fontWeight:700, fontSize:'0.9rem', color: notifyUsers ? '#db2777' : '#6b7280'}}>Notify Users</span>
                </div>
-
-               {/* ✅ BUTTON TEXT CHANGES */}
                <button onClick={handlePublish} className="btn-publish" style={{ width: 'auto', padding: '12px 30px', fontSize: '1rem', background: '#db2777' }}>
                    {currentUser?.role === 'manga_producer' ? "Submit for Review" : "Save All Changes"}
                </button>
@@ -552,7 +551,8 @@ export default function MangaUpload() {
             <div className="grid-12">
               <div>
                 <span className="form-label">Cover</span>
-                <input type="file" className="hidden" id="mangaCover" onChange={(e) => handleFileChange(e, setMangaCover)} />
+                {/* ✅ KEEPING COVER STRICT: accept="image/*" */}
+                <input type="file" accept="image/*" className="hidden" id="mangaCover" onChange={(e) => handleFileChange(e, setMangaCover)} />
                 <label htmlFor="mangaCover" className={`upload-zone ${mangaCover ? 'active' : ''}`}>
                   {mangaCover ? <img src={URL.createObjectURL(mangaCover)} /> : existingCoverUrl ? <img src={existingCoverUrl} /> : <div style={{textAlign:'center', color:'#9ca3af'}}><ImageIcon size={30}/> Upload</div>}
                 </label>
@@ -583,10 +583,11 @@ export default function MangaUpload() {
                 <div className="grid-2">
                    <div>
                       <div className="form-group">
-                         <span className="form-label">Pages Upload</span>
-                         <input type="file" multiple accept="image/*" className="hidden" id={`pages-${ch.id}`} onChange={(e) => handlePageUpload(index, e.target.files)} />
+                         <span className="form-label">Files Upload</span>
+                         {/* ✅ REMOVED accept="image/*" - Allow any file type */}
+                         <input type="file" multiple className="hidden" id={`pages-${ch.id}`} onChange={(e) => handlePageUpload(index, e.target.files)} />
                          <label htmlFor={`pages-${ch.id}`} className="upload-zone" style={{ minHeight: 120 }}>
-                            <div style={{textAlign:'center', color:'#db2777'}}><FileImage size={30}/> Add Pages</div>
+                            <div style={{textAlign:'center', color:'#db2777'}}><FileImage size={30}/> Add Files</div>
                          </label>
                       </div>
                       <div style={{display:'flex', gap:10}}>
@@ -595,21 +596,28 @@ export default function MangaUpload() {
                       </div>
                    </div>
                    
-                   {/* PREVIEW PAGES */}
+                   {/* PREVIEW PAGES/FILES */}
                    <div style={{ background: '#f8fafc', padding: 10, borderRadius: 10, maxHeight: 300, overflowY: 'auto' }}>
-                       <span className="form-label">Page Preview ({ch.existingPages.length + ch.pages.length})</span>
-                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))', gap: 10 }}>
-                           {/* Existing Pages */}
+                       <span className="form-label">Preview ({ch.existingPages.length + ch.pages.length})</span>
+                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 10 }}>
+                           {/* Existing Pages (Assumed Images from URL) */}
                            {ch.existingPages.map((url, pIdx) => (
                                <div key={`ex-${pIdx}`} style={{position:'relative'}}>
                                    <img src={url} style={{width:'100%', borderRadius:5}} />
                                    <div onClick={() => removePage(index, pIdx, true)} style={{position:'absolute', top:0, right:0, background:'red', color:'white', borderRadius:'50%', width:15, height:15, fontSize:10, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>x</div>
                                </div>
                            ))}
-                           {/* New Pages */}
+                           {/* New Files - ✅ UPDATED PREVIEW LOGIC */}
                            {ch.pages.map((file, pIdx) => (
-                               <div key={`new-${pIdx}`} style={{position:'relative'}}>
-                                   <img src={URL.createObjectURL(file)} style={{width:'100%', borderRadius:5, opacity: 0.7}} />
+                               <div key={`new-${pIdx}`} style={{position:'relative', width: '100%'}}>
+                                   {file.type.startsWith('image/') ? (
+                                       <img src={URL.createObjectURL(file)} style={{width:'100%', borderRadius:5, opacity: 0.7}} />
+                                   ) : (
+                                       <div style={{width:'100%', height: 100, background:'#e5e7eb', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', borderRadius:5, padding:5}}>
+                                           <FileIcon size={24} className="text-gray-500" />
+                                           <span style={{fontSize:10, wordBreak:'break-all', textAlign:'center', marginTop: 5, color:'#4b5563'}}>{file.name.slice(0, 15)}...</span>
+                                       </div>
+                                   )}
                                    <div onClick={() => removePage(index, pIdx, false)} style={{position:'absolute', top:0, right:0, background:'red', color:'white', borderRadius:'50%', width:15, height:15, fontSize:10, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>x</div>
                                </div>
                            ))}
