@@ -5,9 +5,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View
 } from 'react-native';
-import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
+import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AdConfig } from '../../config/adConfig'; // ✅ Import Config
+import { AdConfig } from '../../config/adConfig';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 import { downloadChapterToFile, getMangaDownloads } from '../../services/downloadService';
@@ -19,7 +19,6 @@ import {
     incrementMangaView
 } from '../../services/mangaService';
 
-// ✅ Use Central Config
 const interstitial = InterstitialAd.createForAdRequest(AdConfig.interstitial, {
   requestNonPersonalizedAdsOnly: true,
 });
@@ -41,11 +40,9 @@ export default function MangaDetailScreen() {
   const [userRating, setUserRating] = useState(0);
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  // ✅ Ad State
   const [adLoaded, setAdLoaded] = useState(false);
   const [pendingDownloadChapter, setPendingDownloadChapter] = useState<any>(null);
 
-  // ✅ AD LOGIC: Load & Listeners
   useEffect(() => {
     const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
       setAdLoaded(true);
@@ -53,9 +50,8 @@ export default function MangaDetailScreen() {
 
     const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       setAdLoaded(false);
-      interstitial.load(); // Reload for next time
+      interstitial.load();
       
-      // If there was a pending download, start it now
       if (pendingDownloadChapter) {
           performDownload(pendingDownloadChapter);
           setPendingDownloadChapter(null);
@@ -75,7 +71,6 @@ export default function MangaDetailScreen() {
     };
   }, [pendingDownloadChapter]);
 
-  // Reload status when returning to screen
   useFocusEffect(
     useCallback(() => {
         if (id) {
@@ -84,7 +79,6 @@ export default function MangaDetailScreen() {
     }, [id])
   );
 
-  // Initial Load
   useFocusEffect(
     useCallback(() => {
         if(id) loadData();
@@ -150,7 +144,10 @@ export default function MangaDetailScreen() {
 
   // ✅ HELPER: Perform Download (Separated Logic)
   const performDownload = async (chapter: any) => {
-      if (!chapter.fileUrl) return Alert.alert("Error", "No file to download.");
+      // ✅ FIX: Check chapter.pages[0] instead of fileUrl
+      const fileUrl = chapter.pages && chapter.pages.length > 0 ? chapter.pages[0] : null;
+
+      if (!fileUrl) return Alert.alert("Error", "No file to download.");
       
       const chId = String(chapter.id || chapter.number);
       setDownloadingIds(prev => [...prev, chId]);
@@ -160,7 +157,7 @@ export default function MangaDetailScreen() {
               id: chId, 
               number: chapter.number,
               title: chapter.title || `Chapter ${chapter.number}`,
-              url: chapter.fileUrl
+              url: fileUrl // ✅ Use extracted URL
           };
           
           await downloadChapterToFile(manga, episodeObj);
@@ -173,22 +170,24 @@ export default function MangaDetailScreen() {
       }
   };
 
-  // ✅ UPDATED: Handle Download Click with Ad Check
   const handleDownload = (chapter: any) => {
       const chId = String(chapter.id || chapter.number);
       
-      if (downloadedChapters.includes(chId)) return; // Already downloaded
+      if (downloadedChapters.includes(chId)) return; 
 
       if (adLoaded) {
-          setPendingDownloadChapter(chapter); // Save state
-          interstitial.show();                // Show Ad
+          setPendingDownloadChapter(chapter); 
+          interstitial.show();                
       } else {
-          performDownload(chapter);           // No ad? Download immediately
+          performDownload(chapter);           
       }
   };
 
   const handleReadChapter = (chapter: any) => {
-      if (!chapter.fileUrl) {
+      // ✅ FIX: Check chapter.pages[0] instead of fileUrl
+      const fileUrl = chapter.pages && chapter.pages.length > 0 ? chapter.pages[0] : null;
+
+      if (!fileUrl) {
           Alert.alert("Error", "Chapter file not available.");
           return;
       }
@@ -196,7 +195,7 @@ export default function MangaDetailScreen() {
       router.push({
           pathname: '/chapter-read', 
           params: {
-              url: chapter.fileUrl,
+              url: fileUrl, // ✅ Pass the correct URL
               title: `${manga.title} - ${chapter.title || 'Chapter ' + chapter.number}`,
               mangaId: manga.mal_id, 
               chapterId: chapter.id || chapter.number,
@@ -274,7 +273,6 @@ export default function MangaDetailScreen() {
                                     <View>
                                         <Text style={[styles.chapterNum, { color: isRead ? theme.subText : theme.tint }]}>
                                             Chapter {ch.number} 
-                                            {/* ✅ GREEN BOLD READ LABEL */}
                                             {isRead && (
                                                 <Text style={{ color: '#10b981', fontSize: 12, fontWeight: 'bold' }}>
                                                     {'  '}✓ READ

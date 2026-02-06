@@ -8,7 +8,7 @@ import {
   BookOpen,
   CheckCircle,
   Eye,
-  File as FileIcon, // ✅ Imported generic File icon
+  File as FileIcon,
   FileImage,
   Image as ImageIcon,
   Layers,
@@ -159,7 +159,8 @@ export default function MangaUpload() {
         setMangaStatus('Ongoing'); 
     }
 
-    setChapters([{ id: Date.now(), number: 1, title: '', pages: [], existingPages: [], isNew: true }]);
+    // ✅ UPDATED INITIAL STATE: Single file fields
+    setChapters([{ id: Date.now(), number: 1, title: '', chapterFile: null, existingFileUrl: null, isNew: true }]);
     setDeletedChapters([]);
     setNotifyUsers(true);
     setView('form');
@@ -187,11 +188,12 @@ export default function MangaUpload() {
         id: doc.id, 
         number: doc.data().number, 
         title: doc.data().title,
-        existingPages: doc.data().pages || [], 
-        pages: [], 
+        // ✅ FETCH SINGLE FILE: Grab first item from 'pages' array if exists
+        existingFileUrl: (doc.data().pages && doc.data().pages.length > 0) ? doc.data().pages[0] : null, 
+        chapterFile: null, 
         isNew: false
       }));
-      setChapters(fetchedChaps.length > 0 ? fetchedChaps : [{ id: Date.now(), number: 1, title: '', pages: [], existingPages: [], isNew: true }]);
+      setChapters(fetchedChaps.length > 0 ? fetchedChaps : [{ id: Date.now(), number: 1, title: '', chapterFile: null, existingFileUrl: null, isNew: true }]);
       setView('form');
     } catch (e) { alert(e.message); }
     setStatus('');
@@ -250,7 +252,7 @@ export default function MangaUpload() {
   // --- FORM LOGIC ---
   const addChapterForm = () => {
     const nextNum = chapters.length > 0 ? Number(chapters[chapters.length - 1].number) + 1 : 1;
-    setChapters([...chapters, { id: Date.now(), number: nextNum, title: '', pages: [], existingPages: [], isNew: true }]);
+    setChapters([...chapters, { id: Date.now(), number: nextNum, title: '', chapterFile: null, existingFileUrl: null, isNew: true }]);
   };
 
   const removeChapterForm = (index) => {
@@ -265,20 +267,20 @@ export default function MangaUpload() {
 
   const updateChapterState = (index, field, value) => { const newChaps = [...chapters]; newChaps[index][field] = value; setChapters(newChaps); };
 
-  // ✅ UPDATED: Allowed ANY file type (Removed strict image check)
-  const handlePageUpload = (index, files) => {
-      const fileArray = Array.from(files);
+  // ✅ UPDATED: Handle SINGLE file selection
+  const handleChapterFileUpload = (index, file) => {
       const newChaps = [...chapters];
-      newChaps[index].pages = [...newChaps[index].pages, ...fileArray];
+      newChaps[index].chapterFile = file; 
       setChapters(newChaps);
   };
 
-  const removePage = (chIndex, pageIndex, isExisting) => {
+  // ✅ UPDATED: Handle SINGLE file removal
+  const removeChapterFile = (index, isExisting) => {
       const newChaps = [...chapters];
       if (isExisting) {
-          newChaps[chIndex].existingPages.splice(pageIndex, 1);
+          newChaps[index].existingFileUrl = null;
       } else {
-          newChaps[chIndex].pages.splice(pageIndex, 1);
+          newChaps[index].chapterFile = null;
       }
       setChapters(newChaps);
   };
@@ -368,20 +370,22 @@ export default function MangaUpload() {
 
       for (let i = 0; i < chapters.length; i++) {
         const ch = chapters[i];
-        setStatus(`Uploading Chapter ${ch.number} pages...`);
+        setStatus(`Uploading Chapter ${ch.number} file...`);
         
-        const newPageUrls = [];
-        for (const file of ch.pages) {
-            const url = await uploadFile(file, `manga_pages/${mangaId}/ch_${ch.number}`);
-            newPageUrls.push(url);
+        let finalFileUrl = ch.existingFileUrl;
+
+        // ✅ SINGLE FILE UPLOAD LOGIC
+        if (ch.chapterFile) {
+            finalFileUrl = await uploadFile(ch.chapterFile, `manga_pages/${mangaId}/ch_${ch.number}`);
         }
 
-        const finalPages = [...(ch.existingPages || []), ...newPageUrls];
+        // ✅ SAVE AS SINGLE ELEMENT ARRAY (Compatible with 'pages' field)
+        const finalPages = finalFileUrl ? [finalFileUrl] : [];
 
         const chData = {
           title: ch.title || `Chapter ${ch.number}`, 
           number: Number(ch.number),
-          pages: finalPages,
+          pages: finalPages, 
           updatedAt: serverTimestamp()
         };
 
@@ -420,7 +424,10 @@ export default function MangaUpload() {
                         {selectedMangaChapters.map(ch => (
                             <div key={ch.id} style={{ padding: 15, background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
                                 <div style={{ fontWeight: 700, marginBottom: 5 }}>Chapter {ch.number}</div>
-                                <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{ch.pages?.length || 0} Files</div>
+                                <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>
+                                    {/* Display file info instead of pages count */}
+                                    {(ch.pages && ch.pages.length > 0) ? "File Uploaded" : "No File"}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -483,7 +490,6 @@ export default function MangaUpload() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                   {/* ✅ ADMIN APPROVAL BUTTONS */}
                    {libraryTab === 'Pending' && currentUser?.role !== 'manga_producer' && (
                        <>
                            <button onClick={() => handleApprove(manga)} style={{ padding: '8px 12px', borderRadius: 8, background: '#dcfce7', color: '#166534', fontWeight: 'bold', border: '1px solid #bbf7d0', display:'flex', gap:5, cursor:'pointer' }}><CheckCircle size={16}/> Approve</button>
@@ -534,7 +540,6 @@ export default function MangaUpload() {
           <div className="card-header blue" style={{justifyContent:'space-between', background:'#fce7f3', color:'#831843'}}>
               <div style={{display:'flex', alignItems:'center', gap:10}}><BookOpen size={24} /> <span>Header: Manga Details</span></div>
               
-              {/* ✅ HIDE STATUS FOR PRODUCER */}
               {currentUser?.role !== 'manga_producer' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, background:'white', padding:'5px 15px', borderRadius:12, border:'1px solid #fbcfe8' }}>
                       <select value={mangaStatus} onChange={(e) => setMangaStatus(e.target.value)} style={{border:'none', fontWeight:700, outline:'none', fontSize:'0.95rem', color:'#db2777'}}>
@@ -583,11 +588,11 @@ export default function MangaUpload() {
                 <div className="grid-2">
                    <div>
                       <div className="form-group">
-                         <span className="form-label">Files Upload</span>
-                         {/* ✅ REMOVED accept="image/*" - Allow any file type */}
-                         <input type="file" multiple className="hidden" id={`pages-${ch.id}`} onChange={(e) => handlePageUpload(index, e.target.files)} />
+                         <span className="form-label">File Upload (CBZ, PDF, ZIP)</span>
+                         {/* ✅ SINGLE FILE INPUT: No 'multiple' attribute */}
+                         <input type="file" className="hidden" id={`pages-${ch.id}`} onChange={(e) => handleChapterFileUpload(index, e.target.files[0])} />
                          <label htmlFor={`pages-${ch.id}`} className="upload-zone" style={{ minHeight: 120 }}>
-                            <div style={{textAlign:'center', color:'#db2777'}}><FileImage size={30}/> Add Files</div>
+                            <div style={{textAlign:'center', color:'#db2777'}}><FileImage size={30}/> {ch.chapterFile ? "Replace File" : "Upload Chapter File"}</div>
                          </label>
                       </div>
                       <div style={{display:'flex', gap:10}}>
@@ -596,31 +601,37 @@ export default function MangaUpload() {
                       </div>
                    </div>
                    
-                   {/* PREVIEW PAGES/FILES */}
+                   {/* ✅ STRICTLY FILE PREVIEW (No Images) */}
                    <div style={{ background: '#f8fafc', padding: 10, borderRadius: 10, maxHeight: 300, overflowY: 'auto' }}>
-                       <span className="form-label">Preview ({ch.existingPages.length + ch.pages.length})</span>
-                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 10 }}>
-                           {/* Existing Pages (Assumed Images from URL) */}
-                           {ch.existingPages.map((url, pIdx) => (
-                               <div key={`ex-${pIdx}`} style={{position:'relative'}}>
-                                   <img src={url} style={{width:'100%', borderRadius:5}} />
-                                   <div onClick={() => removePage(index, pIdx, true)} style={{position:'absolute', top:0, right:0, background:'red', color:'white', borderRadius:'50%', width:15, height:15, fontSize:10, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>x</div>
+                       <span className="form-label">File Preview</span>
+                       <div style={{ display: 'flex', flexDirection:'column', gap: 10 }}>
+                           
+                           {/* 1. Existing File Preview */}
+                           {ch.existingFileUrl && (
+                               <div style={{position:'relative', width: '100%', height: 100, background:'#e5e7eb', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', borderRadius:5, padding:5, border:'1px solid #d1d5db'}}>
+                                   <FileIcon size={32} className="text-gray-500" />
+                                   <span style={{fontSize:11, textAlign:'center', marginTop: 5, color:'#4b5563', fontWeight:600}}>Existing Chapter File</span>
+                                   <div onClick={() => removeChapterFile(index, true)} style={{position:'absolute', top:5, right:5, background:'#ef4444', color:'white', borderRadius:'50%', width:20, height:20, fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 2px 5px rgba(0,0,0,0.2)'}}>x</div>
                                </div>
-                           ))}
-                           {/* New Files - ✅ UPDATED PREVIEW LOGIC */}
-                           {ch.pages.map((file, pIdx) => (
-                               <div key={`new-${pIdx}`} style={{position:'relative', width: '100%'}}>
-                                   {file.type.startsWith('image/') ? (
-                                       <img src={URL.createObjectURL(file)} style={{width:'100%', borderRadius:5, opacity: 0.7}} />
-                                   ) : (
-                                       <div style={{width:'100%', height: 100, background:'#e5e7eb', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', borderRadius:5, padding:5}}>
-                                           <FileIcon size={24} className="text-gray-500" />
-                                           <span style={{fontSize:10, wordBreak:'break-all', textAlign:'center', marginTop: 5, color:'#4b5563'}}>{file.name.slice(0, 15)}...</span>
-                                       </div>
-                                   )}
-                                   <div onClick={() => removePage(index, pIdx, false)} style={{position:'absolute', top:0, right:0, background:'red', color:'white', borderRadius:'50%', width:15, height:15, fontSize:10, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>x</div>
+                           )}
+
+                           {/* 2. New File Preview */}
+                           {ch.chapterFile && (
+                               <div style={{position:'relative', width: '100%', height: 100, background:'#fce7f3', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', borderRadius:5, padding:5, border:'1px solid #fbcfe8'}}>
+                                   <FileIcon size={32} className="text-pink-600" />
+                                   <span style={{fontSize:11, wordBreak:'break-all', textAlign:'center', marginTop: 5, color:'#831843', fontWeight:600}}>
+                                       {ch.chapterFile.name.length > 20 ? ch.chapterFile.name.substring(0, 20) + '...' : ch.chapterFile.name}
+                                   </span>
+                                   <span style={{fontSize:9, color:'#db2777'}}>{(ch.chapterFile.size / 1024 / 1024).toFixed(2)} MB</span>
+                                   <div onClick={() => removeChapterFile(index, false)} style={{position:'absolute', top:5, right:5, background:'#ef4444', color:'white', borderRadius:'50%', width:20, height:20, fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 2px 5px rgba(0,0,0,0.2)'}}>x</div>
                                </div>
-                           ))}
+                           )}
+
+                           {!ch.existingFileUrl && !ch.chapterFile && (
+                               <div style={{color:'#9ca3af', fontStyle:'italic', fontSize:'0.85rem', textAlign:'center', padding:20}}>
+                                   No file selected.
+                               </div>
+                           )}
                        </div>
                    </div>
                 </div>

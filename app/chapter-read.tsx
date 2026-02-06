@@ -3,16 +3,15 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
+import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { AdConfig } from '../config/adConfig'; // ✅ Import Config
+import { AdConfig } from '../config/adConfig';
 
 import { useTheme } from '../context/ThemeContext';
 import { getMangaHistory, saveReadProgress } from '../services/historyService';
 import { getMangaChapters } from '../services/mangaService';
 
-// ✅ Use Central Config
 const interstitial = InterstitialAd.createForAdRequest(AdConfig.interstitial, {
   requestNonPersonalizedAdsOnly: true,
 });
@@ -27,17 +26,14 @@ export default function MangaReaderScreen() {
   const [currentChapIndex, setCurrentChapIndex] = useState(-1);
   const [localPdfData, setLocalPdfData] = useState<string | null>(null);
 
-  // Resume State
   const [initialPage, setInitialPage] = useState(1);
   const [isHistoryReady, setIsHistoryReady] = useState(false);
 
-  // ✅ Ad State
   const [adLoaded, setAdLoaded] = useState(false);
-  const [nextChapterParams, setNextChapterParams] = useState<any>(null); // To store where we are going
+  const [nextChapterParams, setNextChapterParams] = useState<any>(null); 
 
   const chapterNumber = Number(chapterNum);
 
-  // ✅ AD LOGIC: Load & Listeners
   useEffect(() => {
     const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
       setAdLoaded(true);
@@ -45,9 +41,8 @@ export default function MangaReaderScreen() {
 
     const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       setAdLoaded(false);
-      interstitial.load(); // Reload for next time
+      interstitial.load(); 
       
-      // ✅ AD CLOSED -> NAVIGATE TO NEXT CHAPTER
       if (nextChapterParams) {
           router.replace(nextChapterParams);
           setNextChapterParams(null);
@@ -67,7 +62,6 @@ export default function MangaReaderScreen() {
     };
   }, [nextChapterParams]);
 
-  // 1. Fetch History to Resume
   useEffect(() => {
       const loadHistory = async () => {
           try {
@@ -87,7 +81,6 @@ export default function MangaReaderScreen() {
       loadHistory();
   }, [mangaId, chapterId]);
 
-  // 2. Fetch Chapters for Navigation
   useEffect(() => {
       if (mangaId) {
           getMangaChapters(mangaId as string).then(data => {
@@ -98,7 +91,6 @@ export default function MangaReaderScreen() {
       }
   }, [mangaId, chapterNumber]);
 
-  // 3. Prepare File
   useEffect(() => {
       if (!url) return;
       const fileUrl = url as string;
@@ -120,11 +112,9 @@ export default function MangaReaderScreen() {
       prepareFile();
   }, [url]);
 
-  // ✅ UPDATED: Navigation with Ad Check
   const handleNavigate = (direction: 'next' | 'prev') => {
       if (currentChapIndex === -1) return;
       
-      // Mark current as read
       if (mangaId && direction === 'next') {
         saveReadProgress(
             { mal_id: mangaId, title: title?.toString().split(' - ')[0] }, 
@@ -137,10 +127,22 @@ export default function MangaReaderScreen() {
       
       if (newIndex >= 0 && newIndex < chapters.length) {
           const nextChap = chapters[newIndex];
+          
+          // ✅ FIX: Extract URL from pages array
+          const nextUrl = nextChap.pages && nextChap.pages.length > 0 ? nextChap.pages[0] : null;
+
+          // Fallback to localUri if available (for downloads) or just fail if neither
+          const finalUrl = nextUrl || nextChap.localUri; 
+
+          if (!finalUrl) {
+              alert("Next chapter file unavailable");
+              return;
+          }
+
           const newParams = {
             pathname: '/chapter-read' as const,
             params: {
-                url: nextChap.fileUrl || nextChap.localUri, 
+                url: finalUrl, 
                 title: `${title?.toString().split(' - ')[0]} - ${nextChap.title || 'Chapter ' + nextChap.number}`,
                 mangaId,
                 chapterId: nextChap.id || nextChap.number,
@@ -148,12 +150,11 @@ export default function MangaReaderScreen() {
             }
           };
 
-          // Show Ad only on NEXT chapter, not PREV
           if (direction === 'next' && adLoaded) {
-              setNextChapterParams(newParams); // Save destination
-              interstitial.show();             // Show Ad
+              setNextChapterParams(newParams); 
+              interstitial.show();             
           } else {
-              router.replace(newParams);       // Go immediately
+              router.replace(newParams);       
           }
       }
   };
