@@ -16,7 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
 import { getAnimeDetails, getRecommendedAnime, getTopAnime, getUpcomingAnime } from '../services/animeService';
-import { getFavorites } from '../services/favoritesService';
+// ✅ Import toggleFavorite
+import { getFavorites, toggleFavorite } from '../services/favoritesService';
 import { getContinueWatching } from '../services/historyService';
 
 export default function AnimeListScreen() {
@@ -25,6 +26,8 @@ export default function AnimeListScreen() {
   const { theme } = useTheme();
   
   const [list, setList] = useState<any[]>([]);
+  // ✅ State for Favorites
+  const [favorites, setFavorites] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -35,8 +38,11 @@ export default function AnimeListScreen() {
   const loadData = async () => {
     setLoading(true);
     try {
+        // ✅ Load Favorites First
+        const favs = await getFavorites();
+        setFavorites(favs);
+
         if (type === 'favorites') {
-            const favs = await getFavorites();
             setList(favs);
         } else if (type === 'watched') {
             const user = auth.currentUser;
@@ -85,6 +91,17 @@ export default function AnimeListScreen() {
     } finally {
         setLoading(false);
     }
+  };
+
+  // ✅ Toggle Favorite Handler
+  const handleToggleFav = async (anime: any) => {
+      const newFavs = await toggleFavorite(anime);
+      setFavorites(newFavs);
+      
+      // If we are on the favorites screen, update the list immediately
+      if (type === 'favorites') {
+          setList(newFavs);
+      }
   };
 
   const getTitle = () => {
@@ -140,36 +157,53 @@ export default function AnimeListScreen() {
             keyExtractor={item => String(item.mal_id)}
             numColumns={3}
             contentContainerStyle={{ padding: 10 }}
-            renderItem={({ item }) => (
-                <TouchableOpacity 
-                    style={styles.gridItem}
-                    onPress={() => router.push({ pathname: '/anime/[id]', params: { id: item.mal_id } })}
-                >
-                    <View style={styles.imageContainer}>
-                        <Image 
-                            source={{ uri: item.images?.jpg?.image_url || item.image || 'https://via.placeholder.com/150' }} 
-                            style={styles.poster} 
-                            contentFit="cover"
-                        />
-                        {/* Rank Badge */}
-                        {item.rank && (
-                            <View style={[styles.rankBadge, { backgroundColor: item.rank <= 3 ? theme.tint : 'rgba(0,0,0,0.7)' }]}>
-                                <Text style={styles.rankText}>#{item.rank}</Text>
-                            </View>
-                        )}
+            renderItem={({ item }) => {
+                // ✅ Check if Favorite
+                const isFav = favorites.some(f => String(f.mal_id) === String(item.mal_id));
 
-                        {/* ✅ Status Badge (Hidden if Upcoming) */}
-                        {item.status && item.status !== 'Upcoming' && (
-                            <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
-                                <Text style={styles.statusText}>{item.status}</Text>
-                            </View>
-                        )}
-                    </View>
-                    <Text style={[styles.animeTitle, { color: theme.text }]} numberOfLines={1}>
-                        {item.title}
-                    </Text>
-                </TouchableOpacity>
-            )}
+                return (
+                    <TouchableOpacity 
+                        style={styles.gridItem}
+                        onPress={() => router.push({ pathname: '/anime/[id]', params: { id: item.mal_id } })}
+                    >
+                        <View style={styles.imageContainer}>
+                            <Image 
+                                source={{ uri: item.images?.jpg?.image_url || item.image || 'https://via.placeholder.com/150' }} 
+                                style={styles.poster} 
+                                contentFit="cover"
+                            />
+                            {/* Rank Badge */}
+                            {item.rank && (
+                                <View style={[styles.rankBadge, { backgroundColor: item.rank <= 3 ? theme.tint : 'rgba(0,0,0,0.7)' }]}>
+                                    <Text style={styles.rankText}>#{item.rank}</Text>
+                                </View>
+                            )}
+
+                            {/* Status Badge */}
+                            {item.status && item.status !== 'Upcoming' && (
+                                <View style={[styles.statusBadge, { backgroundColor: item.status === 'Completed' ? '#10b981' : '#3b82f6' }]}>
+                                    <Text style={styles.statusText}>{item.status}</Text>
+                                </View>
+                            )}
+
+                            {/* ✅ Favorite Button (Heart) */}
+                            <TouchableOpacity 
+                                style={styles.favBtn}
+                                onPress={() => handleToggleFav(item)}
+                            >
+                                <Ionicons 
+                                    name={isFav ? "heart" : "heart-outline"} 
+                                    size={18} 
+                                    color={isFav ? "#FF6B6B" : "white"} 
+                                />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={[styles.animeTitle, { color: theme.text }]} numberOfLines={1}>
+                            {item.title}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            }}
             ListEmptyComponent={
                 <Text style={{ textAlign: 'center', color: theme.subText, marginTop: 50 }}>No results found.</Text>
             }
@@ -204,17 +238,27 @@ const styles = StyleSheet.create({
   },
   rankText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
   
-  // ✅ Status Styles
   statusBadge: {
       position: 'absolute',
-      top: 5,
-      right: 5,
+      bottom: 5,
+      left: 5,
       paddingHorizontal: 5,
       paddingVertical: 2,
       borderRadius: 4,
       zIndex: 10
   },
   statusText: { color: 'white', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase' },
+
+  // ✅ New Fav Button Style
+  favBtn: {
+      position: 'absolute',
+      top: 5,
+      right: 5,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      borderRadius: 20,
+      padding: 5,
+      zIndex: 15
+  },
 
   animeTitle: { fontSize: 12, fontWeight: '600', textAlign: 'center' }
 });

@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
-import CustomAlert from '../../components/CustomAlert'; // ✅ Imported CustomAlert
+import CustomAlert from '../../components/CustomAlert';
 import TrendingRail from '../../components/TrendingRail';
 import { getFavorites } from '../../services/favoritesService';
 
@@ -217,9 +217,14 @@ export default function ProfileScreen() {
             </View>
         </View>
 
+        {/* ✅ UPDATED: Added onMore Prop for "See All" */}
         <View style={{ marginTop: 20 }}>
             {favorites.length > 0 && (
-                <TrendingRail title="My Favorites ❤️" data={favorites} />
+                <TrendingRail 
+                    title="My Favorites ❤️" 
+                    data={favorites} 
+                    onMore={() => router.push('/anime-list?type=favorites')}
+                />
             )}
         </View>
 

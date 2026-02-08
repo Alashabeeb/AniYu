@@ -83,10 +83,18 @@ export default function AnimeDetailScreen() {
 
   const resumeTimeRef = useRef<number | null>(null);
 
+  // ✅ UPDATED: Removed auto-play from initializer to prevent "underground" playing
   const player = useVideoPlayer(currentVideoSource, player => { 
       player.loop = false; 
-      if (currentVideoSource) player.play(); 
+      // Don't play here yet! Wait for loading to finish.
   });
+
+  // ✅ NEW EFFECT: Only play when page is ready (loading is false)
+  useEffect(() => {
+      if (!loading && currentVideoSource && player) {
+          player.play();
+      }
+  }, [loading, currentVideoSource, player]);
 
   // ✅ AD LOGIC: Load & Listeners
   useEffect(() => {
@@ -179,11 +187,11 @@ export default function AnimeDetailScreen() {
 
   // 5. VIDEO SOURCE
   useEffect(() => {
-    if (currentVideoSource) {
+    if (currentVideoSource && !loading) { // ✅ Added check for !loading
       player.replace(currentVideoSource);
       player.play();
     }
-  }, [currentVideoSource]);
+  }, [currentVideoSource, loading]);
 
   // 6. FINISHED HANDLING
   useEffect(() => {

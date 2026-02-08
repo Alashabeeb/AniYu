@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native'; // ✅ Import Focus Hook
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -12,7 +13,7 @@ import {
   serverTimestamp,
   updateDoc
 } from 'firebase/firestore';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -38,6 +39,9 @@ export default function PostCard({ post }: PostCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const currentUser = auth.currentUser;
+  
+  // ✅ Check if screen is focused
+  const isFocused = useIsFocused();
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -50,6 +54,13 @@ export default function PostCard({ post }: PostCardProps) {
   const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => { if (videoSource) player.loop = true; });
 
+  // ✅ AUTO-PAUSE LOGIC: Pause video when screen loses focus
+  useEffect(() => {
+      if (!isFocused && player) {
+          player.pause();
+      }
+  }, [isFocused, player]);
+
   let timeAgo = "now";
   if (post.createdAt?.seconds) {
     const seconds = Math.floor((new Date().getTime() / 1000) - post.createdAt.seconds);
@@ -60,6 +71,8 @@ export default function PostCard({ post }: PostCardProps) {
   }
 
   const handleGoToDetails = () => {
+    // ✅ Pause current video before navigating away
+    if (player) player.pause();
     router.push({ pathname: '/post-details', params: { postId: post.id } });
   };
 

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'; // ✅ Import useFocusEffect
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
     arrayRemove, arrayUnion,
@@ -12,7 +12,7 @@ import {
     where,
     writeBatch
 } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react'; // ✅ Import useCallback
 import {
     ActivityIndicator,
     Alert,
@@ -71,6 +71,16 @@ export default function PostDetailsScreen() {
   const player = useVideoPlayer(videoSource, player => {
       if (videoSource) player.loop = true;
   });
+
+  // ✅ AUTO-PAUSE LOGIC: Pause video when leaving this screen
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // This runs when screen loses focus
+        if (player) player.pause();
+      };
+    }, [player])
+  );
 
   const isOwner = post?.userId === user?.uid;
 
@@ -136,6 +146,8 @@ export default function PostDetailsScreen() {
   };
 
   const goToDetails = (id: string) => {
+      // ✅ Pause video before navigating to another comment/post
+      if (player) player.pause();
       router.push({ pathname: '/post-details', params: { postId: id } });
   };
 
