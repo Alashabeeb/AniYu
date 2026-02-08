@@ -2,26 +2,28 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  FlatList,
-  Image,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Alert,
+    FlatList,
+    Image,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import {
-  DownloadItem,
-  cancelDownload,
-  getActiveDownloads,
-  getDownloads,
-  isDownloading,
-  registerDownloadListener,
-  removeDownload,
-  unregisterDownloadListener
+    DownloadItem,
+    addCompletionListener, // ✅ Import listener
+    cancelDownload,
+    getActiveDownloads,
+    getDownloads,
+    isDownloading,
+    registerDownloadListener,
+    removeCompletionListener, // ✅ Import remove listener
+    removeDownload,
+    unregisterDownloadListener
 } from '../services/downloadService';
 
 export default function DownloadsScreen() {
@@ -35,8 +37,12 @@ export default function DownloadsScreen() {
 
   useEffect(() => {
     loadDownloads();
-    const interval = setInterval(loadDownloads, 5000); 
-    return () => clearInterval(interval);
+    
+    // ✅ NEW: Listen for completions instead of polling
+    const onComplete = () => loadDownloads();
+    addCompletionListener(onComplete);
+
+    return () => removeCompletionListener(onComplete);
   }, []);
 
   const loadDownloads = async () => {
@@ -53,7 +59,7 @@ export default function DownloadsScreen() {
              setDownloadProgress(prev => ({ ...prev, [epId]: p }));
              if (p >= 1) {
                  unregisterDownloadListener(epId);
-                 setTimeout(loadDownloads, 1000);
+                 // Note: The completion listener handles the reload now
              }
         });
     });

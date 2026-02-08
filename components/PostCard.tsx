@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useIsFocused } from '@react-navigation/native'; // ✅ Import Focus Hook
+import { useIsFocused } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -31,16 +31,16 @@ import { sendSocialNotification } from '../services/notificationService';
 
 interface PostCardProps {
   post: any;
+  isVisible?: boolean; // ✅ NEW PROP
 }
 
 const REPORT_REASONS = ["Offensive content", "Abusive behavior", "Spam", "Other"];
 
-export default function PostCard({ post }: PostCardProps) {
+export default function PostCard({ post, isVisible = true }: PostCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
   const currentUser = auth.currentUser;
   
-  // ✅ Check if screen is focused
   const isFocused = useIsFocused();
 
   const [menuVisible, setMenuVisible] = useState(false);
@@ -54,12 +54,13 @@ export default function PostCard({ post }: PostCardProps) {
   const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => { if (videoSource) player.loop = true; });
 
-  // ✅ AUTO-PAUSE LOGIC: Pause video when screen loses focus
+  // ✅ AUTO-PAUSE LOGIC: Pause video when screen loses focus OR scrolled away
   useEffect(() => {
-      if (!isFocused && player) {
+      // If screen is NOT focused OR Item is NOT visible -> PAUSE
+      if ((!isFocused || !isVisible) && player) {
           player.pause();
       }
-  }, [isFocused, player]);
+  }, [isFocused, isVisible, player]);
 
   let timeAgo = "now";
   if (post.createdAt?.seconds) {
@@ -71,7 +72,6 @@ export default function PostCard({ post }: PostCardProps) {
   }
 
   const handleGoToDetails = () => {
-    // ✅ Pause current video before navigating away
     if (player) player.pause();
     router.push({ pathname: '/post-details', params: { postId: post.id } });
   };
@@ -120,7 +120,6 @@ export default function PostCard({ post }: PostCardProps) {
     ]);
   };
 
-  // ✅ BLOCK USER
   const handleBlockUser = async () => {
       if (!currentUser || isOwner) return;
       setMenuVisible(false);
@@ -200,7 +199,6 @@ export default function PostCard({ post }: PostCardProps) {
               <Text style={[styles.count, { color: isReposted ? "#00BA7C" : theme.subText }]}>{post.reposts?.length || 0}</Text>
             </TouchableOpacity>
             
-            {/* ✅ VIEWS ICON */}
             <View style={styles.actionBtn}>
                 <Ionicons name="stats-chart" size={16} color={theme.subText} />
                 <Text style={[styles.count, { color: theme.subText }]}>{post.views || 0}</Text>
@@ -230,7 +228,6 @@ export default function PostCard({ post }: PostCardProps) {
                         </>
                     ) : (
                         <>
-                            {/* ✅ BLOCK USER OPTION */}
                             <TouchableOpacity style={styles.menuItem} onPress={handleBlockUser}>
                                 <Ionicons name="ban-outline" size={20} color="#FF6B6B" />
                                 <Text style={[styles.menuText, { color: '#FF6B6B' }]}>Block @{post.username}</Text>
@@ -246,8 +243,6 @@ export default function PostCard({ post }: PostCardProps) {
             </View>
         </TouchableWithoutFeedback>
       </Modal>
-
-      {/* Report Modal omitted for brevity, logic exists */}
     </Pressable>
   );
 }

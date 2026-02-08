@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'; // ✅ Added useFocusEffect
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react'; // ✅ Added useCallback
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
-import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads'; // ✅ Import AdMob
+import { AdEventType, InterstitialAd } from 'react-native-google-mobile-ads';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AdConfig } from '../../config/adConfig'; // ✅ Import Config
+import { AdConfig } from '../../config/adConfig';
 
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
@@ -43,7 +43,6 @@ const RANKS = [
     { name: 'KAGE', min: 100, max: Infinity },
 ];
 
-// ✅ Use Central Config
 const interstitial = InterstitialAd.createForAdRequest(AdConfig.interstitial, {
   requestNonPersonalizedAdsOnly: true,
 });
@@ -77,26 +76,33 @@ export default function AnimeDetailScreen() {
   const [currentEpId, setCurrentEpId] = useState<string | null>(null);
   const [currentVideoSource, setCurrentVideoSource] = useState<string | null>(null);
 
-  // ✅ Ad State
+  // Ad State
   const [adLoaded, setAdLoaded] = useState(false);
   const [pendingDownloadEp, setPendingDownloadEp] = useState<any>(null);
 
   const resumeTimeRef = useRef<number | null>(null);
 
-  // ✅ UPDATED: Removed auto-play from initializer to prevent "underground" playing
+  // 1. Initialize Player (Paused by default)
   const player = useVideoPlayer(currentVideoSource, player => { 
       player.loop = false; 
-      // Don't play here yet! Wait for loading to finish.
   });
 
-  // ✅ NEW EFFECT: Only play when page is ready (loading is false)
-  useEffect(() => {
+  // 2. ✅ CRITICAL FIX: Play ONLY when Page Loaded AND Screen Focused
+  useFocusEffect(
+    useCallback(() => {
+      // If we have a source, loading is done, and player exists -> Play
       if (!loading && currentVideoSource && player) {
           player.play();
       }
-  }, [loading, currentVideoSource, player]);
 
-  // ✅ AD LOGIC: Load & Listeners
+      // Cleanup: Pause when screen loses focus (navigating to similar anime, back, or tabs)
+      return () => {
+          if (player) player.pause();
+      };
+    }, [loading, currentVideoSource, player])
+  );
+
+  // AD LOGIC: Load & Listeners
   useEffect(() => {
     const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
       setAdLoaded(true);
@@ -104,9 +110,8 @@ export default function AnimeDetailScreen() {
 
     const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       setAdLoaded(false);
-      interstitial.load(); // Reload for next time
+      interstitial.load();
       
-      // If there was a pending download, start it now
       if (pendingDownloadEp) {
           performDownload(pendingDownloadEp);
           setPendingDownloadEp(null);
@@ -124,9 +129,9 @@ export default function AnimeDetailScreen() {
       unsubscribeClosed();
       unsubscribeError();
     };
-  }, [pendingDownloadEp]); // Dependency on pending download
+  }, [pendingDownloadEp]);
 
-  // 1. CHECK HISTORY
+  // HISTORY CHECK
   useEffect(() => {
       const checkHistory = async () => {
           if (!anime || !currentEpId) return;
@@ -141,7 +146,7 @@ export default function AnimeDetailScreen() {
       checkHistory();
   }, [anime, currentEpId]);
 
-  // 2. FETCH WATCHED STATUS
+  // FETCH WATCHED STATUS
   useEffect(() => {
       const fetchWatchedStatus = async () => {
           const user = auth.currentUser;
@@ -158,7 +163,7 @@ export default function AnimeDetailScreen() {
       if (anime) fetchWatchedStatus();
   }, [anime]);
 
-  // 3. RESUME PLAYBACK
+  // RESUME PLAYBACK
   useEffect(() => {
       if (player && resumeTimeRef.current !== null) {
           const timer = setTimeout(() => {
@@ -166,12 +171,12 @@ export default function AnimeDetailScreen() {
                   player.currentTime = resumeTimeRef.current;
                   resumeTimeRef.current = null;
               }
-          }, 500); 
+          }, 800); // ✅ Increased timeout slightly to ensure player buffer is ready
           return () => clearTimeout(timer);
       }
   }, [player, currentVideoSource]);
 
-  // 4. SAVE PROGRESS
+  // SAVE PROGRESS
   useEffect(() => {
       if (!currentEpId || !anime) return;
       const interval = setInterval(() => {
@@ -185,15 +190,16 @@ export default function AnimeDetailScreen() {
       return () => clearInterval(interval);
   }, [player, currentEpId, anime, episodes]);
 
-  // 5. VIDEO SOURCE
+  // VIDEO SOURCE UPDATE
   useEffect(() => {
-    if (currentVideoSource && !loading) { // ✅ Added check for !loading
+    if (currentVideoSource && !loading) {
       player.replace(currentVideoSource);
-      player.play();
+      // Note: We don't call player.play() here anymore, 
+      // the useFocusEffect handles the playing logic to prevent conflicts.
     }
   }, [currentVideoSource, loading]);
 
-  // 6. FINISHED HANDLING
+  // FINISHED HANDLING
   useEffect(() => {
       const subscription = player.addListener('playToEnd', () => handleVideoFinished());
       return () => subscription.remove();
@@ -363,7 +369,6 @@ export default function AnimeDetailScreen() {
     setCurrentEpId(String(ep.mal_id));
   };
 
-  // ✅ HELPER: Perform Download (Separated Logic)
   const performDownload = async (ep: any) => {
       const epId = String(ep.mal_id);
       try {
@@ -401,11 +406,9 @@ export default function AnimeDetailScreen() {
     }
   };
 
-  // ✅ UPDATED: Handle Download Click with Ad Check
   const handleDownload = async (ep: any) => {
     const epId = String(ep.mal_id);
 
-    // Case 1: Already Downloaded -> Delete
     if (downloadedEpIds.includes(epId)) {
         Alert.alert("Delete Download?", "Remove this episode from offline storage?", [
             { text: "Cancel", style: "cancel" },
@@ -417,12 +420,10 @@ export default function AnimeDetailScreen() {
         return;
     }
 
-    // Case 2: New Download -> Show Ad First
     if (adLoaded) {
-        setPendingDownloadEp(ep); // Save state
-        interstitial.show();      // Show Ad
+        setPendingDownloadEp(ep); 
+        interstitial.show();      
     } else {
-        // Fallback: If ad isn't loaded, download immediately
         performDownload(ep);
     }
   };
@@ -437,12 +438,10 @@ export default function AnimeDetailScreen() {
 
       setSubmittingReview(true);
       
-      // Submit Rating
       if (userRating > 0) {
           await addAnimeReview(id as string, user.uid, user.displayName || 'User', userRating);
       }
 
-      // Submit Comment (Private to Admin)
       if (commentText.trim() !== '') {
           await addAnimeComment(id as string, user.uid, user.displayName || 'User', commentText);
       }
@@ -452,7 +451,6 @@ export default function AnimeDetailScreen() {
       setCommentText('');
       setUserRating(0);
       Alert.alert("Sent", "Feedback submitted successfully.");
-      // No reload needed for comments since we don't show them
       loadAllData(); 
   };
 

@@ -56,9 +56,19 @@ export default function FeedScreen() {
   // Blocked Users State
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
 
+  // ✅ VISIBILITY STATE: Tracks which items are currently on screen
+  const [viewableItemIds, setViewableItemIds] = useState<string[]>([]);
+
   const [activeTab, setActiveTab] = useState('All'); 
   const flatListRef = useRef<FlatList>(null); 
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+
+  // ✅ CLEANUP CACHE ON UNMOUNT (Logic Bug Fix)
+  useEffect(() => {
+      return () => {
+          viewedFeedSession.clear();
+      };
+  }, []);
 
   useEffect(() => {
     const fetchUserInterests = async () => {
@@ -193,6 +203,11 @@ export default function FeedScreen() {
 
   // ✅ HANDLE VIEWS (Uses Global Set)
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      // 1. Update State to pause off-screen videos
+      const visibleIds = viewableItems.map(v => v.item.id);
+      setViewableItemIds(visibleIds);
+
+      // 2. Track Views (Analytics)
       viewableItems.forEach((viewToken) => {
           if (viewToken.isViewable && viewToken.item?.id) {
               const postId = viewToken.item.id;
@@ -245,7 +260,14 @@ export default function FeedScreen() {
                 <Text style={{ color: theme.subText }}>{emptyMessage}</Text>
             </View>
         }
-        renderItem={({ item }) => <PostCard post={item} />}
+        // ✅ PASS VISIBILITY PROP
+        renderItem={({ item }) => (
+            <PostCard 
+                post={item} 
+                isVisible={viewableItemIds.includes(item.id)} 
+            />
+        )}
+        extraData={viewableItemIds} // Ensure re-render on visibility change
     />
   );
 

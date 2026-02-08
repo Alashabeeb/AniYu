@@ -10,9 +10,15 @@ import {
 // ✅ ADDED: Import Auth to get User ID
 import { auth } from '../config/firebaseConfig';
 
-// ❌ REMOVED: Static Keys
-// const DOWNLOAD_STORAGE_KEY = 'my_downloaded_episodes_v1'; 
-// const MANGA_DOWNLOAD_KEY = 'my_downloaded_chapters_v1'; 
+// ✅ NEW: Completion Listeners (To avoid setInterval)
+const completionListeners: (() => void)[] = [];
+
+export const addCompletionListener = (fn: () => void) => completionListeners.push(fn);
+export const removeCompletionListener = (fn: () => void) => {
+    const index = completionListeners.indexOf(fn);
+    if (index > -1) completionListeners.splice(index, 1);
+};
+const notifyDownloadComplete = () => completionListeners.forEach(fn => fn());
 
 // ✅ NEW: Dynamic Key Generators
 const getAnimeKey = () => {
@@ -162,6 +168,7 @@ export const downloadEpisodeToFile = async (
       };
       
       await saveDownloadRecord(record);
+      notifyDownloadComplete(); // ✅ Notify listeners
       return result.uri;
     }
     return null;
@@ -265,6 +272,7 @@ export const downloadChapterToFile = async (
       };
       
       await saveMangaDownloadRecord(record);
+      notifyDownloadComplete(); // ✅ Notify listeners
       return result.uri;
     }
     return null;
