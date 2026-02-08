@@ -21,7 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../components/CustomAlert';
 import { auth, db, storage } from '../config/firebaseConfig';
 import { useTheme } from '../context/ThemeContext';
-import { getFriendlyErrorMessage } from '../utils/errorHandler'; // ✅ Imported Friendly Error Handler
+import { getFriendlyErrorMessage } from '../utils/errorHandler';
 
 const GENRES = ["Action", "Adventure", "Romance", "Fantasy", "Drama", "Comedy", "Sci-Fi", "Slice of Life", "Sports", "Mystery"];
 
@@ -66,9 +66,11 @@ export default function CreatePostScreen() {
   };
 
   const uploadMediaToStorage = async (uri: string, type: 'image' | 'video') => {
+    if (!user) throw new Error("No user");
     const response = await fetch(uri);
     const blob = await response.blob();
-    const filename = `posts/${Date.now()}.${type === 'video' ? 'mp4' : 'jpg'}`;
+    // ✅ CRITICAL FIX: Ensure unique filename by adding user ID
+    const filename = `posts/${user.uid}_${Date.now()}.${type === 'video' ? 'mp4' : 'jpg'}`;
     const storageRef = ref(storage, filename);
     await uploadBytes(storageRef, blob);
     return await getDownloadURL(storageRef);
@@ -107,13 +109,9 @@ export default function CreatePostScreen() {
           mediaUrl = await uploadMediaToStorage(media.uri, mediaType);
       }
 
-      // 1. Start Batch
       const batch = writeBatch(db);
-
-      // 2. Create Post Reference (Auto-ID)
       const newPostRef = doc(collection(db, 'posts'));
       
-      // 3. Queue Post Creation
       batch.set(newPostRef, {
         text: text,
         mediaUrl: mediaUrl,   
@@ -131,21 +129,17 @@ export default function CreatePostScreen() {
         views: 0 
       });
 
-      // 4. Queue User Update (Reset Rate Limit Timer)
       const userRef = doc(db, 'users', user.uid);
       batch.update(userRef, { lastPostedAt: serverTimestamp() });
 
-      // 5. Commit All
       await batch.commit();
 
       router.back(); 
     } catch (error: any) {
       console.error(error);
       if (error.message.includes("permission-denied")) {
-        // Keep specific context for this error
         showAlert('error', '⛔ Blocked', 'You are posting too fast (30s cooldown) or you are banned.');
       } else {
-        // ✅ UPDATED: Use Friendly Error for everything else (Network, etc.)
         const friendlyMessage = getFriendlyErrorMessage(error);
         showAlert('error', 'Post Failed', friendlyMessage);
       }
@@ -157,7 +151,6 @@ export default function CreatePostScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       
-      {/* Header */}
       <Stack.Screen 
         options={{
             title: '', 
@@ -202,7 +195,6 @@ export default function CreatePostScreen() {
                     onChangeText={setText}
                 />
 
-                {/* Media Preview */}
                 {media && (
                     <View style={styles.previewWrapper}>
                         {media.type === 'video' ? (
@@ -223,7 +215,6 @@ export default function CreatePostScreen() {
              </View>
          </View>
 
-         {/* Compact Toolbar */}
          <View style={styles.inlineToolbar}>
             <TouchableOpacity onPress={pickMedia} style={styles.toolIcon}>
                 <Ionicons name="image-outline" size={20} color={theme.tint} />
@@ -238,7 +229,6 @@ export default function CreatePostScreen() {
             </TouchableOpacity>
          </View>
 
-         {/* Topic Tag Selector */}
          <View style={{ marginTop: 5, paddingHorizontal: 15 }}>
             <Text style={{ color: theme.subText, fontSize: 11, marginBottom: 8, fontWeight: 'bold' }}>
                 ADD TOPICS ({selectedTags.length}/3)
@@ -272,7 +262,6 @@ export default function CreatePostScreen() {
 
       </ScrollView>
 
-      {/* Custom Alert Component */}
       <CustomAlert 
         visible={alertConfig.visible}
         type={alertConfig.type}

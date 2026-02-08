@@ -1,12 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth } from '../config/firebaseConfig'; // ✅ Import Auth to get User ID
+import { auth } from '../config/firebaseConfig';
 
-// Base Keys
 const HISTORY_BASE_KEY = 'watch_history';
 const MANGA_HISTORY_BASE_KEY = 'manga_history';
 const READ_CHAPTERS_BASE_KEY = 'read_chapters_list';
 
-// ✅ HELPER: Generate a unique key for the current user
 const getUserKey = (baseKey: string) => {
   const userId = auth.currentUser?.uid || 'guest';
   return `user_${userId}_${baseKey}`;
@@ -35,10 +33,14 @@ export interface MangaHistoryItem {
   date: number;
 }
 
+// ✅ FIX: Promise Queues to prevent Race Conditions
+let historySavePromise = Promise.resolve();
+let mangaSavePromise = Promise.resolve();
+
 // --- ANIME HISTORY ---
 export const getContinueWatching = async (): Promise<HistoryItem[]> => {
   try {
-    const key = getUserKey(HISTORY_BASE_KEY); // ✅ Use Dynamic Key
+    const key = getUserKey(HISTORY_BASE_KEY);
     const json = await AsyncStorage.getItem(key);
     return json ? JSON.parse(json) : [];
   } catch (error) {
@@ -46,45 +48,49 @@ export const getContinueWatching = async (): Promise<HistoryItem[]> => {
   }
 };
 
-export const saveWatchProgress = async (
+export const saveWatchProgress = (
     anime: any, 
     episode: any, 
     progress: number, 
     totalDuration: number
 ) => {
-  try {
-    const current = await getContinueWatching();
-    const validHistory = Array.isArray(current) ? current : [];
-    const filtered = validHistory.filter((item) => String(item.mal_id) !== String(anime.mal_id));
+  // ✅ FIX: Queueing logic
+  historySavePromise = historySavePromise.then(async () => {
+      try {
+        const current = await getContinueWatching();
+        const validHistory = Array.isArray(current) ? current : [];
+        const filtered = validHistory.filter((item) => String(item.mal_id) !== String(anime.mal_id));
 
-    const imageUrl = anime.images?.jpg?.large_image_url || 
-                     anime.images?.jpg?.image_url || 
-                     'https://via.placeholder.com/150';
+        const imageUrl = anime.images?.jpg?.large_image_url || 
+                        anime.images?.jpg?.image_url || 
+                        'https://via.placeholder.com/150';
 
-    const newItem: HistoryItem = {
-      mal_id: anime.mal_id,
-      title: anime.title,
-      image: imageUrl,
-      episode: episode.title || `Episode ${episode.number}`,
-      episodeId: String(episode.id || episode.mal_id),
-      date: Date.now(),
-      genres: anime.genres || [],
-      progress,
-      totalDuration
-    };
+        const newItem: HistoryItem = {
+          mal_id: anime.mal_id,
+          title: anime.title,
+          image: imageUrl,
+          episode: episode.title || `Episode ${episode.number}`,
+          episodeId: String(episode.id || episode.mal_id),
+          date: Date.now(),
+          genres: anime.genres || [],
+          progress,
+          totalDuration
+        };
 
-    const newHistory = [newItem, ...filtered].slice(0, 20);
-    const key = getUserKey(HISTORY_BASE_KEY); // ✅ Use Dynamic Key
-    await AsyncStorage.setItem(key, JSON.stringify(newHistory));
-  } catch (error) {
-    console.error("Error saving progress:", error);
-  }
+        const newHistory = [newItem, ...filtered].slice(0, 20);
+        const key = getUserKey(HISTORY_BASE_KEY);
+        await AsyncStorage.setItem(key, JSON.stringify(newHistory));
+      } catch (error) {
+        console.error("Error saving progress:", error);
+      }
+  });
+  return historySavePromise;
 };
 
 // --- MANGA CONTINUE READING ---
 export const getMangaHistory = async (): Promise<MangaHistoryItem[]> => {
   try {
-    const key = getUserKey(MANGA_HISTORY_BASE_KEY); // ✅ Use Dynamic Key
+    const key = getUserKey(MANGA_HISTORY_BASE_KEY);
     const json = await AsyncStorage.getItem(key);
     return json ? JSON.parse(json) : [];
   } catch (error) {
@@ -92,42 +98,46 @@ export const getMangaHistory = async (): Promise<MangaHistoryItem[]> => {
   }
 };
 
-export const saveReadProgress = async (manga: any, chapter: any, page: number) => {
-  try {
-    const current = await getMangaHistory();
-    const validHistory = Array.isArray(current) ? current : [];
-    const filtered = validHistory.filter((item) => String(item.mal_id) !== String(manga.mal_id));
+export const saveReadProgress = (manga: any, chapter: any, page: number) => {
+  // ✅ FIX: Queueing logic
+  mangaSavePromise = mangaSavePromise.then(async () => {
+      try {
+        const current = await getMangaHistory();
+        const validHistory = Array.isArray(current) ? current : [];
+        const filtered = validHistory.filter((item) => String(item.mal_id) !== String(manga.mal_id));
 
-    const imageUrl = manga.images?.jpg?.large_image_url || 
-                     manga.images?.jpg?.image_url || 
-                     'https://via.placeholder.com/150';
+        const imageUrl = manga.images?.jpg?.large_image_url || 
+                        manga.images?.jpg?.image_url || 
+                        'https://via.placeholder.com/150';
 
-    const newItem: MangaHistoryItem = {
-      mal_id: String(manga.mal_id),
-      title: manga.title,
-      image: imageUrl,
-      chapterTitle: chapter.title || `Chapter ${chapter.number}`,
-      chapterId: String(chapter.id || chapter.number),
-      chapterNum: chapter.number,
-      page,
-      date: Date.now(),
-    };
+        const newItem: MangaHistoryItem = {
+          mal_id: String(manga.mal_id),
+          title: manga.title,
+          image: imageUrl,
+          chapterTitle: chapter.title || `Chapter ${chapter.number}`,
+          chapterId: String(chapter.id || chapter.number),
+          chapterNum: chapter.number,
+          page,
+          date: Date.now(),
+        };
 
-    const newHistory = [newItem, ...filtered].slice(0, 20); 
-    const key = getUserKey(MANGA_HISTORY_BASE_KEY); // ✅ Use Dynamic Key
-    await AsyncStorage.setItem(key, JSON.stringify(newHistory));
+        const newHistory = [newItem, ...filtered].slice(0, 20); 
+        const key = getUserKey(MANGA_HISTORY_BASE_KEY);
+        await AsyncStorage.setItem(key, JSON.stringify(newHistory));
 
-    await markChapterAsRead(manga.mal_id, String(chapter.id || chapter.number));
+        await markChapterAsRead(manga.mal_id, String(chapter.id || chapter.number));
 
-  } catch (error) {
-    console.error("Error saving manga progress:", error);
-  }
+      } catch (error) {
+        console.error("Error saving manga progress:", error);
+      }
+  });
+  return mangaSavePromise;
 };
 
-// --- READ CHAPTERS TRACKING ---
+// ... Rest of file (getReadChapterIds, markChapterAsRead, clearHistory) remains unchanged
 export const getReadChapterIds = async (): Promise<string[]> => {
     try {
-        const key = getUserKey(READ_CHAPTERS_BASE_KEY); // ✅ Use Dynamic Key
+        const key = getUserKey(READ_CHAPTERS_BASE_KEY); 
         const json = await AsyncStorage.getItem(key);
         return json ? JSON.parse(json) : [];
     } catch { return []; }
@@ -139,7 +149,7 @@ export const markChapterAsRead = async (mangaId: string | number, chapterId: str
         const keyVal = `${mangaId}_${chapterId}`;
         if (!current.includes(keyVal)) {
             const updated = [...current, keyVal];
-            const storageKey = getUserKey(READ_CHAPTERS_BASE_KEY); // ✅ Use Dynamic Key
+            const storageKey = getUserKey(READ_CHAPTERS_BASE_KEY);
             await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
         }
     } catch (e) { console.error(e); }
@@ -147,7 +157,6 @@ export const markChapterAsRead = async (mangaId: string | number, chapterId: str
 
 export const clearHistory = async () => {
   try {
-    // Clears only the CURRENT user's history
     await AsyncStorage.removeItem(getUserKey(HISTORY_BASE_KEY));
     await AsyncStorage.removeItem(getUserKey(MANGA_HISTORY_BASE_KEY));
     await AsyncStorage.removeItem(getUserKey(READ_CHAPTERS_BASE_KEY));

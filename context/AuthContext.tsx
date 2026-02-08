@@ -1,5 +1,5 @@
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore'; // ✅ Changed getDoc to onSnapshot
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore'; // ✅ CHANGED: Imported onSnapshot
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import { auth, db } from '../config/firebaseConfig';
@@ -16,14 +16,14 @@ export const AuthProvider = ({ children }: any) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let userUnsub: () => void;
+    let userUnsub: () => void; // ✅ Store listener to unsubscribe later
 
-    const authUnsub = onAuthStateChanged(auth, async (currentUser) => {
-      // Cleanup previous user listener if auth state changes
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      // Cleanup previous listener if user changes
       if (userUnsub) userUnsub();
 
       if (currentUser) {
-        // ✅ REAL-TIME LISTENER: Instantly detects bans
+        // ✅ REAL-TIME LISTENER: Instantly detects bans/role changes
         const userRef = doc(db, 'users', currentUser.uid);
         
         userUnsub = onSnapshot(userRef, async (docSnap) => {
@@ -35,33 +35,35 @@ export const AuthProvider = ({ children }: any) => {
                     const now = new Date();
 
                     if (banExpiresAt && now < banExpiresAt) {
-                        // ⛔ BAN ACTIVE - Force Logout
+                        // ⛔ BAN IS ACTIVE - Force Logout
                         const timeLeft = Math.ceil((banExpiresAt.getTime() - now.getTime()) / (1000 * 60 * 60)); 
                         
                         Alert.alert(
                             "Account Banned", 
-                            `You have been banned.\n\nExpires in: ~${timeLeft} hours`,
+                            `You are temporarily banned.\n\nExpires in: ~${timeLeft} hours`,
                             [{ text: "OK", onPress: () => signOut(auth) }]
                         );
+                        
                         await signOut(auth);
                         setUser(null);
                     } else {
-                        // ✅ BAN EXPIRED - Auto Unban
-                        await updateDoc(userRef, { isBanned: false, banExpiresAt: null });
+                        // ✅ BAN HAS EXPIRED - Auto Unban
+                        await updateDoc(userRef, { 
+                            isBanned: false, 
+                            banExpiresAt: null 
+                        });
                     }
                 }
             }
         });
-        
-        setUser(currentUser);
-      } else {
-        setUser(null);
       }
+      
+      setUser(currentUser);
       setLoading(false);
     });
 
     return () => {
-      authUnsub();
+      unsubscribe();
       if (userUnsub) userUnsub();
     };
   }, []);

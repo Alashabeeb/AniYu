@@ -28,14 +28,14 @@ import {
     ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AdBanner from '../../components/AdBanner'; // ✅ Import AdBanner
+import AdBanner from '../../components/AdBanner';
 import PostCard from '../../components/PostCard';
 import { auth, db } from '../../config/firebaseConfig';
 import { useTheme } from '../../context/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// ✅ GLOBAL CACHE: Tracks posts viewed in this session (Feed Screen)
+// ✅ GLOBAL CACHE
 const viewedFeedSession = new Set<string>();
 
 export default function FeedScreen() {
@@ -47,23 +47,18 @@ export default function FeedScreen() {
   const [userInterests, setUserInterests] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   
-  // Search State
   const [showSearch, setShowSearch] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [userResults, setUserResults] = useState<any[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
 
-  // Blocked Users State
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
-
-  // ✅ VISIBILITY STATE: Tracks which items are currently on screen
-  const [viewableItemIds, setViewableItemIds] = useState<string[]>([]);
 
   const [activeTab, setActiveTab] = useState('All'); 
   const flatListRef = useRef<FlatList>(null); 
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
 
-  // ✅ CLEANUP CACHE ON UNMOUNT (Logic Bug Fix)
+  // ✅ FIX: Clean up session cache when screen unmounts
   useEffect(() => {
       return () => {
           viewedFeedSession.clear();
@@ -94,10 +89,12 @@ export default function FeedScreen() {
   }, []);
 
   useEffect(() => {
+    // ✅ FIX: Added limit(50) to prevent loading ALL posts (Crash prevention)
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', null), 
-        orderBy('createdAt', 'desc')
+        orderBy('createdAt', 'desc'),
+        limit(50) 
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -106,34 +103,40 @@ export default function FeedScreen() {
     return unsubscribe; 
   }, []);
 
+  // ✅ FIX: Search Race Condition Handler
   useEffect(() => {
-      if (showSearch && searchText.trim().length > 0) {
-          searchUsers(searchText);
-      } else {
-          setUserResults([]);
-      }
-  }, [searchText]);
+      let isActive = true;
 
-  const searchUsers = async (text: string) => {
-      setSearchingUsers(true);
-      try {
-          const lowerText = text.toLowerCase();
-          const usersRef = collection(db, 'users');
-          const q = query(
-              usersRef, 
-              where('username', '>=', lowerText), 
-              where('username', '<=', lowerText + '\uf8ff'),
-              limit(20)
-          );
-          const snapshot = await getDocs(q);
-          const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setUserResults(results);
-      } catch (error) { 
-          console.error("Search Error:", error); 
-      } finally { 
-          setSearchingUsers(false); 
-      }
-  };
+      const runSearch = async () => {
+          if (showSearch && searchText.trim().length > 0) {
+              if(isActive) setSearchingUsers(true);
+              try {
+                  const lowerText = searchText.toLowerCase();
+                  const usersRef = collection(db, 'users');
+                  const q = query(
+                      usersRef, 
+                      where('username', '>=', lowerText), 
+                      where('username', '<=', lowerText + '\uf8ff'),
+                      limit(20)
+                  );
+                  const snapshot = await getDocs(q);
+                  if (isActive) {
+                      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                      setUserResults(results);
+                  }
+              } catch (error) { 
+                  console.error("Search Error:", error); 
+              } finally { 
+                  if (isActive) setSearchingUsers(false); 
+              }
+          } else {
+              if (isActive) setUserResults([]);
+          }
+      };
+
+      runSearch();
+      return () => { isActive = false; };
+  }, [searchText, showSearch]);
 
   const allPosts = useMemo(() => {
     const cleanPosts = posts.filter(p => !blockedUsers.includes(p.userId));
@@ -196,31 +199,19 @@ export default function FeedScreen() {
     setTimeout(() => { setRefreshing(false); }, 1000);
   }, []);
 
-  // ✅ VIEW CONFIG
   const viewabilityConfig = useRef({
       itemVisiblePercentThreshold: 50 
   }).current;
 
-  // ✅ HANDLE VIEWS (Uses Global Set)
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-      // 1. Update State to pause off-screen videos
-      const visibleIds = viewableItems.map(v => v.item.id);
-      setViewableItemIds(visibleIds);
-
-      // 2. Track Views (Analytics)
       viewableItems.forEach((viewToken) => {
           if (viewToken.isViewable && viewToken.item?.id) {
               const postId = viewToken.item.id;
-              
               if (!viewedFeedSession.has(postId)) {
                   viewedFeedSession.add(postId);
                   try {
-                      updateDoc(doc(db, 'posts', postId), {
-                          views: increment(1)
-                      });
-                  } catch (error) {
-                      console.log("Error incrementing view:", error);
-                  }
+                      updateDoc(doc(db, 'posts', postId), { views: increment(1) });
+                  } catch (error) { console.log("Error incrementing view:", error); }
               }
           }
       });
@@ -249,7 +240,6 @@ export default function FeedScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        // ✅ ADD BANNER AD ABOVE FIRST POST
         ListHeaderComponent={() => (
             <View>
                 <AdBanner />
@@ -260,14 +250,7 @@ export default function FeedScreen() {
                 <Text style={{ color: theme.subText }}>{emptyMessage}</Text>
             </View>
         }
-        // ✅ PASS VISIBILITY PROP
-        renderItem={({ item }) => (
-            <PostCard 
-                post={item} 
-                isVisible={viewableItemIds.includes(item.id)} 
-            />
-        )}
-        extraData={viewableItemIds} // Ensure re-render on visibility change
+        renderItem={({ item }) => <PostCard post={item} />}
     />
   );
 
