@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "891600067276",
+    "project_id": "aniyu-b841b",
+    "storage_bucket": "aniyu-b841b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:891600067276:android:a8e61aeaded9af79530069",
+        "android_client_info": {
+          "package_name": "com.aniyu.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAn82xOUuvkNSSrjf6qiivQzxXmyjTnuhU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
