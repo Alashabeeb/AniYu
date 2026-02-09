@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'; // ✅ Added useFocusEffect
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import React, { useCallback, useEffect, useRef, useState } from 'react'; // ✅ Added useCallback
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View
 } from 'react-native';
@@ -27,6 +27,8 @@ import {
 
 import {
     downloadEpisodeToFile,
+    getDownloads // ✅ Added import
+    ,
     getLocalEpisodeUri,
     isDownloading,
     registerDownloadListener,
@@ -64,7 +66,6 @@ export default function AnimeDetailScreen() {
   const [userRating, setUserRating] = useState(0);
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  // Interaction State
   const [commentText, setCommentText] = useState('');
   const [userReaction, setUserReaction] = useState<'like' | 'dislike' | null>(null);
   const [likesCount, setLikesCount] = useState(0);
@@ -76,33 +77,26 @@ export default function AnimeDetailScreen() {
   const [currentEpId, setCurrentEpId] = useState<string | null>(null);
   const [currentVideoSource, setCurrentVideoSource] = useState<string | null>(null);
 
-  // Ad State
   const [adLoaded, setAdLoaded] = useState(false);
   const [pendingDownloadEp, setPendingDownloadEp] = useState<any>(null);
 
   const resumeTimeRef = useRef<number | null>(null);
 
-  // 1. Initialize Player (Paused by default)
   const player = useVideoPlayer(currentVideoSource, player => { 
       player.loop = false; 
   });
 
-  // 2. ✅ CRITICAL FIX: Play ONLY when Page Loaded AND Screen Focused
   useFocusEffect(
     useCallback(() => {
-      // If we have a source, loading is done, and player exists -> Play
       if (!loading && currentVideoSource && player) {
           player.play();
       }
-
-      // Cleanup: Pause when screen loses focus (navigating to similar anime, back, or tabs)
       return () => {
           if (player) player.pause();
       };
     }, [loading, currentVideoSource, player])
   );
 
-  // AD LOGIC: Load & Listeners
   useEffect(() => {
     const unsubscribeLoaded = interstitial.addAdEventListener(AdEventType.LOADED, () => {
       setAdLoaded(true);
@@ -111,7 +105,6 @@ export default function AnimeDetailScreen() {
     const unsubscribeClosed = interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       setAdLoaded(false);
       interstitial.load();
-      
       if (pendingDownloadEp) {
           performDownload(pendingDownloadEp);
           setPendingDownloadEp(null);
@@ -131,7 +124,6 @@ export default function AnimeDetailScreen() {
     };
   }, [pendingDownloadEp]);
 
-  // HISTORY CHECK
   useEffect(() => {
       const checkHistory = async () => {
           if (!anime || !currentEpId) return;
@@ -146,7 +138,6 @@ export default function AnimeDetailScreen() {
       checkHistory();
   }, [anime, currentEpId]);
 
-  // FETCH WATCHED STATUS
   useEffect(() => {
       const fetchWatchedStatus = async () => {
           const user = auth.currentUser;
@@ -163,7 +154,6 @@ export default function AnimeDetailScreen() {
       if (anime) fetchWatchedStatus();
   }, [anime]);
 
-  // RESUME PLAYBACK
   useEffect(() => {
       if (player && resumeTimeRef.current !== null) {
           const timer = setTimeout(() => {
@@ -171,12 +161,11 @@ export default function AnimeDetailScreen() {
                   player.currentTime = resumeTimeRef.current;
                   resumeTimeRef.current = null;
               }
-          }, 800); // ✅ Increased timeout slightly to ensure player buffer is ready
+          }, 800); 
           return () => clearTimeout(timer);
       }
   }, [player, currentVideoSource]);
 
-  // SAVE PROGRESS
   useEffect(() => {
       if (!currentEpId || !anime) return;
       const interval = setInterval(() => {
@@ -190,16 +179,12 @@ export default function AnimeDetailScreen() {
       return () => clearInterval(interval);
   }, [player, currentEpId, anime, episodes]);
 
-  // VIDEO SOURCE UPDATE
   useEffect(() => {
     if (currentVideoSource && !loading) {
       player.replace(currentVideoSource);
-      // Note: We don't call player.play() here anymore, 
-      // the useFocusEffect handles the playing logic to prevent conflicts.
     }
   }, [currentVideoSource, loading]);
 
-  // FINISHED HANDLING
   useEffect(() => {
       const subscription = player.addListener('playToEnd', () => handleVideoFinished());
       return () => subscription.remove();
@@ -287,11 +272,9 @@ export default function AnimeDetailScreen() {
       setAnime(detailsData);
       setEpisodes(episodesData);
       
-      const animeData = detailsData as any; 
-      
-      if(animeData) {
-          setLikesCount(animeData.likes || 0);
-          setDislikesCount(animeData.dislikes || 0);
+      if(detailsData) {
+          setLikesCount((detailsData as any).likes || 0);
+          setDislikesCount((detailsData as any).dislikes || 0);
       }
 
       const user = auth.currentUser;
@@ -300,13 +283,13 @@ export default function AnimeDetailScreen() {
           setUserReaction(reaction);
       }
       
-      if (animeData?.genres) {
-          const similar = await getSimilarAnime(animeData.genres, id as string);
+      if ((detailsData as any)?.genres) {
+          const similar = await getSimilarAnime((detailsData as any).genres, id as string);
           setSimilarAnime(similar);
       }
 
-      if (animeData?.views !== undefined) {
-          const calculatedRank = await getAnimeRank(animeData.views);
+      if ((detailsData as any)?.views !== undefined) {
+          const calculatedRank = await getAnimeRank((detailsData as any).views);
           setRank(calculatedRank);
       }
 
@@ -317,6 +300,7 @@ export default function AnimeDetailScreen() {
       }
       setDownloadedEpIds(ids);
 
+      // Listener for active downloads
       episodesData.forEach(ep => {
           const epId = String(ep.mal_id);
           if (isDownloading(epId)) {
@@ -332,9 +316,45 @@ export default function AnimeDetailScreen() {
           }
       });
 
-    } catch (error) { console.error(error); } 
-    finally { setLoading(false); }
+    } catch (error) { 
+        console.log("Details load error, trying offline...", error); 
+        // ✅ OFFLINE FALLBACK: Reconstruct data from downloads
+        try {
+            const allDownloads = await getDownloads();
+            const relevantDownloads = allDownloads.filter(d => String(d.mal_id) === String(id));
+            
+            if (relevantDownloads.length > 0) {
+                // Construct fake anime object
+                const sample = relevantDownloads[0];
+                setAnime({
+                    mal_id: sample.mal_id,
+                    title: sample.animeTitle,
+                    images: { jpg: { image_url: sample.image } },
+                    synopsis: "Offline Mode: Full details unavailable.",
+                    genres: [],
+                    score: 0,
+                    year: 'N/A',
+                    type: 'Offline'
+                });
+
+                // Construct episodes list from downloads
+                const offlineEpisodes = relevantDownloads.map(d => ({
+                    mal_id: d.episodeId,
+                    title: d.title,
+                    number: d.number,
+                    url: d.originalUrl // Not used, we use localUri
+                })).sort((a,b) => a.number - b.number);
+                
+                setEpisodes(offlineEpisodes);
+                setDownloadedEpIds(relevantDownloads.map(d => String(d.episodeId)));
+            }
+        } catch(e) { console.log("Offline fail", e); }
+    } finally { setLoading(false); }
   };
+
+  // ... (Rest of the component: handleReaction, handleEpisodePress, etc. is SAME)
+  // To save space, I assume the rest matches the previous version perfectly.
+  // Below is the critical UI part.
 
   const handleReaction = async (type: 'like' | 'dislike') => {
       const user = auth.currentUser;

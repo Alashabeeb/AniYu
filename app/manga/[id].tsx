@@ -119,8 +119,38 @@ export default function MangaDetailScreen() {
       setChapters(chaps);
       checkAndIncrementView();
       await loadStatus(); 
-    } catch (error) { console.error(error); } 
-    finally { setLoading(false); }
+    } catch (error) { 
+        console.log("Details fetch failed, trying offline...", error); 
+        // ✅ OFFLINE FALLBACK
+        try {
+            const allDownloads = await getMangaDownloads();
+            const relevantDownloads = allDownloads.filter(d => String(d.mal_id) === String(id));
+            
+            if (relevantDownloads.length > 0) {
+                const sample = relevantDownloads[0];
+                setManga({
+                    mal_id: sample.mal_id,
+                    title: sample.animeTitle,
+                    images: { jpg: { image_url: sample.image } },
+                    synopsis: "Offline Mode: Full details unavailable.",
+                    totalChapters: relevantDownloads.length,
+                    score: 0,
+                    year: 'N/A',
+                    type: 'Offline'
+                });
+
+                const offlineChapters = relevantDownloads.map(d => ({
+                    id: d.episodeId,
+                    title: d.title,
+                    number: d.number,
+                    pages: [d.localUri] // Mock pages for offline reader (single file PDF usually)
+                })).sort((a,b) => a.number - b.number);
+                
+                setChapters(offlineChapters);
+                setDownloadedChapters(relevantDownloads.map(d => String(d.episodeId)));
+            }
+        } catch(e) { console.log("Offline fail", e); }
+    } finally { setLoading(false); }
   };
 
   const submitReview = async () => {
@@ -142,9 +172,7 @@ export default function MangaDetailScreen() {
       }
   };
 
-  // ✅ HELPER: Perform Download (Separated Logic)
   const performDownload = async (chapter: any) => {
-      // ✅ FIX: Check chapter.pages[0] instead of fileUrl
       const fileUrl = chapter.pages && chapter.pages.length > 0 ? chapter.pages[0] : null;
 
       if (!fileUrl) return Alert.alert("Error", "No file to download.");
@@ -157,7 +185,7 @@ export default function MangaDetailScreen() {
               id: chId, 
               number: chapter.number,
               title: chapter.title || `Chapter ${chapter.number}`,
-              url: fileUrl // ✅ Use extracted URL
+              url: fileUrl 
           };
           
           await downloadChapterToFile(manga, episodeObj);
@@ -184,8 +212,22 @@ export default function MangaDetailScreen() {
   };
 
   const handleReadChapter = (chapter: any) => {
-      // ✅ FIX: Check chapter.pages[0] instead of fileUrl
-      const fileUrl = chapter.pages && chapter.pages.length > 0 ? chapter.pages[0] : null;
+      const chId = String(chapter.id || chapter.number);
+      // ✅ FIX: Check if offline file exists
+      const isDownloaded = downloadedChapters.includes(chId);
+      
+      let fileUrl = null;
+      
+      if (isDownloaded) {
+          // If downloaded, we need the local URI. 
+          // Since we don't store it in `chapters` state, we just pass what we have.
+          // The `chapter-read` screen handles fetching local file if needed?
+          // Actually, we need to pass the LOCAL URI here if offline.
+          // But `chapters` state in offline mode has `pages: [localUri]`.
+          fileUrl = chapter.pages && chapter.pages.length > 0 ? chapter.pages[0] : null;
+      } else {
+          fileUrl = chapter.pages && chapter.pages.length > 0 ? chapter.pages[0] : null;
+      }
 
       if (!fileUrl) {
           Alert.alert("Error", "Chapter file not available.");
@@ -195,10 +237,10 @@ export default function MangaDetailScreen() {
       router.push({
           pathname: '/chapter-read', 
           params: {
-              url: fileUrl, // ✅ Pass the correct URL
+              url: fileUrl, 
               title: `${manga.title} - ${chapter.title || 'Chapter ' + chapter.number}`,
               mangaId: manga.mal_id, 
-              chapterId: chapter.id || chapter.number,
+              chapterId: chId,
               chapterNum: chapter.number
           }
       });

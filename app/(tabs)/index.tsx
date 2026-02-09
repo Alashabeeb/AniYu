@@ -14,18 +14,23 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// ✅ IMPORT ASYNC STORAGE
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { useTheme } from '../../context/ThemeContext';
 
+import AdBanner from '../../components/AdBanner';
 import HeroCarousel from '../../components/HeroCarousel';
 import TrendingRail from '../../components/TrendingRail';
-// ✅ IMPORT AD COMPONENT
-import AdBanner from '../../components/AdBanner';
 
 import { auth, db } from '../../config/firebaseConfig';
 import { getRecommendedAnime, getTopAnime, getUpcomingAnime, searchAnime } from '../../services/animeService';
 import { getFavorites, toggleFavorite } from '../../services/favoritesService';
 import { getContinueWatching } from '../../services/historyService';
 import { getUnreadLocalCount } from '../../services/notificationService';
+
+// ✅ CACHE KEY
+const HOME_DATA_CACHE_KEY = 'aniyu_home_screen_cache_v1';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -48,7 +53,11 @@ export default function HomeScreen() {
   
   const [hasUnread, setHasUnread] = useState(false);
 
-  useEffect(() => { loadInitialData(); }, []);
+  // ✅ LOAD CACHE ON MOUNT
+  useEffect(() => { 
+      loadFromCache(); // 1. Show saved content immediately
+      loadInitialData(); // 2. Try to fetch fresh content
+  }, []);
 
   useFocusEffect(
     useCallback(() => { 
@@ -88,6 +97,24 @@ export default function HomeScreen() {
       setContinueWatching(history);
   };
 
+  // ✅ NEW: Load data from local storage (Offline Support)
+  const loadFromCache = async () => {
+      try {
+          const cachedData = await AsyncStorage.getItem(HOME_DATA_CACHE_KEY);
+          if (cachedData) {
+              const { trending, upcoming, recommended } = JSON.parse(cachedData);
+              if (trending) setTrending(trending);
+              if (upcoming) setUpcoming(upcoming);
+              if (recommended) setRecommended(recommended);
+              
+              // Only stop loading if we actually found data
+              if (trending && trending.length > 0) setLoading(false); 
+          }
+      } catch (e) {
+          console.log("Failed to load cache", e);
+      }
+  };
+
   const getTopGenres = async () => {
       const history = await getContinueWatching();
       if (history.length === 0) return [];
@@ -111,23 +138,34 @@ export default function HomeScreen() {
 
   const loadInitialData = async () => {
     try {
-      setLoading(true);
+      // If no cache was loaded yet, ensure spinner is showing
+      if (trending.length === 0) setLoading(true); 
       
       await loadHistory();
 
-      const trendingData = await getTopAnime();
-      setTrending(trendingData);
+      // Parallel Fetch for speed
+      const [trendingData, upcomingData, userGenres] = await Promise.all([
+          getTopAnime(),
+          getUpcomingAnime(),
+          getTopGenres()
+      ]);
 
-      const upcomingData = await getUpcomingAnime();
-      setUpcoming(upcomingData);
-
-      const userGenres = await getTopGenres();
       const recommendedData = await getRecommendedAnime(userGenres);
+
+      setTrending(trendingData);
+      setUpcoming(upcomingData);
       setRecommended(recommendedData);
+
+      // ✅ SAVE TO CACHE (Persistence)
+      await AsyncStorage.setItem(HOME_DATA_CACHE_KEY, JSON.stringify({
+          trending: trendingData,
+          upcoming: upcomingData,
+          recommended: recommendedData
+      }));
 
       await loadFavorites(); 
     } catch (error) {
-      console.error(error);
+      console.error("Network error, sticking to cache:", error);
     } finally {
       setLoading(false);
     }
@@ -271,7 +309,6 @@ export default function HomeScreen() {
               onMore={() => router.push('/anime-list?type=trending')} 
           />
 
-          {/* ✅ AD 1: Between Trending and Upcoming */}
           <AdBanner />
           
           <TrendingRail 
@@ -282,7 +319,6 @@ export default function HomeScreen() {
               onMore={() => router.push('/anime-list?type=upcoming')}
               />
 
-          {/* ✅ AD 2: Between Upcoming and Recommended */}
           <AdBanner />
 
           <TrendingRail 
@@ -293,7 +329,6 @@ export default function HomeScreen() {
               onMore={() => router.push('/anime-list?type=recommended')} 
           />
 
-          {/* ✅ AD 3: Between Recommended and Favorite */}
           <AdBanner />
           
           {favorites.length > 0 && (

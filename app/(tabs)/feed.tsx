@@ -28,6 +28,9 @@ import {
     ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// ✅ IMPORT ASYNC STORAGE
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import AdBanner from '../../components/AdBanner';
 import PostCard from '../../components/PostCard';
 import { auth, db } from '../../config/firebaseConfig';
@@ -35,7 +38,8 @@ import { useTheme } from '../../context/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// ✅ GLOBAL CACHE
+// ✅ CACHE KEYS
+const FEED_CACHE_KEY = 'aniyu_feed_cache_v1';
 const viewedFeedSession = new Set<string>();
 
 export default function FeedScreen() {
@@ -53,13 +57,24 @@ export default function FeedScreen() {
   const [searchingUsers, setSearchingUsers] = useState(false);
 
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
+  const [viewableItemIds, setViewableItemIds] = useState<string[]>([]);
 
   const [activeTab, setActiveTab] = useState('All'); 
   const flatListRef = useRef<FlatList>(null); 
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
 
-  // ✅ FIX: Clean up session cache when screen unmounts
+  // ✅ LOAD CACHED FEED ON MOUNT
   useEffect(() => {
+      const loadCache = async () => {
+          try {
+              const cachedPosts = await AsyncStorage.getItem(FEED_CACHE_KEY);
+              if (cachedPosts) {
+                  setPosts(JSON.parse(cachedPosts));
+              }
+          } catch(e) { console.log("Feed cache error", e); }
+      };
+      loadCache();
+
       return () => {
           viewedFeedSession.clear();
       };
@@ -89,21 +104,24 @@ export default function FeedScreen() {
   }, []);
 
   useEffect(() => {
-    // ✅ FIX: Added limit(50) to prevent loading ALL posts (Crash prevention)
     const q = query(
         collection(db, 'posts'), 
         where('parentId', '==', null), 
         orderBy('createdAt', 'desc'),
         limit(50) 
     );
+    
+    // ✅ SAVE TO CACHE ON UPDATE
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPosts(postsData);
+      
+      // Save data for next offline launch
+      AsyncStorage.setItem(FEED_CACHE_KEY, JSON.stringify(postsData)).catch(err => console.log("Cache save failed", err));
     });
     return unsubscribe; 
   }, []);
 
-  // ✅ FIX: Search Race Condition Handler
   useEffect(() => {
       let isActive = true;
 
@@ -204,6 +222,9 @@ export default function FeedScreen() {
   }).current;
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const visibleIds = viewableItems.map(v => v.item.id);
+      setViewableItemIds(visibleIds);
+
       viewableItems.forEach((viewToken) => {
           if (viewToken.isViewable && viewToken.item?.id) {
               const postId = viewToken.item.id;
@@ -240,17 +261,19 @@ export default function FeedScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        ListHeaderComponent={() => (
-            <View>
-                <AdBanner />
-            </View>
-        )}
+        ListHeaderComponent={() => <View><AdBanner /></View>}
         ListEmptyComponent={
             <View style={{ padding: 40, alignItems: 'center', width: SCREEN_WIDTH }}>
                 <Text style={{ color: theme.subText }}>{emptyMessage}</Text>
             </View>
         }
-        renderItem={({ item }) => <PostCard post={item} />}
+        renderItem={({ item }) => (
+            <PostCard 
+                post={item} 
+                isVisible={viewableItemIds.includes(item.id)} 
+            />
+        )}
+        extraData={viewableItemIds} 
     />
   );
 
@@ -308,8 +331,6 @@ export default function FeedScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      
-      {/* HEADER */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         {!showSearch ? (
             <>
@@ -344,7 +365,6 @@ export default function FeedScreen() {
                 />
             </View>
         )}
-        
         {showSearch && (
             <TouchableOpacity onPress={() => { setShowSearch(false); setSearchText(''); }}>
                 <Ionicons name="close" size={24} color={theme.text} />
@@ -394,7 +414,6 @@ export default function FeedScreen() {
             <Ionicons name="add" size={30} color="white" />
          </TouchableOpacity>
       )}
-
     </SafeAreaView>
   );
 }

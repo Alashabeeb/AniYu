@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -19,6 +20,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 import MangaGrid from '../../components/MangaGrid';
 import TrendingRail from '../../components/TrendingRail';
 import { useTheme } from '../../context/ThemeContext';
@@ -27,10 +29,11 @@ import { DownloadItem, getMangaDownloads, removeMangaDownload } from '../../serv
 import { getMangaFavorites, toggleMangaFavorite } from '../../services/favoritesService';
 import { getAllManga, getTopManga, searchManga } from '../../services/mangaService';
 
-// Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+const MANGA_SCREEN_CACHE_KEY = 'aniyu_manga_screen_cache_v1';
 
 interface GroupedManga {
   mal_id: string | number;
@@ -61,6 +64,22 @@ export default function ComicScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  useEffect(() => {
+      const loadCache = async () => {
+          try {
+              const cachedData = await AsyncStorage.getItem(MANGA_SCREEN_CACHE_KEY);
+              if (cachedData) {
+                  const { top, all, favs } = JSON.parse(cachedData);
+                  if (top) setTopManga(top);
+                  if (all) setAllManga(all);
+                  if (favs) setLibrary(favs);
+                  if (top && top.length > 0) setLoading(false);
+              }
+          } catch (e) { console.log("Manga cache load failed", e); }
+      };
+      loadCache();
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
         loadData();
@@ -68,39 +87,51 @@ export default function ComicScreen() {
   );
 
   const loadData = async () => {
+    // ✅ 1. LOAD LOCAL DOWNLOADS (Always works offline)
+    try {
+        const down = await getMangaDownloads(); 
+        const groups: Record<string, GroupedManga> = {};
+        down.forEach((item) => {
+            const id = item.mal_id;
+            if (!groups[id]) {
+                groups[id] = {
+                    mal_id: id,
+                    title: item.animeTitle || item.title,
+                    image: item.image || '',
+                    chapters: []
+                };
+            }
+            groups[id].chapters.push(item);
+        });
+        Object.values(groups).forEach(g => {
+            g.chapters.sort((a, b) => a.number - b.number);
+        });
+        setGroupedDownloads(Object.values(groups));
+    } catch (e) { console.log("Error loading downloads", e); }
+
+    // ✅ 2. LOAD NETWORK CONTENT (Might fail offline)
     if (topManga.length === 0) setLoading(true);
     
-    const top = await getTopManga();
-    const all = await getAllManga();
-    const favs = await getMangaFavorites();
-    const down = await getMangaDownloads(); 
+    try {
+        const top = await getTopManga();
+        const all = await getAllManga();
+        const favs = await getMangaFavorites();
 
-    // ✅ GROUPING LOGIC FOR DOWNLOADS
-    const groups: Record<string, GroupedManga> = {};
-    down.forEach((item) => {
-        const id = item.mal_id;
-        if (!groups[id]) {
-            groups[id] = {
-                mal_id: id,
-                title: item.animeTitle || item.title,
-                image: item.image || '',
-                chapters: []
-            };
-        }
-        groups[id].chapters.push(item);
-    });
-    
-    // Sort chapters by number
-    Object.values(groups).forEach(g => {
-        g.chapters.sort((a, b) => a.number - b.number);
-    });
-
-    setGroupedDownloads(Object.values(groups));
-    
-    setTopManga(top);
-    setAllManga(all);
-    setLibrary(favs);
-    setLoading(false);
+        // Save to cache
+        AsyncStorage.setItem(MANGA_SCREEN_CACHE_KEY, JSON.stringify({
+            top: top,
+            all: all,
+            favs: favs
+        })).catch(e => console.log("Cache save failed", e));
+        
+        setTopManga(top);
+        setAllManga(all);
+        setLibrary(favs);
+    } catch (error) {
+        console.error("Network error, staying with cache:", error);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const onRefresh = async () => {
@@ -113,9 +144,13 @@ export default function ComicScreen() {
       await toggleMangaFavorite(manga);
       const favs = await getMangaFavorites();
       setLibrary(favs);
+      AsyncStorage.setItem(MANGA_SCREEN_CACHE_KEY, JSON.stringify({
+          top: topManga,
+          all: allManga,
+          favs: favs
+      }));
   };
 
-  // ✅ DELETE HANDLER
   const handleDelete = (chapter: DownloadItem) => {
       Alert.alert(
           "Delete Chapter",
@@ -127,7 +162,7 @@ export default function ComicScreen() {
                   style: "destructive", 
                   onPress: async () => {
                       await removeMangaDownload(chapter.episodeId);
-                      await loadData(); // Refresh list
+                      await loadData(); 
                   }
               }
           ]
@@ -153,10 +188,8 @@ export default function ComicScreen() {
       setExpandedId(expandedId === id ? null : id);
   };
 
-  // Helper to check if item is favorite
   const isFavorite = (id: any) => library.some((fav: any) => String(fav.mal_id) === String(id));
 
-  // ✅ RENDER GRID ITEM (With Heart Icon)
   const renderGridItem = ({ item }: { item: any }) => {
       const isFav = isFavorite(item.mal_id);
       return (
@@ -175,7 +208,6 @@ export default function ComicScreen() {
                         <Text style={styles.statusText}>{item.status}</Text>
                     </View>
                 )}
-                {/* ✅ Favorite Button Overlay */}
                 <TouchableOpacity 
                     style={styles.favBtn} 
                     onPress={() => handleToggleFav(item)}
@@ -190,7 +222,6 @@ export default function ComicScreen() {
       );
   };
 
-  // ✅ RENDER LIBRARY (Favorites + Downloads)
   const renderLibrary = () => (
       <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', margin: 15, marginBottom: 5 }}>
@@ -226,7 +257,6 @@ export default function ComicScreen() {
                     const isExpanded = expandedId === item.mal_id;
                     return (
                         <View style={[styles.groupContainer, { backgroundColor: theme.card }]}>
-                            {/* Manga Header */}
                             <TouchableOpacity 
                                 style={styles.groupHeader} 
                                 onPress={() => toggleExpand(item.mal_id)}
@@ -243,7 +273,6 @@ export default function ComicScreen() {
                                 />
                             </TouchableOpacity>
 
-                            {/* Chapters List (Visible only if expanded) */}
                             {isExpanded && (
                                 <View style={{ borderTopWidth: 1, borderTopColor: theme.border }}>
                                     {item.chapters.map((chapter) => (
@@ -256,7 +285,7 @@ export default function ComicScreen() {
                                                         params: {
                                                             url: chapter.localUri, 
                                                             title: `${item.title} - ${chapter.title}`,
-                                                            mangaId: item.mal_id,  // Pass ID for resume
+                                                            mangaId: item.mal_id,
                                                             chapterId: chapter.episodeId,
                                                             chapterNum: chapter.number
                                                         }
@@ -269,7 +298,6 @@ export default function ComicScreen() {
                                                 </Text>
                                             </TouchableOpacity>
 
-                                            {/* ✅ DELETE BUTTON */}
                                             <TouchableOpacity 
                                                 onPress={() => handleDelete(chapter)}
                                                 style={{ padding: 8 }}
@@ -290,13 +318,11 @@ export default function ComicScreen() {
       </View>
   );
 
-  // ✅ RENDER DISCOVER (Top + All Manga)
   const renderDiscover = () => (
       <ScrollView 
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />}
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-          {/* Search Bar */}
           <View style={[styles.searchBar, { backgroundColor: theme.card }]}>
               <Ionicons name="search" size={20} color={theme.subText} style={{ marginRight: 10 }} />
               <TextInput 
@@ -345,7 +371,6 @@ export default function ComicScreen() {
                       <Text style={[styles.sectionTitle, { color: theme.text }]}>All Manga</Text>
                       {allManga.length > 0 ? (
                           <View style={styles.gridContainer}>
-                              {/* Using map to ensure styling consistency */}
                               {allManga.map((item: any) => (
                                   <View key={item.mal_id} style={styles.gridItemWrapper}>
                                       {renderGridItem({ item })}
@@ -421,7 +446,6 @@ const styles = StyleSheet.create({
   statusBadge: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, zIndex: 10 },
   statusText: { color: 'white', fontSize: 8, fontWeight: 'bold', textTransform: 'uppercase' },
   
-  // ✅ New Styles for Fav Icon and Groups
   favBtn: { position: 'absolute', top: 5, left: 5, backgroundColor: 'rgba(0,0,0,0.6)', padding: 4, borderRadius: 20, zIndex: 10 },
   groupContainer: { borderRadius: 12, marginBottom: 15, overflow: 'hidden' },
   groupHeader: { flexDirection: 'row', alignItems: 'center', padding: 10 },
