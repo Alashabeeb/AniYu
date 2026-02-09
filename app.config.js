@@ -11,7 +11,7 @@ export default {
     
     // ✅ ADDED: OTA Updates Configuration
     updates: {
-      url: "https://u.expo.dev/e54c07a1-62a1-4074-a2ad-1e7400d97cf5" // Matches your EAS Project ID
+      url: "https://u.expo.dev/f438370b-8c69-4d6e-bb2e-a8c67823cd0d" // Matches your EAS Project ID
     },
     // ✅ ADDED: Ensures updates only run if native code is compatible
     runtimeVersion: {

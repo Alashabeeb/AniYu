@@ -31,7 +31,7 @@ import { sendSocialNotification } from '../services/notificationService';
 
 interface PostCardProps {
   post: any;
-  isVisible?: boolean;
+  isVisible?: boolean; 
 }
 
 const REPORT_REASONS = ["Offensive content", "Abusive behavior", "Spam", "Other"];
@@ -52,12 +52,25 @@ export default function PostCard({ post, isVisible = true }: PostCardProps) {
   const isPinned = post.pinned === true;
 
   const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
-  const player = useVideoPlayer(videoSource, player => { if (videoSource) player.loop = true; });
+  
+  const player = useVideoPlayer(videoSource, player => { 
+      if (videoSource) {
+          player.loop = true;
+          player.play(); 
+      }
+  });
 
-  // ✅ CRITICAL FIX: Only pause if there is actually a video source
   useEffect(() => {
-      if ((!isFocused || !isVisible) && player && videoSource) {
-          player.pause();
+      if (!player || !videoSource) return;
+
+      if (!isFocused || !isVisible) {
+          try {
+              player.pause();
+          } catch (e) {}
+      } else {
+          try {
+              player.play();
+          } catch (e) {}
       }
   }, [isFocused, isVisible, player, videoSource]);
 
@@ -71,7 +84,7 @@ export default function PostCard({ post, isVisible = true }: PostCardProps) {
   }
 
   const handleGoToDetails = () => {
-    if (player && videoSource) player.pause(); // ✅ Added check here too
+    try { if (player && videoSource) player.pause(); } catch(e){}
     router.push({ pathname: '/post-details', params: { postId: post.id } });
   };
 
@@ -180,7 +193,16 @@ export default function PostCard({ post, isVisible = true }: PostCardProps) {
           {post.text ? <Text style={[styles.text, { color: theme.text }]}>{post.text}</Text> : null}
 
           {post.mediaUrl && post.mediaType === 'image' && <Image source={{ uri: post.mediaUrl }} style={styles.media} contentFit="cover" />}
-          {post.mediaUrl && post.mediaType === 'video' && <VideoView player={player} style={styles.media} contentFit="cover" allowsFullscreen allowsPictureInPicture />}
+          {post.mediaUrl && post.mediaType === 'video' && (
+              <VideoView 
+                  player={player} 
+                  style={styles.media} 
+                  contentFit="cover" 
+                  allowsFullscreen={false}
+                  allowsPictureInPicture={false}
+                  nativeControls={false} // ✅ Correct Prop
+              />
+          )}
 
           <View style={styles.actions}>
             <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation(); handleLike(); }}>

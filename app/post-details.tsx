@@ -69,14 +69,19 @@ export default function PostDetailsScreen() {
   // Initialize Video Player
   const videoSource = post?.mediaType === 'video' && post?.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => {
-      if (videoSource) player.loop = true;
+      if (videoSource) {
+          player.loop = true;
+          player.play();
+      }
   });
 
-  // ✅ CRITICAL FIX: Only pause if there is a video source
+  // ✅ Safe Pause on Leave
   useFocusEffect(
     useCallback(() => {
       return () => {
-        if (player && videoSource) player.pause();
+        try {
+            if (player && videoSource) player.pause();
+        } catch(e) {}
       };
     }, [player, videoSource])
   );
@@ -145,8 +150,7 @@ export default function PostDetailsScreen() {
   };
 
   const goToDetails = (id: string) => {
-      // ✅ Added check here too
-      if (player && videoSource) player.pause();
+      try { if (player && videoSource) player.pause(); } catch(e){}
       router.push({ pathname: '/post-details', params: { postId: id } });
   };
 
@@ -343,7 +347,7 @@ export default function PostDetailsScreen() {
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} // Accounts for Header
       >
           <FlatList
             data={comments}
@@ -367,8 +371,9 @@ export default function PostDetailsScreen() {
                         player={player} 
                         style={styles.postVideo} 
                         contentFit="cover"
-                        allowsFullscreen
-                        allowsPictureInPicture
+                        allowsFullscreen={false}
+                        allowsPictureInPicture={false}
+                        nativeControls={false} // ✅ Correct Prop
                       />
                   )}
                   {post.mediaUrl && post.mediaType === 'image' && (
