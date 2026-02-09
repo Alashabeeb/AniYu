@@ -31,7 +31,7 @@ import { sendSocialNotification } from '../services/notificationService';
 
 interface PostCardProps {
   post: any;
-  isVisible?: boolean; // ✅ NEW PROP
+  isVisible?: boolean;
 }
 
 const REPORT_REASONS = ["Offensive content", "Abusive behavior", "Spam", "Other"];
@@ -54,13 +54,12 @@ export default function PostCard({ post, isVisible = true }: PostCardProps) {
   const videoSource = post.mediaType === 'video' && post.mediaUrl ? post.mediaUrl : null;
   const player = useVideoPlayer(videoSource, player => { if (videoSource) player.loop = true; });
 
-  // ✅ AUTO-PAUSE LOGIC: Pause video when screen loses focus OR scrolled away
+  // ✅ CRITICAL FIX: Only pause if there is actually a video source
   useEffect(() => {
-      // If screen is NOT focused OR Item is NOT visible -> PAUSE
-      if ((!isFocused || !isVisible) && player) {
+      if ((!isFocused || !isVisible) && player && videoSource) {
           player.pause();
       }
-  }, [isFocused, isVisible, player]);
+  }, [isFocused, isVisible, player, videoSource]);
 
   let timeAgo = "now";
   if (post.createdAt?.seconds) {
@@ -72,7 +71,7 @@ export default function PostCard({ post, isVisible = true }: PostCardProps) {
   }
 
   const handleGoToDetails = () => {
-    if (player) player.pause();
+    if (player && videoSource) player.pause(); // ✅ Added check here too
     router.push({ pathname: '/post-details', params: { postId: post.id } });
   };
 
